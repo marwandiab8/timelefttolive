@@ -1,18 +1,69 @@
-rules_version='2'
+rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      // This rule allows anyone with your database reference to view, edit,
-      // and delete all data in your database. It is useful for getting
-      // started, but it is configured to expire after 30 days because it
-      // leaves your app open to attackers. At that time, all client
-      // requests to your database will be denied.
-      //
-      // Make sure to write security rules for your app before that time, or
-      // else all client requests to your database will be denied until you
-      // update your rules.
-      allow read, write: if request.time < timestamp.date(2026, 6, 26);
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function calendar(calendarId) {
+      return get(/databases/$(database)/documents/lifeCalendars/$(calendarId));
+    }
+
+    function isOwner(calendarId) {
+      return signedIn() && calendar(calendarId).data.ownerUid == request.auth.uid;
+    }
+
+    function viewerDoc(calendarId) {
+      return get(/databases/$(database)/documents/lifeCalendars/$(calendarId)/viewers/$(request.auth.token.email));
+    }
+
+    function isAcceptedViewer(calendarId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/lifeCalendars/$(calendarId)/viewers/$(request.auth.token.email))
+        && viewerDoc(calendarId).data.status == "accepted"
+        && viewerDoc(calendarId).data.role == "viewer";
+    }
+
+    function isViewerVisible() {
+      return resource.data.visibility == "viewers";
+    }
+
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /lifeCalendars/{calendarId} {
+      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow read: if isOwner(calendarId) || isAcceptedViewer(calendarId);
+      allow update, delete: if isOwner(calendarId);
+
+      match /viewers/{viewerId} {
+        allow read: if isOwner(calendarId)
+          || (signedIn() && resource.data.email == request.auth.token.email)
+          || (signedIn() && resource.data.uid == request.auth.uid);
+        allow create, update, delete: if isOwner(calendarId);
+        allow update: if signedIn()
+          && resource.data.email == request.auth.token.email
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.status == "accepted"
+          && request.resource.data.role == "viewer";
+      }
+
+      match /events/{eventId} {
+        allow read: if isOwner(calendarId) || (isAcceptedViewer(calendarId) && isViewerVisible());
+        allow write: if isOwner(calendarId);
+      }
+
+      match /dailyEntries/{dateId} {
+        allow read: if isOwner(calendarId) || (isAcceptedViewer(calendarId) && isViewerVisible());
+        allow write: if isOwner(calendarId);
+
+        match /attachments/{attachmentId} {
+          allow read: if isOwner(calendarId) || (isAcceptedViewer(calendarId) && isViewerVisible());
+          allow write: if isOwner(calendarId);
+        }
+      }
     }
   }
 }
