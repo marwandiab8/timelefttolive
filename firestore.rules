@@ -14,6 +14,10 @@ service cloud.firestore {
       return signedIn() && calendar(calendarId).data.ownerUid == request.auth.uid;
     }
 
+    function isCalendarOwner() {
+      return signedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
     function viewerDoc(calendarId) {
       return get(/databases/$(database)/documents/lifeCalendars/$(calendarId)/viewers/$(request.auth.token.email));
     }
@@ -35,8 +39,8 @@ service cloud.firestore {
 
     match /lifeCalendars/{calendarId} {
       allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
-      allow read: if isOwner(calendarId) || isAcceptedViewer(calendarId);
-      allow update, delete: if isOwner(calendarId);
+      allow read: if isCalendarOwner() || isAcceptedViewer(calendarId);
+      allow update, delete: if isCalendarOwner();
 
       match /viewers/{viewerId} {
         allow read: if isOwner(calendarId)
