@@ -115,6 +115,12 @@ button {
   align-items: center;
 }
 
+.inline-row > input,
+.inline-row > select {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
 .primary,
 .secondary,
 .ghost,
@@ -499,5 +505,18 @@ legend {
 
   .year-row {
     grid-template-columns: 58px 1fr;
+  }
+
+  .side-panel {
+    padding: 16px;
+    border-left: 0;
+  }
+
+  .inline-row {
+    align-items: stretch;
+  }
+
+  .inline-row > button {
+    flex: 1 1 140px;
   }
 }

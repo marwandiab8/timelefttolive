@@ -8,18 +8,25 @@ import {
 
 const LifeHeatmap = forwardRef(function LifeHeatmap({ calendar, events, onSelectWeek }, ref) {
   const rows = useMemo(() => getLifeYearsWeeks(calendar.birthDate, calendar.targetAge), [calendar.birthDate, calendar.targetAge]);
+  const rowsWithEvents = useMemo(() => rows.map((row) => ({
+    ...row,
+    weeks: row.weeks.map((week) => ({
+      ...week,
+      weekEvents: events.filter((event) => eventIntersectsWeek(event, week))
+    }))
+  })), [rows, events]);
   const cellRefs = useRef(new Map());
   const settings = calendar.settings || {};
 
   useImperativeHandle(ref, () => ({
     scrollToCurrentWeek() {
-      const current = rows.flatMap((row) => row.weeks).find((week) => isCurrentWeek(week));
+      const current = rowsWithEvents.flatMap((row) => row.weeks).find((week) => isCurrentWeek(week));
       const element = current && cellRefs.current.get(current.dateId);
       element?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
       element?.classList.add('pulse');
       setTimeout(() => element?.classList.remove('pulse'), 1400);
     }
-  }), [rows]);
+  }), [rowsWithEvents]);
 
   function getWeekState(week) {
     const today = new Date();
@@ -44,13 +51,13 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({ calendar, events, onSelect
       </div>
       <div className="heatmap-scroll">
         <div className="heatmap">
-          {rows.map((row) => (
+          {rowsWithEvents.map((row) => (
             <div className="year-row" key={row.age}>
               <div className="year-label">{row.label}</div>
               <div className="week-row">
                 {row.weeks.map((week) => {
                   const state = getWeekState(week);
-                  const weekEvents = events.filter((event) => eventIntersectsWeek(event, week));
+                  const weekEvents = week.weekEvents;
                   const baseColor = state === 'past' ? settings.pastColor : settings.futureColor;
                   const title = `${formatDateId(week.start)} to ${formatDateId(week.end)} · Age ${row.age} · ${weekEvents.length} events`;
                   return (

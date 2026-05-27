@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  daysBetween,
   eventIntersectsWeek,
   formatDateId,
   getDaysInWeek,
+  getDaysInRange,
   getLifeStats,
   getLifeYearsWeeks,
   parseDateId
@@ -17,7 +19,13 @@ describe('dateUtils', () => {
     const rows = getLifeYearsWeeks('2000-01-01', 3);
     expect(rows).toHaveLength(3);
     expect(rows[0].weeks).toHaveLength(52);
+    expect(formatDateId(rows[0].weeks[51].end)).toBe('2000-12-31');
     expect(rows[2].label).toBe('Age 2');
+  });
+
+  it('counts calendar days across daylight saving boundaries', () => {
+    expect(daysBetween('2026-03-07', '2026-03-10')).toBe(3);
+    expect(daysBetween('2026-10-31', '2026-11-03')).toBe(3);
   });
 
   it('detects events intersecting a week', () => {
@@ -27,6 +35,10 @@ describe('dateUtils', () => {
 
   it('returns seven individual days for a weekly cell', () => {
     expect(getDaysInWeek(parseDateId('2028-07-21')).map(formatDateId)).toHaveLength(7);
+  });
+
+  it('returns every date in an extended final year cell', () => {
+    expect(getDaysInRange(parseDateId('2028-12-24'), parseDateId('2028-12-31')).map(formatDateId)).toHaveLength(8);
   });
 
   it('calculates remaining life stats', () => {

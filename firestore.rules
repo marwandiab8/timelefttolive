@@ -40,14 +40,18 @@ service cloud.firestore {
 
       match /viewers/{viewerId} {
         allow read: if isOwner(calendarId)
-          || (signedIn() && resource.data.email == request.auth.token.email)
+          || (signedIn() && viewerId == request.auth.token.email && resource.data.email == request.auth.token.email)
           || (signedIn() && resource.data.uid == request.auth.uid);
         allow create, update, delete: if isOwner(calendarId);
         allow update: if signedIn()
+          && viewerId == request.auth.token.email
+          && resource.data.status == "pending"
           && resource.data.email == request.auth.token.email
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["uid", "status", "acceptedAt"])
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.status == "accepted"
-          && request.resource.data.role == "viewer";
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.email == resource.data.email;
       }
 
       match /events/{eventId} {

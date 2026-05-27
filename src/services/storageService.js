@@ -18,19 +18,29 @@ export async function uploadDailyAttachment(calendarId, dateId, file, metadata) 
   const safeName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '-')}`;
   const storagePath = `lifeCalendars/${calendarId}/dailyEntries/${dateId}/${safeName}`;
   const fileRef = ref(storage, storagePath);
-  await uploadBytes(fileRef, file, { contentType: file.type });
-  const url = await getDownloadURL(fileRef);
+  await uploadBytes(fileRef, file, {
+    contentType: file.type,
+    customMetadata: {
+      visibility: metadata.visibility || 'viewers',
+      dateId,
+      calendarId
+    }
+  });
   const type = file.type.startsWith('image/') ? 'image' : 'file';
   return addDoc(collection(db, 'lifeCalendars', calendarId, 'dailyEntries', dateId, 'attachments'), {
     type,
     title: metadata.title || file.name,
     description: metadata.description || '',
-    url,
+    url: '',
     storagePath,
     visibility: metadata.visibility || 'viewers',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
+}
+
+export function getAttachmentDownloadUrl(storagePath) {
+  return getDownloadURL(ref(storage, storagePath));
 }
 
 export function addLinkAttachment(calendarId, dateId, payload) {

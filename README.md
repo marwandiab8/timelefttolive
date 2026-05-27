@@ -29,7 +29,7 @@ A private life-calendar and mortality-awareness dashboard. Users sign in, create
    ```
 7. Select or confirm the project:
    ```bash
-   firebase use timelefttolive
+   firebase use YOUR_FIREBASE_PROJECT_ID
    ```
 
 ## Environment Variables
@@ -72,7 +72,7 @@ npm run build
 ```bash
 npm ci
 npm run build
-firebase deploy --only hosting,firestore,storage --project timelefttolive
+firebase deploy --only hosting,firestore,storage --project YOUR_FIREBASE_PROJECT_ID
 ```
 
 The Hosting config serves the Vite `dist` folder and rewrites all routes to `index.html`.

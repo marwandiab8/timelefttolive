@@ -17,16 +17,23 @@ service firebase.storage {
     function isAcceptedViewer(calendarId) {
       return signedIn()
         && firestore.exists(/databases/(default)/documents/lifeCalendars/$(calendarId)/viewers/$(request.auth.token.email))
-        && firestore.get(/databases/(default)/documents/lifeCalendars/$(calendarId)/viewers/$(request.auth.token.email)).data.status == "accepted";
+        && firestore.get(/databases/(default)/documents/lifeCalendars/$(calendarId)/viewers/$(request.auth.token.email)).data.status == "accepted"
+        && firestore.get(/databases/(default)/documents/lifeCalendars/$(calendarId)/viewers/$(request.auth.token.email)).data.role == "viewer";
+    }
+
+    function isViewerVisibleFile() {
+      return resource.metadata.visibility == "viewers";
     }
 
     match /lifeCalendars/{calendarId}/dailyEntries/{dateId}/{fileName} {
-      allow read: if isOwner(calendarId) || isAcceptedViewer(calendarId);
-      allow write, delete: if isOwner(calendarId)
+      allow read: if isOwner(calendarId) || (isAcceptedViewer(calendarId) && isViewerVisibleFile());
+      allow create, update: if isOwner(calendarId)
         && request.resource.size < 10 * 1024 * 1024
+        && request.resource.metadata.visibility in ["ownerOnly", "viewers"]
         && (request.resource.contentType.matches('image/.*')
           || request.resource.contentType == 'application/pdf'
           || request.resource.contentType == 'text/plain');
+      allow delete: if isOwner(calendarId);
     }
 
     match /{allPaths=**} {

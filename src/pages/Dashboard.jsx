@@ -12,14 +12,17 @@ import { getLifeStats } from '../utils/dateUtils.js';
 export default function Dashboard() {
   const { user } = useAuth();
   const owned = useOwnedCalendar(user.uid);
-  const invites = useViewerInvites(user);
+  const inviteState = useViewerInvites(user);
+  const invites = inviteState.invites;
   const acceptedInvite = invites.find((invite) => invite.status === 'accepted');
-  const sharedCalendar = useSharedCalendar(acceptedInvite?.calendarId, !owned.calendar && Boolean(acceptedInvite));
-  const calendar = owned.calendar || sharedCalendar;
-  const loading = owned.loading || (!owned.calendar && acceptedInvite && !sharedCalendar);
+  const shared = useSharedCalendar(acceptedInvite?.calendarId, !owned.calendar && Boolean(acceptedInvite));
+  const calendar = owned.calendar || shared.calendar;
+  const loading = owned.loading || Boolean(!owned.calendar && acceptedInvite && !shared.calendar);
   const role = owned.calendar ? owned.role : 'viewer';
-  const events = useEvents(calendar?.id, role);
-  const viewers = useViewers(calendar?.id);
+  const eventState = useEvents(calendar?.id, role);
+  const viewerState = useViewers(role === 'owner' ? calendar?.id : null);
+  const events = eventState.events;
+  const viewers = viewerState.viewers;
   const [editingProfile, setEditingProfile] = useState(false);
   const [showEvents, setShowEvents] = useState(false);
   const [showViewers, setShowViewers] = useState(false);
@@ -28,6 +31,8 @@ export default function Dashboard() {
   const stats = useMemo(() => calendar ? getLifeStats(calendar.birthDate, calendar.targetAge) : null, [calendar]);
 
   if (loading) return <div className="app-shell centered">Loading calendar...</div>;
+
+  const dataError = owned.error || inviteState.error || shared.error || eventState.error || viewerState.error;
 
   if (!calendar || editingProfile) {
     const pendingInvite = invites.find((invite) => invite.status === 'pending');
@@ -48,6 +53,7 @@ export default function Dashboard() {
           </section>
         )}
         <ProfileForm user={user} calendar={calendar} onSaved={() => setEditingProfile(false)} />
+        {dataError && <p className="error">{dataError}</p>}
       </main>
     );
   }
@@ -79,6 +85,7 @@ export default function Dashboard() {
         <Summary label="Days remaining" value={stats.daysRemaining.toLocaleString()} />
         <Summary label="Life remaining" value={`${stats.percentageRemaining.toFixed(1)}%`} />
       </section>
+      {dataError && <p className="error">{dataError}</p>}
 
       <LifeHeatmap ref={heatmapRef} calendar={calendar} events={events} onSelectWeek={setSelectedWeek} />
 

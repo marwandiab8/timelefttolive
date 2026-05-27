@@ -1,5 +1,4 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
-const WEEK_MS = 7 * DAY_MS;
 
 export function toLocalDate(value) {
   if (value instanceof Date) {
@@ -36,6 +35,11 @@ export function addYears(date, years) {
   return local;
 }
 
+function utcDayNumber(date) {
+  const local = toLocalDate(date);
+  return Math.floor(Date.UTC(local.getFullYear(), local.getMonth(), local.getDate()) / DAY_MS);
+}
+
 export function getWeekStart(date) {
   const local = toLocalDate(date);
   const day = local.getDay();
@@ -50,8 +54,13 @@ export function getDaysInWeek(weekStart) {
   return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
 }
 
+export function getDaysInRange(start, end) {
+  const total = Math.max(1, daysBetween(start, end) + 1);
+  return Array.from({ length: total }, (_, index) => addDays(start, index));
+}
+
 export function daysBetween(start, end) {
-  return Math.floor((toLocalDate(end) - toLocalDate(start)) / DAY_MS);
+  return utcDayNumber(end) - utcDayNumber(start);
 }
 
 export function getWeeksBetween(birthDate, targetEndDate) {
@@ -74,13 +83,17 @@ export function getLifeYearsWeeks(birthDate, targetAge) {
 
   for (let age = 0; age < Number(targetAge); age += 1) {
     const yearStart = addYears(birth, age);
+    const nextYearStart = addYears(birth, age + 1);
     const weeks = Array.from({ length: 52 }, (_, weekIndex) => {
       const start = addDays(yearStart, weekIndex * 7);
+      // Calendar years are 365/366 days, but the visual contract is 52 cells per age row.
+      // The final cell absorbs the year tail so every date remains clickable.
+      const end = weekIndex === 51 ? addDays(nextYearStart, -1) : addDays(start, 6);
       return {
         age,
         weekIndex,
         start,
-        end: addDays(start, 6),
+        end,
         dateId: formatDateId(start)
       };
     });
