@@ -15,18 +15,34 @@ export function AuthProvider({ children }) {
       return undefined;
     }
 
-    return onAuthStateChanged(auth, async (nextUser) => {
+    let settled = false;
+    const timeoutId = window.setTimeout(() => {
+      if (!settled) setLoading(false);
+    }, 5000);
+
+    const unsubscribe = onAuthStateChanged(auth, async (nextUser) => {
+      settled = true;
+      window.clearTimeout(timeoutId);
       setUser(nextUser);
       setLoading(false);
       if (nextUser) {
-        await setDoc(doc(db, 'users', nextUser.uid), {
-          displayName: nextUser.displayName || '',
-          email: nextUser.email || '',
-          updatedAt: serverTimestamp(),
-          createdAt: serverTimestamp()
-        }, { merge: true });
+        try {
+          await setDoc(doc(db, 'users', nextUser.uid), {
+            displayName: nextUser.displayName || '',
+            email: nextUser.email || '',
+            updatedAt: serverTimestamp(),
+            createdAt: serverTimestamp()
+          }, { merge: true });
+        } catch (error) {
+          console.error('Failed to sync user profile', error);
+        }
       }
     });
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      unsubscribe();
+    };
   }, []);
 
   const value = useMemo(() => ({ user, loading }), [user, loading]);
