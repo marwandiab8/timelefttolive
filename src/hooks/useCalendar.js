@@ -82,12 +82,16 @@ export function useOwnedCalendar(uid) {
   return { calendar, loading, role, error };
 }
 
-export function useViewerInvites(user) {
+export function useViewerInvites(user, enabled = true) {
   const [invites, setInvites] = useState([]);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!user?.email) return undefined;
+    if (!enabled || !user?.email) {
+      setInvites([]);
+      setError('');
+      return undefined;
+    }
     const inviteQuery = query(collectionGroup(db, 'viewers'), where('email', '==', user.email.toLowerCase()), limit(10));
     return onSnapshot(
       inviteQuery,
@@ -101,7 +105,7 @@ export function useViewerInvites(user) {
       },
       (err) => setError(err.message)
     );
-  }, [user?.email]);
+  }, [enabled, user?.email]);
 
   return { invites, error };
 }

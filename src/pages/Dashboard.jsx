@@ -12,7 +12,7 @@ import { getLifeStats } from '../utils/dateUtils.js';
 export default function Dashboard() {
   const { user } = useAuth();
   const owned = useOwnedCalendar(user.uid);
-  const inviteState = useViewerInvites(user);
+  const inviteState = useViewerInvites(user, !owned.calendar);
   const invites = inviteState.invites;
   const acceptedInvite = invites.find((invite) => invite.status === 'accepted');
   const shared = useSharedCalendar(acceptedInvite?.calendarId, !owned.calendar && Boolean(acceptedInvite));
