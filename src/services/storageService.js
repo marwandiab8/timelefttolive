@@ -34,6 +34,7 @@ export async function uploadDailyAttachment(calendarId, dateId, file, metadata) 
     url: '',
     storagePath,
     visibility: metadata.visibility || 'viewers',
+    createdByUid: metadata.uid || '',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
@@ -51,6 +52,7 @@ export function addLinkAttachment(calendarId, dateId, payload) {
     url: payload.url.trim(),
     storagePath: '',
     visibility: payload.visibility || 'viewers',
+    createdByUid: payload.uid || '',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });

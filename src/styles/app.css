@@ -156,6 +156,11 @@ button {
   padding: 0;
 }
 
+.text-button:disabled {
+  color: #f7f0e5;
+  cursor: default;
+}
+
 .danger {
   color: #ff8b8b;
 }
@@ -337,6 +342,13 @@ legend {
   min-width: 980px;
   display: grid;
   gap: 4px;
+  --cell-base: 18px;
+  --cell-size: calc(var(--cell-base) * var(--heatmap-zoom, 1));
+}
+
+.heatmap.fit-whole {
+  min-width: 720px;
+  gap: 2px;
 }
 
 .year-row {
@@ -352,9 +364,21 @@ legend {
   text-align: right;
 }
 
+.age-button {
+  min-height: 20px;
+  padding: 0 4px;
+  background: transparent;
+  border: 0;
+}
+
+.age-button:hover {
+  color: #f2d28c;
+  transform: none;
+}
+
 .week-row {
   display: grid;
-  grid-template-columns: repeat(52, minmax(10px, 1fr));
+  grid-template-columns: repeat(52, minmax(var(--cell-size), 1fr));
   gap: 3px;
 }
 
@@ -366,6 +390,14 @@ legend {
   border-radius: 3px;
   padding: 0;
   overflow: hidden;
+}
+
+.fit-whole .week-row {
+  gap: 1px;
+}
+
+.fit-whole .week-cell {
+  border-radius: 2px;
 }
 
 .week-cell.current {
@@ -427,6 +459,121 @@ legend {
   height: 2px;
   background: var(--weekend-color);
   border-radius: 2px;
+}
+
+.zoom-toolbar,
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.zoom-toolbar input[type="range"] {
+  width: 160px;
+  min-height: 28px;
+}
+
+.breadcrumbs {
+  color: #aeb8b8;
+}
+
+.breadcrumbs span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.breadcrumbs b {
+  color: #5f6b6b;
+}
+
+.detail-surface {
+  margin-top: 18px;
+}
+
+.month-grid,
+.week-card-grid,
+.day-card-grid,
+.detail-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.month-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.week-card-grid {
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+
+.day-card-grid {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.detail-grid {
+  grid-template-columns: minmax(220px, 0.75fr) minmax(280px, 1fr) minmax(280px, 1fr);
+}
+
+.month-card,
+.drill-card {
+  display: grid;
+  gap: 8px;
+  min-height: 148px;
+  padding: 16px;
+  text-align: left;
+  color: #f7f0e5;
+  background: rgba(20, 27, 32, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+}
+
+.month-card:hover,
+.drill-card:hover {
+  border-color: rgba(229, 185, 95, 0.5);
+}
+
+.mini-strip {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 2px;
+}
+
+.mini-strip i {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.mini-strip i.active {
+  background: #e5b95f;
+}
+
+.event-dot-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.event-dot-row i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.event-dot-row b {
+  font-size: 0.75rem;
+  color: #aeb8b8;
+}
+
+.day-nav-card.weekend {
+  border-color: rgba(101, 214, 173, 0.42);
+}
+
+.detail-panel {
+  padding: 16px;
 }
 
 .modal-backdrop {
@@ -535,6 +682,10 @@ legend {
   .form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 620px) {
@@ -562,5 +713,9 @@ legend {
 
   .inline-row > button {
     flex: 1 1 140px;
+  }
+
+  .heatmap {
+    min-width: 860px;
   }
 }

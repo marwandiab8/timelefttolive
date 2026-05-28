@@ -5,8 +5,18 @@ import {
   getLifeYearsWeeks,
   isCurrentWeek
 } from '../utils/dateUtils.js';
+import HeatmapZoomToolbar from './HeatmapZoomToolbar.jsx';
 
-const LifeHeatmap = forwardRef(function LifeHeatmap({ calendar, events, onSelectWeek }, ref) {
+const LifeHeatmap = forwardRef(function LifeHeatmap({
+  calendar,
+  events,
+  onSelectWeek,
+  onAgeClick,
+  zoom,
+  fitMode,
+  onZoomChange,
+  onFitModeChange
+}, ref) {
   const rows = useMemo(() => getLifeYearsWeeks(calendar.birthDate, calendar.targetAge), [calendar.birthDate, calendar.targetAge]);
   const rowsWithEvents = useMemo(() => rows.map((row) => ({
     ...row,
@@ -49,11 +59,21 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({ calendar, events, onSelect
           <span><i style={{ background: settings.weekendColor }} />Weekend marks</span>
         </div>
       </div>
-      <div className="heatmap-scroll">
-        <div className="heatmap">
+      <HeatmapZoomToolbar zoom={zoom} fitMode={fitMode} onZoomChange={onZoomChange} onFitModeChange={onFitModeChange} />
+      <div
+        className="heatmap-scroll"
+        onWheel={(event) => {
+          if (!event.ctrlKey && !event.metaKey) return;
+          event.preventDefault();
+          onZoomChange(zoom + (event.deltaY < 0 ? 0.08 : -0.08));
+        }}
+      >
+        <div className={`heatmap ${fitMode === 'whole' ? 'fit-whole' : ''}`} style={{ '--heatmap-zoom': zoom }}>
           {rowsWithEvents.map((row) => (
             <div className="year-row" key={row.age}>
-              <div className="year-label">{row.label}</div>
+              <button className="year-label age-button" type="button" onClick={() => onAgeClick(row.age)}>
+                {row.label}
+              </button>
               <div className="week-row">
                 {row.weeks.map((week) => {
                   const state = getWeekState(week);

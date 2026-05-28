@@ -2,9 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   daysBetween,
   eventIntersectsWeek,
+  eventIntersectsDate,
+  eventIntersectsMonth,
   formatDateId,
   getDaysInWeek,
   getDaysInRange,
+  getLifeYearRange,
+  getMonthsForLifeYear,
+  getWeeksForMonth,
   getLifeStats,
   getLifeYearsWeeks,
   parseDateId
@@ -46,5 +51,31 @@ describe('dateUtils', () => {
     expect(stats.currentAge).toBe(20);
     expect(stats.targetAge).toBe(80);
     expect(stats.weeksRemaining).toBeGreaterThan(3000);
+  });
+
+  it('gets a birthday-based life year range', () => {
+    const range = getLifeYearRange('1985-04-10', 42);
+    expect(formatDateId(range.start)).toBe('2027-04-10');
+    expect(formatDateId(range.end)).toBe('2028-04-09');
+  });
+
+  it('gets months intersecting a birthday-based life year', () => {
+    const months = getMonthsForLifeYear('1985-04-10', 42);
+    expect(months).toHaveLength(12);
+    expect(formatDateId(months[0].rangeStart)).toBe('2027-04-10');
+    expect(formatDateId(months.at(-1).rangeEnd)).toBe('2028-04-09');
+  });
+
+  it('gets real calendar weeks intersecting a month', () => {
+    const weeks = getWeeksForMonth('2028-07-01');
+    expect(formatDateId(weeks[0].start)).toBe('2028-06-25');
+    expect(weeks.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('detects event date and month intersections', () => {
+    const event = { startDate: '2028-07-25', endDate: '2028-08-15' };
+    expect(eventIntersectsDate(event, '2028-07-25')).toBe(true);
+    expect(eventIntersectsMonth(event, '2028-08-01', '2028-08-31')).toBe(true);
+    expect(eventIntersectsMonth(event, '2028-09-01', '2028-09-30')).toBe(false);
   });
 });

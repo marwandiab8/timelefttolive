@@ -12,6 +12,7 @@ export function createExternalRecordLink(calendarId, dateId, record) {
     sourceCollection: record.sourceCollection || '',
     sourceDocumentId: record.sourceDocumentId || '',
     visibility: record.visibility || 'ownerOnly',
+    createdByUid: record.uid || '',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });

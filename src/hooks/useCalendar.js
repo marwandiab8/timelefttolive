@@ -215,6 +215,31 @@ export function useWeekEntries(calendarId, dateIds, role) {
   return { entries, error };
 }
 
+export function useRangeEntries(calendarId, startDateId, endDateId, role) {
+  const [entries, setEntries] = useState([]);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!calendarId || !startDateId || !endDateId) {
+      setEntries([]);
+      setError('');
+      return undefined;
+    }
+
+    const entriesRef = collection(db, 'lifeCalendars', calendarId, 'dailyEntries');
+    const rangeQuery = role === 'owner'
+      ? query(entriesRef, where('dateId', '>=', startDateId), where('dateId', '<=', endDateId))
+      : query(entriesRef, where('dateId', '>=', startDateId), where('dateId', '<=', endDateId), where('visibility', '==', 'viewers'));
+
+    return onSnapshot(rangeQuery, (snapshot) => {
+      setError('');
+      setEntries(snapshot.docs.map((entryDoc) => ({ id: entryDoc.id, ...entryDoc.data() })));
+    }, (err) => setError(err.message));
+  }, [calendarId, startDateId, endDateId, role]);
+
+  return { entries, error };
+}
+
 export function useWeekAttachments(calendarId, dateIds, role) {
   const [attachments, setAttachments] = useState({});
   const [error, setError] = useState('');
@@ -276,14 +301,16 @@ export function deleteEvent(calendarId, eventId) {
   return deleteDoc(doc(db, 'lifeCalendars', calendarId, 'events', eventId));
 }
 
-export function saveDailyEntry(calendarId, dateId, payload) {
+export function saveDailyEntry(calendarId, dateId, payload, uid = '') {
   return setDoc(doc(db, 'lifeCalendars', calendarId, 'dailyEntries', dateId), {
     dateId,
     date: dateId,
     journalText: payload.journalText || '',
+    notes: payload.notes || '',
     tags: payload.tags || [],
     visibility: payload.visibility || 'viewers',
     updatedAt: serverTimestamp(),
+    updatedByUid: uid,
     createdAt: serverTimestamp()
   }, { merge: true });
 }

@@ -35,6 +35,15 @@ export function addYears(date, years) {
   return local;
 }
 
+export function addMonths(date, months) {
+  const local = toLocalDate(date);
+  const day = local.getDate();
+  const target = new Date(local.getFullYear(), local.getMonth() + Number(months), 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(day, lastDay));
+  return target;
+}
+
 function utcDayNumber(date) {
   const local = toLocalDate(date);
   return Math.floor(Date.UTC(local.getFullYear(), local.getMonth(), local.getDate()) / DAY_MS);
@@ -103,11 +112,88 @@ export function getLifeYearsWeeks(birthDate, targetAge) {
   return rows;
 }
 
+export function getLifeYearRange(birthDate, age) {
+  const start = addYears(birthDate, Number(age));
+  const end = addDays(addYears(birthDate, Number(age) + 1), -1);
+  return { start, end };
+}
+
+export function getMonthStart(date) {
+  const local = toLocalDate(date);
+  return new Date(local.getFullYear(), local.getMonth(), 1);
+}
+
+export function getMonthEnd(date) {
+  const local = toLocalDate(date);
+  return new Date(local.getFullYear(), local.getMonth() + 1, 0);
+}
+
+export function getMonthsForLifeYear(birthDate, age) {
+  const lifeYear = getLifeYearRange(birthDate, age);
+  return Array.from({ length: 12 }, (_, index) => {
+    const rangeStart = addMonths(lifeYear.start, index);
+    const rangeEnd = index === 11 ? lifeYear.end : addDays(addMonths(lifeYear.start, index + 1), -1);
+    const name = rangeStart.getMonth() === rangeEnd.getMonth()
+      ? rangeStart.toLocaleString(undefined, { month: 'long', year: 'numeric' })
+      : `${rangeStart.toLocaleString(undefined, { month: 'short' })} ${rangeStart.getDate()} - ${rangeEnd.toLocaleString(undefined, { month: 'short' })} ${rangeEnd.getDate()}, ${rangeEnd.getFullYear()}`;
+    return {
+      id: formatDateId(rangeStart),
+      monthStart: getMonthStart(rangeStart),
+      monthEnd: getMonthEnd(rangeStart),
+      rangeStart,
+      rangeEnd,
+      name
+    };
+  });
+}
+
+export function getWeeksForMonth(monthStartDate) {
+  const monthStart = getMonthStart(monthStartDate);
+  const monthEnd = getMonthEnd(monthStartDate);
+  return getWeeksForRange(monthStart, monthEnd);
+}
+
+export function getWeeksForRange(startDate, endDate) {
+  const rangeStart = toLocalDate(startDate);
+  const rangeEnd = toLocalDate(endDate);
+  const weeks = [];
+  for (let cursor = getWeekStart(rangeStart); cursor <= rangeEnd; cursor = addDays(cursor, 7)) {
+    const start = new Date(cursor);
+    const end = addDays(start, 6);
+    weeks.push({
+      start,
+      end,
+      dateId: formatDateId(start),
+      days: getDaysInRange(start, end)
+    });
+  }
+  return weeks;
+}
+
+export function getDaysForWeek(weekStartDate) {
+  return getDaysInWeek(getWeekStart(weekStartDate));
+}
+
 export function eventIntersectsWeek(event, week) {
   if (!event?.startDate || !event?.endDate) return false;
   const eventStart = toLocalDate(event.startDate);
   const eventEnd = toLocalDate(event.endDate);
   return eventStart <= week.end && eventEnd >= week.start;
+}
+
+export function eventIntersectsDate(event, dateId) {
+  return event?.startDate && event?.endDate && isDateInRange(dateId, event.startDate, event.endDate);
+}
+
+export function eventIntersectsMonth(event, monthStart, monthEnd) {
+  if (!event?.startDate || !event?.endDate) return false;
+  const eventStart = toLocalDate(event.startDate);
+  const eventEnd = toLocalDate(event.endDate);
+  return eventStart <= toLocalDate(monthEnd) && eventEnd >= toLocalDate(monthStart);
+}
+
+export function getEventsForDate(events, dateId) {
+  return events.filter((event) => eventIntersectsDate(event, dateId));
 }
 
 export function isDateInRange(date, start, end) {

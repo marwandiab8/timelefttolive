@@ -1,4 +1,6 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import CalendarBreadcrumbs from '../components/CalendarBreadcrumbs.jsx';
+import { DayDrilldownView, MonthDetailView, WeekDetailView, YearDetailView } from '../components/CalendarDrilldown.jsx';
 import EventManager from '../components/EventManager.jsx';
 import LifeHeatmap from '../components/LifeHeatmap.jsx';
 import ProfileForm from '../components/ProfileForm.jsx';
@@ -28,16 +30,44 @@ export default function Dashboard() {
   const [showEvents, setShowEvents] = useState(false);
   const [showViewers, setShowViewers] = useState(false);
   const [selectedWeek, setSelectedWeek] = useState(null);
+  const [calendarView, setCalendarView] = useState({ view: 'life' });
+  const [zoom, setZoom] = useState(() => Number(localStorage.getItem('lifeHeatmapZoom') || 1));
+  const [fitMode, setFitMode] = useState(() => localStorage.getItem('lifeHeatmapFitMode') || 'width');
   const heatmapRef = useRef(null);
   const stats = useMemo(() => calendar ? getLifeStats(calendar.birthDate, calendar.targetAge) : null, [calendar]);
   const custodyStats = useMemo(() => calendar ? getCustodyStats(calendar) : null, [calendar]);
+  const dataError = owned.error || inviteState.error || shared.error || eventState.error || viewerState.error;
+  const pendingInvite = invites.find((invite) => invite.status === 'pending');
+  const breadcrumbs = getBreadcrumbs(calendarView, setCalendarView);
+
+  function updateZoom(value) {
+    const nextZoom = Math.min(2.5, Math.max(0.45, value));
+    setZoom(nextZoom);
+    localStorage.setItem('lifeHeatmapZoom', String(nextZoom));
+  }
+
+  function updateFitMode(value) {
+    setFitMode(value);
+    localStorage.setItem('lifeHeatmapFitMode', value);
+    if (value === 'whole') updateZoom(0.55);
+    if (value === 'width') updateZoom(1);
+  }
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+      if (event.key === '+' || event.key === '=') updateZoom(zoom + 0.15);
+      if (event.key === '-') updateZoom(zoom - 0.15);
+      if (event.key === '0') updateZoom(1);
+      if (event.key.toLowerCase() === 'f') updateFitMode(fitMode === 'width' ? 'whole' : 'width');
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [zoom, fitMode]);
 
   if (loading) return <div className="app-shell centered">Loading calendar...</div>;
 
-  const dataError = owned.error || inviteState.error || shared.error || eventState.error || viewerState.error;
-
   if (!calendar || editingProfile) {
-    const pendingInvite = invites.find((invite) => invite.status === 'pending');
     return (
       <main className="app-shell">
         <header className="topbar">
@@ -59,8 +89,6 @@ export default function Dashboard() {
       </main>
     );
   }
-
-  const pendingInvite = invites.find((invite) => invite.status === 'pending');
 
   return (
     <main className="app-shell">
@@ -101,8 +129,37 @@ export default function Dashboard() {
         </section>
       )}
       {dataError && <p className="error">{dataError}</p>}
+      <CalendarBreadcrumbs items={breadcrumbs} />
 
-      <LifeHeatmap ref={heatmapRef} calendar={calendar} events={events} onSelectWeek={setSelectedWeek} />
+      {calendarView.view === 'life' && (
+        <LifeHeatmap
+          ref={heatmapRef}
+          calendar={calendar}
+          events={events}
+          onSelectWeek={(week) => setCalendarView({ view: 'week', age: week.age, weekStart: week.dateId })}
+          onAgeClick={(age) => setCalendarView({ view: 'year', age })}
+          zoom={zoom}
+          fitMode={fitMode}
+          onZoomChange={updateZoom}
+          onFitModeChange={updateFitMode}
+        />
+      )}
+
+      {calendarView.view === 'year' && (
+        <YearDetailView calendar={calendar} age={calendarView.age} events={events} role={role} onNavigate={setCalendarView} />
+      )}
+
+      {calendarView.view === 'month' && (
+        <MonthDetailView calendar={calendar} age={calendarView.age} monthId={calendarView.monthId} events={events} role={role} onNavigate={setCalendarView} />
+      )}
+
+      {calendarView.view === 'week' && (
+        <WeekDetailView calendar={calendar} age={calendarView.age} monthId={calendarView.monthId} weekStart={calendarView.weekStart} events={events} role={role} onNavigate={setCalendarView} />
+      )}
+
+      {calendarView.view === 'day' && (
+        <DayDrilldownView calendar={calendar} dateId={calendarView.dateId} events={events} role={role} />
+      )}
 
       {selectedWeek && (
         <WeekDetailPanel
@@ -117,6 +174,15 @@ export default function Dashboard() {
       {showViewers && <ViewerManager calendarId={calendar.id} viewers={viewers} onClose={() => setShowViewers(false)} />}
     </main>
   );
+}
+
+function getBreadcrumbs(view, setCalendarView) {
+  const items = [{ label: 'Life Overview', onClick: () => setCalendarView({ view: 'life' }) }];
+  if (view.age !== undefined) items.push({ label: `Age ${view.age}`, onClick: () => setCalendarView({ view: 'year', age: view.age }) });
+  if (view.monthId) items.push({ label: view.monthId, onClick: () => setCalendarView({ view: 'month', age: view.age, monthId: view.monthId }) });
+  if (view.weekStart) items.push({ label: `Week of ${view.weekStart}`, onClick: () => setCalendarView({ view: 'week', age: view.age, monthId: view.monthId, weekStart: view.weekStart }) });
+  if (view.dateId) items.push({ label: view.dateId, onClick: null });
+  return items;
 }
 
 function Summary({ label, value }) {
