@@ -242,6 +242,29 @@ legend {
   gap: 16px;
 }
 
+.parenting-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 16px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.checkbox-row input {
+  width: 18px;
+  min-height: 18px;
+}
+
+.child-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
 .error {
   color: #ff9d9d;
 }
@@ -261,6 +284,27 @@ legend {
   display: block;
   margin-top: 8px;
   font-size: 1.55rem;
+}
+
+.family-time-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 0 0 28px;
+  padding: 18px;
+  border: 1px solid rgba(229, 185, 95, 0.28);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(216, 154, 43, 0.13), rgba(32, 49, 55, 0.6));
+}
+
+.family-time-panel h2 {
+  margin: 0 0 8px;
+  letter-spacing: 0;
+}
+
+.family-time-panel p {
+  margin: 0;
 }
 
 .heatmap-section {

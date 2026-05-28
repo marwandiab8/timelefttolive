@@ -16,6 +16,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../services/firebase.js';
 import { addYears, formatDateId } from '../utils/dateUtils.js';
+import { defaultCustodySchedule } from '../utils/custodyUtils.js';
 
 const defaultSettings = {
   pastColor: '#46505c',
@@ -28,6 +29,22 @@ const defaultSettings = {
 export function normalizeCalendarPayload(payload, uid) {
   const birthDate = payload.birthDate;
   const targetAge = Number(payload.targetAge || 80);
+  const children = (payload.children || [])
+    .filter((child) => child.name?.trim() || child.birthDate)
+    .map((child) => ({
+      id: child.id || crypto.randomUUID(),
+      name: child.name.trim(),
+      birthDate: child.birthDate
+    }));
+  const custodySchedule = {
+    ...defaultCustodySchedule,
+    ...(payload.custodySchedule || {}),
+    cycleWeeks: Number(payload.custodySchedule?.cycleWeeks || defaultCustodySchedule.cycleWeeks),
+    withParentWeeks: Number(payload.custodySchedule?.withParentWeeks || defaultCustodySchedule.withParentWeeks),
+    countUntilChildAge: Number(payload.custodySchedule?.countUntilChildAge || defaultCustodySchedule.countUntilChildAge),
+    childIds: (payload.custodySchedule?.childIds || []).filter((id) => children.some((child) => child.id === id))
+  };
+
   return {
     ownerUid: uid,
     firstName: payload.firstName.trim(),
@@ -39,13 +56,8 @@ export function normalizeCalendarPayload(payload, uid) {
       name: payload.spouse?.name?.trim() || '',
       birthDate: payload.spouse?.birthDate || ''
     },
-    children: (payload.children || [])
-      .filter((child) => child.name?.trim() || child.birthDate)
-      .map((child) => ({
-        id: child.id || crypto.randomUUID(),
-        name: child.name.trim(),
-        birthDate: child.birthDate
-      })),
+    children,
+    custodySchedule,
     settings: { ...defaultSettings, ...(payload.settings || {}) },
     updatedAt: serverTimestamp()
   };

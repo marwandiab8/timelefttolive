@@ -8,6 +8,7 @@ import { useAuth } from '../hooks/useAuth.jsx';
 import { acceptViewerInvite, useEvents, useOwnedCalendar, useSharedCalendar, useViewerInvites, useViewers } from '../hooks/useCalendar.js';
 import { logOut } from '../services/firebase.js';
 import { getLifeStats } from '../utils/dateUtils.js';
+import { getCustodyStats } from '../utils/custodyUtils.js';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -29,6 +30,7 @@ export default function Dashboard() {
   const [selectedWeek, setSelectedWeek] = useState(null);
   const heatmapRef = useRef(null);
   const stats = useMemo(() => calendar ? getLifeStats(calendar.birthDate, calendar.targetAge) : null, [calendar]);
+  const custodyStats = useMemo(() => calendar ? getCustodyStats(calendar) : null, [calendar]);
 
   if (loading) return <div className="app-shell centered">Loading calendar...</div>;
 
@@ -85,6 +87,19 @@ export default function Dashboard() {
         <Summary label="Days remaining" value={stats.daysRemaining.toLocaleString()} />
         <Summary label="Life remaining" value={`${stats.percentageRemaining.toFixed(1)}%`} />
       </section>
+      {custodyStats && (
+        <section className="family-time-panel">
+          <div>
+            <p className="eyebrow">Time with my boys</p>
+            <h2>{custodyStats.weeksRemaining.toLocaleString()} weeks together</h2>
+            <p className="muted">
+              About {custodyStats.daysRemaining.toLocaleString()} days with {custodyStats.childNames.join(', ')}
+              {' '}through {custodyStats.throughDate}, based on your every-other-week schedule.
+            </p>
+          </div>
+          <button className="secondary" type="button" onClick={() => setEditingProfile(true)}>Edit schedule</button>
+        </section>
+      )}
       {dataError && <p className="error">{dataError}</p>}
 
       <LifeHeatmap ref={heatmapRef} calendar={calendar} events={events} onSelectWeek={setSelectedWeek} />

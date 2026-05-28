@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { defaultSettings, saveCalendar } from '../hooks/useCalendar.js';
+import { defaultCustodySchedule } from '../utils/custodyUtils.js';
 
 const blankChild = () => ({ id: crypto.randomUUID(), name: '', birthDate: '' });
 
@@ -11,6 +12,7 @@ export default function ProfileForm({ user, calendar, onSaved }) {
     targetAge: calendar?.targetAge || 90,
     spouse: calendar?.spouse || { name: '', birthDate: '' },
     children: calendar?.children?.length ? calendar.children : [],
+    custodySchedule: { ...defaultCustodySchedule, ...(calendar?.custodySchedule || {}) },
     settings: { ...defaultSettings, ...(calendar?.settings || {}) }
   });
   const [error, setError] = useState('');
@@ -27,6 +29,28 @@ export default function ProfileForm({ user, calendar, onSaved }) {
     }));
   }
 
+  function updateCustody(field, value) {
+    setForm((current) => ({
+      ...current,
+      custodySchedule: { ...current.custodySchedule, [field]: value }
+    }));
+  }
+
+  function toggleCustodyChild(childId) {
+    setForm((current) => {
+      const selected = current.custodySchedule.childIds || [];
+      return {
+        ...current,
+        custodySchedule: {
+          ...current.custodySchedule,
+          childIds: selected.includes(childId)
+            ? selected.filter((id) => id !== childId)
+            : [...selected, childId]
+        }
+      };
+    });
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     setError('');
@@ -34,6 +58,15 @@ export default function ProfileForm({ user, calendar, onSaved }) {
     if (Number(form.targetAge) < 1 || Number(form.targetAge) > 130) return setError('Target age must be between 1 and 130.');
     if (form.children.some((child) => (child.name && !child.birthDate) || (!child.name && child.birthDate))) {
       return setError('Each child needs both a name and birth date.');
+    }
+    if (form.custodySchedule.enabled && !form.custodySchedule.nextStartDate) {
+      return setError('Enter the start date of the next week you have the kids.');
+    }
+    if (form.custodySchedule.enabled && form.custodySchedule.childIds.length === 0) {
+      return setError('Choose which children the parenting-time schedule applies to.');
+    }
+    if (form.custodySchedule.enabled && Number(form.custodySchedule.withParentWeeks) > Number(form.custodySchedule.cycleWeeks)) {
+      return setError('Time with you per cycle cannot be greater than the full cycle length.');
     }
     setSaving(true);
     try {
@@ -69,6 +102,67 @@ export default function ProfileForm({ user, calendar, onSaved }) {
           </div>
         ))}
         <button type="button" className="secondary" onClick={() => updateField('children', [...form.children, blankChild()])}>Add child</button>
+      </fieldset>
+
+      <fieldset className="wide parenting-grid">
+        <legend>Time with my boys</legend>
+        <label className="checkbox-row">
+          <input
+            checked={form.custodySchedule.enabled}
+            onChange={(event) => updateCustody('enabled', event.target.checked)}
+            type="checkbox"
+          />
+          Track every-other-week parenting time
+        </label>
+        <label>Next week with them starts
+          <input
+            value={form.custodySchedule.nextStartDate}
+            onChange={(event) => updateCustody('nextStartDate', event.target.value)}
+            type="date"
+          />
+        </label>
+        <label>Every
+          <input
+            value={form.custodySchedule.cycleWeeks}
+            onChange={(event) => updateCustody('cycleWeeks', event.target.value)}
+            type="number"
+            min="1"
+            max="8"
+          />
+          weeks
+        </label>
+        <label>Time with me per cycle
+          <input
+            value={form.custodySchedule.withParentWeeks}
+            onChange={(event) => updateCustody('withParentWeeks', event.target.value)}
+            type="number"
+            min="1"
+            max="8"
+          />
+          week(s)
+        </label>
+        <label>Count until each child turns
+          <input
+            value={form.custodySchedule.countUntilChildAge}
+            onChange={(event) => updateCustody('countUntilChildAge', event.target.value)}
+            type="number"
+            min="1"
+            max="40"
+          />
+        </label>
+        <div className="wide child-picker">
+          {form.children.length === 0 && <p className="muted">Add children above before choosing who this applies to.</p>}
+          {form.children.map((child) => (
+            <label className="checkbox-row" key={child.id}>
+              <input
+                checked={(form.custodySchedule.childIds || []).includes(child.id)}
+                onChange={() => toggleCustodyChild(child.id)}
+                type="checkbox"
+              />
+              {child.name || 'Unnamed child'}
+            </label>
+          ))}
+        </div>
       </fieldset>
 
       <fieldset className="wide color-grid">
