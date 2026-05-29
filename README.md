@@ -115,6 +115,16 @@ lifeCalendars/{calendarId}/dailyEntries/{YYYY-MM-DD}/{filename}
 
 `src/services/externalRecords.js` stores cross-project references as attachment metadata only. It does not perform Admin SDK access or cross-project reads. Add credentials or callable backend support later if direct import is required.
 
+## External Daily Links
+
+The app supports linked source records under:
+
+```text
+lifeCalendars/{calendarId}/dailyEntries/{YYYY-MM-DD}/externalItems/{externalItemId}
+```
+
+Owners can manage source app connections from **External sources**. Day detail groups linked reports, pictures, workouts, MyDoubleProgress records, darts records, and other items. Connector/mapping details and example payloads are in [docs/external-daily-links.md](docs/external-daily-links.md).
+
 ## Notes
 
 - Date IDs are stored as local `YYYY-MM-DD` strings to avoid UTC date shifts.

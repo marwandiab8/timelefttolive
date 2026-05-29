@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "backfill:external": "node scripts/backfillExternalDailyItems.js"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.0",

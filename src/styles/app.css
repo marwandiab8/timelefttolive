@@ -576,6 +576,78 @@ legend {
   padding: 16px;
 }
 
+.external-day-section {
+  margin-top: 22px;
+}
+
+.external-group {
+  margin-top: 18px;
+}
+
+.external-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.external-item-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  background: rgba(20, 27, 32, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+}
+
+.external-card-head,
+.external-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.source-badge,
+.category-badge,
+.visibility-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.source-badge {
+  background: #26343c;
+  color: #f2d28c;
+}
+
+.category-badge {
+  background: #1b3030;
+  color: #65d6ad;
+}
+
+.visibility-badge {
+  background: #312c26;
+  color: #d8d0c1;
+}
+
+.external-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

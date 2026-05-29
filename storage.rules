@@ -36,6 +36,14 @@ service firebase.storage {
       allow delete: if isOwner(calendarId);
     }
 
+    match /lifeCalendars/{calendarId}/externalItems/{dateId}/{sourceApp}/{externalItemId}/{fileName} {
+      allow read: if isOwner(calendarId) || (isAcceptedViewer(calendarId) && isViewerVisibleFile());
+      allow create, update: if isOwner(calendarId)
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.metadata.visibility in ["ownerOnly", "viewers"];
+      allow delete: if isOwner(calendarId);
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

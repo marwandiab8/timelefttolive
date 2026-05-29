@@ -23,6 +23,22 @@ export function parseDateId(dateId) {
   return toLocalDate(dateId);
 }
 
+export function isValidDateId(dateId) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateId || ''))) return false;
+  return formatDateId(parseDateId(dateId)) === dateId;
+}
+
+export function timestampToDateId(timestamp) {
+  if (!timestamp) return '';
+  if (typeof timestamp === 'string' && isValidDateId(timestamp)) return timestamp;
+  if (timestamp instanceof Date) return formatDateId(timestamp);
+  if (typeof timestamp === 'number') return formatDateId(new Date(timestamp));
+  if (typeof timestamp?.toDate === 'function') return formatDateId(timestamp.toDate());
+  if (typeof timestamp?.seconds === 'number') return formatDateId(new Date(timestamp.seconds * 1000));
+  const parsed = new Date(timestamp);
+  return Number.isNaN(parsed.getTime()) ? '' : formatDateId(parsed);
+}
+
 export function addDays(date, days) {
   const local = toLocalDate(date);
   local.setDate(local.getDate() + days);

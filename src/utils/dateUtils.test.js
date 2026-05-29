@@ -12,12 +12,21 @@ import {
   getWeeksForMonth,
   getLifeStats,
   getLifeYearsWeeks,
-  parseDateId
+  isValidDateId,
+  parseDateId,
+  timestampToDateId
 } from './dateUtils.js';
 
 describe('dateUtils', () => {
   it('formats and parses local date IDs without timezone shifts', () => {
     expect(formatDateId(parseDateId('1990-02-03'))).toBe('1990-02-03');
+    expect(isValidDateId('1990-02-03')).toBe(true);
+    expect(isValidDateId('1990-2-3')).toBe(false);
+  });
+
+  it('converts common timestamp values to date IDs', () => {
+    expect(timestampToDateId({ seconds: 1848139200 })).toBe('2028-07-25');
+    expect(timestampToDateId('2028-07-25')).toBe('2028-07-25');
   });
 
   it('creates one 52-week row per target age year', () => {

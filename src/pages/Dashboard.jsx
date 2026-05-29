@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import CalendarBreadcrumbs from '../components/CalendarBreadcrumbs.jsx';
 import { DayDrilldownView, MonthDetailView, WeekDetailView, YearDetailView } from '../components/CalendarDrilldown.jsx';
 import EventManager from '../components/EventManager.jsx';
+import ExternalSourcesManager from '../components/ExternalSourcesManager.jsx';
 import LifeHeatmap from '../components/LifeHeatmap.jsx';
 import ProfileForm from '../components/ProfileForm.jsx';
 import ViewerManager from '../components/ViewerManager.jsx';
@@ -28,6 +29,7 @@ export default function Dashboard() {
   const viewers = viewerState.viewers;
   const [editingProfile, setEditingProfile] = useState(false);
   const [showEvents, setShowEvents] = useState(false);
+  const [showSources, setShowSources] = useState(false);
   const [showViewers, setShowViewers] = useState(false);
   const [selectedWeek, setSelectedWeek] = useState(null);
   const [calendarView, setCalendarView] = useState({ view: 'life' });
@@ -101,6 +103,7 @@ export default function Dashboard() {
           {pendingInvite && <button className="secondary" type="button" onClick={() => acceptViewerInvite(pendingInvite.calendarId, pendingInvite.id, user.uid)}>Accept invite</button>}
           <button className="secondary" type="button" onClick={() => heatmapRef.current?.scrollToCurrentWeek()}>Today</button>
           {role === 'owner' && <button className="secondary" type="button" onClick={() => setShowEvents(true)}>Add event</button>}
+          {role === 'owner' && <button className="secondary" type="button" onClick={() => setShowSources(true)}>External sources</button>}
           {role === 'owner' && <button className="secondary" type="button" onClick={() => setEditingProfile(true)}>Edit profile</button>}
           {role === 'owner' && <button className="secondary" type="button" onClick={() => setShowViewers(true)}>Manage viewers</button>}
           <button className="ghost" type="button" onClick={() => logOut()}>Sign out</button>
@@ -171,6 +174,7 @@ export default function Dashboard() {
         />
       )}
       {showEvents && <EventManager calendar={calendar} events={events} role={role} onClose={() => setShowEvents(false)} />}
+      {showSources && <ExternalSourcesManager calendarId={calendar.id} onClose={() => setShowSources(false)} />}
       {showViewers && <ViewerManager calendarId={calendar.id} viewers={viewers} onClose={() => setShowViewers(false)} />}
     </main>
   );

@@ -58,6 +58,10 @@ service cloud.firestore {
           && request.resource.data.email == resource.data.email;
       }
 
+      match /sourceConnections/{connectionId} {
+        allow read, write: if isOwner(calendarId);
+      }
+
       match /events/{eventId} {
         allow read: if isOwner(calendarId) || (isAcceptedViewer(calendarId) && isViewerVisible());
         allow write: if isOwner(calendarId);
@@ -69,6 +73,13 @@ service cloud.firestore {
 
         match /attachments/{attachmentId} {
           allow read: if isOwner(calendarId) || (isAcceptedViewer(calendarId) && isViewerVisible());
+          allow write: if isOwner(calendarId);
+        }
+
+        match /externalItems/{externalItemId} {
+          allow read: if isOwner(calendarId)
+            || (signedIn() && resource.data.ownerUid == request.auth.uid)
+            || (isAcceptedViewer(calendarId) && resource.data.visibility == "viewers");
           allow write: if isOwner(calendarId);
         }
       }

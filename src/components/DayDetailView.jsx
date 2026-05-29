@@ -4,13 +4,22 @@ import { useAuth } from '../hooks/useAuth.jsx';
 import { addLinkAttachment, deleteAttachment, getAttachmentDownloadUrl, uploadDailyAttachment } from '../services/storageService.js';
 import { createExternalRecordLink } from '../services/externalRecords.js';
 import { formatDateId, getEventsForDate, parseDateId } from '../utils/dateUtils.js';
+import {
+  moveExternalItemDate,
+  unlinkExternalItem,
+  updateExternalItemVisibility,
+  useDayExternalItems
+} from '../services/externalSources/externalDailyItems.js';
+import { CATEGORY_GROUPS } from '../services/externalSources/types.js';
 
 export default function DayDetailView({ calendar, dateId, events, role }) {
   const { user } = useAuth();
   const entryState = useWeekEntries(calendar.id, [dateId], role);
   const attachmentState = useWeekAttachments(calendar.id, [dateId], role);
+  const externalState = useDayExternalItems(calendar.id, dateId, role);
   const entry = entryState.entries[dateId];
   const attachments = attachmentState.attachments[dateId] || [];
+  const externalItems = externalState.items;
   const dayEvents = useMemo(() => getEventsForDate(events, dateId), [events, dateId]);
   const canEdit = role === 'owner';
   const date = parseDateId(dateId);
@@ -23,7 +32,7 @@ export default function DayDetailView({ calendar, dateId, events, role }) {
           <h2>{date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</h2>
         </div>
       </div>
-      {(entryState.error || attachmentState.error) && <p className="error">{entryState.error || attachmentState.error}</p>}
+      {(entryState.error || attachmentState.error || externalState.error) && <p className="error">{entryState.error || attachmentState.error || externalState.error}</p>}
       <div className="detail-grid">
         <section className="panel detail-panel">
           <h3>Events</h3>
@@ -53,6 +62,13 @@ export default function DayDetailView({ calendar, dateId, events, role }) {
           uid={user?.uid || ''}
         />
       </div>
+      <ExternalItemsTimeline
+        calendarId={calendar.id}
+        dateId={dateId}
+        items={externalItems}
+        canEdit={canEdit}
+        uid={user?.uid || ''}
+      />
     </section>
   );
 }
@@ -206,6 +222,68 @@ function AttachmentItem({ calendarId, dateId, attachment, canEdit }) {
       {downloadUrl ? <a href={downloadUrl} target="_blank" rel="noreferrer">{attachment.title}</a> : <span>{attachment.title}</span>}
       <span>{attachment.type}</span>
       {canEdit && <button className="ghost danger" type="button" onClick={() => deleteAttachment(calendarId, dateId, attachment)}>Delete</button>}
+    </article>
+  );
+}
+
+function ExternalItemsTimeline({ calendarId, dateId, items, canEdit, uid }) {
+  const groups = Object.entries(CATEGORY_GROUPS).map(([label, categories]) => ({
+    label,
+    items: items.filter((item) => categories.includes(item.category))
+  })).filter((group) => group.items.length > 0);
+
+  return (
+    <section className="external-day-section">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">External daily links</p>
+          <h2>Everything linked to this day</h2>
+        </div>
+      </div>
+      {items.length === 0 && <p className="muted">No external records linked to this day yet.</p>}
+      {groups.map((group) => (
+        <section className="external-group" key={group.label}>
+          <h3>{group.label}</h3>
+          <div className="external-card-grid">
+            {group.items.map((item) => (
+              <ExternalItemCard key={item.id} calendarId={calendarId} dateId={dateId} item={item} canEdit={canEdit} uid={uid} />
+            ))}
+          </div>
+        </section>
+      ))}
+    </section>
+  );
+}
+
+function ExternalItemCard({ calendarId, dateId, item, canEdit, uid }) {
+  const [nextDate, setNextDate] = useState(dateId);
+  const imageUrl = item.thumbnailUrl || item.fileUrl;
+  const isImage = item.contentType?.startsWith('image/') || ['projectPicture', 'image'].includes(item.category);
+
+  return (
+    <article className="external-item-card">
+      <div className="external-card-head">
+        <span className="source-badge">{item.sourceApp}</span>
+        <span className="category-badge">{item.category}</span>
+        <span className="visibility-badge">{item.visibility || 'ownerOnly'}</span>
+      </div>
+      {isImage && imageUrl && <img className="external-thumb" src={imageUrl} alt={item.title} loading="lazy" />}
+      <h4>{item.title}</h4>
+      {item.sourceProjectName && <p className="muted">{item.sourceProjectName}</p>}
+      {item.summary && <p>{item.summary}</p>}
+      {item.description && <p className="muted">{item.description}</p>}
+      {item.sourceUrl && <a className="secondary link-button" href={item.sourceUrl} target="_blank" rel="noreferrer">Open source</a>}
+      {!item.fileUrl && item.sourceStoragePath && <p className="muted">Private source file reference saved.</p>}
+      {canEdit && (
+        <div className="external-controls">
+          <button className="ghost" type="button" onClick={() => updateExternalItemVisibility(calendarId, dateId, item.id, item.visibility === 'viewers' ? 'ownerOnly' : 'viewers', uid)}>
+            {item.visibility === 'viewers' ? 'Hide from viewers' : 'Show to viewers'}
+          </button>
+          <input value={nextDate} onChange={(event) => setNextDate(event.target.value)} type="date" />
+          <button className="ghost" type="button" onClick={() => moveExternalItemDate(calendarId, dateId, item, nextDate, uid)}>Change date</button>
+          <button className="ghost danger" type="button" onClick={() => unlinkExternalItem(calendarId, dateId, item.id)}>Unlink</button>
+        </div>
+      )}
     </article>
   );
 }
