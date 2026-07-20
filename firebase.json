@@ -1,4 +1,7 @@
 {
+  "functions": {
+    "source": "functions"
+  },
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
@@ -14,6 +17,14 @@
       "**/node_modules/**"
     ],
     "rewrites": [
+      {
+        "source": "/api/v1/life-events",
+        "function": "apiV1LifeEvents"
+      },
+      {
+        "source": "/api/v1/life-events:batch",
+        "function": "apiV1LifeEventsBatch"
+      },
       {
         "source": "**",
         "destination": "/index.html"

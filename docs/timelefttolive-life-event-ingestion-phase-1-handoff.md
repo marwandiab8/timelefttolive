@@ -52,6 +52,20 @@ Server also writes:
 - `id` (doc id)
 - `contentHash` for conflict checks.
 
+## 3A) Phase 1 verification status
+
+- Verification performed on the committed foundation: endpoint wiring, auth, idempotency, duplicate conflict handling, legacy compatibility, dead-letter/audit behavior, and rule assertions.
+- Commit `9c30158` introduced mapper scaffolding files under `functions/src/sourceMappers/`; those were added in-phase but not required for scope:
+  - `aiGridlineMapper.js`
+  - `gridlineAiMapper.js`
+  - `gymK2Mapper.js`
+  - `dartsTrackerMapper.js`
+  - `myDoubleProgressMapper.js`
+- Non-foundation items deferred to later phases remain unchanged:
+  - ActivitySession / TimelineEntry / LocationVisit derivation
+  - aggregation + Donut UI
+  - new source adapter rollout for GYM-K2 / Darts / dual-write parity
+
 ## 3) Required/validation rules
 Required input on ingest:
 - `schemaVersion`
@@ -180,6 +194,14 @@ Indexes:
 - `node --test` inside `functions` (covers ingestion + legacy compatibility tests).
 - `npm --prefix /home/marwan/Documents/timelefttolive test` (frontend unit tests in `src`).
 - `node --check` on changed function source files.
+
+## 15b) Phase 1 acceptance hardening
+- Added canonical and legacy request-size validation (`413`) before body/item processing.
+- Added Hosting rewrites for public v1 routes:
+  - `/api/v1/life-events` -> `apiV1LifeEvents`
+  - `/api/v1/life-events:batch` -> `apiV1LifeEventsBatch`
+- Added focused tests for batch independence, auth/path checks, raw/dead-letter cleanup, client-reference stability, and legacy conflict/idempotency behavior.
+- Removed out-of-scope phase-1 mapper scaffolding (`sourceMappers/*`) that was not used by ingestion compatibility paths.
 
 ## 16) Next phase
 Phase 2: add derivation for `TimelineEntry`, `ActivitySession`, and `LocationVisit` from canonical `lifeEvents`, while keeping current legacy ingestion compatibility and parity validation.

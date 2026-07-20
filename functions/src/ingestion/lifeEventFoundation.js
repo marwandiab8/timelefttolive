@@ -7,6 +7,7 @@ const { upsertExternalItem } = require("./upsertExternalItem");
 
 const MAX_BATCH_SIZE = 100;
 const MAX_PAYLOAD_BYTES = 64 * 1024;
+const MAX_REQUEST_BYTES = MAX_PAYLOAD_BYTES;
 const RAW_AUDIT_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const DEAD_LETTER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_TIMEZONE = "America/Toronto";
@@ -93,8 +94,8 @@ function payloadError(message, code = "validation_error") {
   return error;
 }
 
-function payloadTooLarge(payload) {
-  return Buffer.byteLength(JSON.stringify(payload || {}), "utf8") > MAX_PAYLOAD_BYTES;
+function payloadTooLarge(payload, maxBytes = MAX_PAYLOAD_BYTES) {
+  return Buffer.byteLength(JSON.stringify(payload || {}), "utf8") > maxBytes;
 }
 
 function stableStringify(value) {
@@ -510,6 +511,12 @@ function assertMethod(req) {
 async function resolveAuth(db, req, allowMissingIntegrationId = false) {
   assertMethod(req);
   const body = req.body || {};
+  if (payloadTooLarge(body, MAX_REQUEST_BYTES)) {
+    const error = payloadError("Payload too large.");
+    error.status = 413;
+    error.code = "validation_error";
+    throw error;
+  }
 
   const calendarId = toTrimmedString(body.calendarId);
   const connectionId = toTrimmedString(body.connectionId);
@@ -676,7 +683,7 @@ async function ingestLifeEventBatch(db, req, res, options = {}) {
           clientReference: item.clientReference || null,
           status: "error",
           code: error.code || "server_error",
-          message: error.message,
+          message: isValidation ? error.message : "Internal ingestion failure.",
           existingLifeEventId: error.existingLifeEventId || null
         });
       }

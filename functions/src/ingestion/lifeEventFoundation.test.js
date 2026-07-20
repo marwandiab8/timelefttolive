@@ -9,7 +9,8 @@ const {
   ingestLegacySingle,
   ingestLegacyBatch,
   mapLegacyToLifeEvent,
-  upsertLifeEventRecord
+  upsertLifeEventRecord,
+  cleanupLifeEventArtifacts
 } = require("./lifeEventFoundation");
 const { tokenHash } = require("./tokens");
 
@@ -203,6 +204,23 @@ function makeRes() {
   };
 }
 
+function makeLegacyReq(body, token = "") {
+  return {
+    method: "POST",
+    body,
+    get(header) {
+      if (header.toLowerCase() === "authorization") {
+        return token ? `Bearer ${token}` : "";
+      }
+      return "";
+    }
+  };
+}
+
+function bigString(length) {
+  return "x".repeat(length);
+}
+
 async function setupAuthorized(db, token, options = {}) {
   const {
     calendarId = "calendar-1",
@@ -356,6 +374,44 @@ test("missing required field returns validation failure", async () => {
   assert.equal(res.payload.code, "validation_error");
 });
 
+test("missing required source identifier is rejected", async () => {
+  const db = new FakeFirestore();
+  const token = "t-missing-id";
+  await setupAuthorized(db, token);
+  const req = makeReq({
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    eventType: "arrive_work",
+    occurredAt: "2026-07-20T09:00:00Z"
+  }, token);
+  const res = makeRes();
+  await ingestLifeEventSingle(db, req, res);
+  assert.equal(res.statusCode, 400);
+});
+
+test("missing valid timestamp is rejected", async () => {
+  const db = new FakeFirestore();
+  const token = "t-missing-ts";
+  await setupAuthorized(db, token);
+  const req = makeReq({
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "ts-missing",
+    eventType: "arrive_work"
+  }, token);
+  const res = makeRes();
+  await ingestLifeEventSingle(db, req, res);
+  assert.equal(res.statusCode, 400);
+});
+
 test("invalid event class is rejected", async () => {
   const db = new FakeFirestore();
   const token = "t-class";
@@ -438,6 +494,72 @@ test("negative duration is rejected", async () => {
   const res = makeRes();
   await ingestLifeEventSingle(db, req, res);
   assert.equal(res.statusCode, 400);
+});
+
+test("conflicting duration is rejected", async () => {
+  const db = new FakeFirestore();
+  const token = "t-conflict-duration";
+  await setupAuthorized(db, token);
+  const req = makeReq({
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "conflict-duration",
+    eventType: "completed_workout",
+    startAt: "2026-07-20T10:00:00Z",
+    endAt: "2026-07-20T10:10:00Z",
+    durationSeconds: 120
+  }, token);
+  const res = makeRes();
+  await ingestLifeEventSingle(db, req, res);
+  assert.equal(res.statusCode, 400);
+});
+
+test("oversized metadata is rejected", async () => {
+  const db = new FakeFirestore();
+  const token = "t-over-size";
+  await setupAuthorized(db, token);
+  const req = makeReq({
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "oversize-meta",
+    eventType: "arrive_work",
+    occurredAt: "2026-07-20T09:00:00Z",
+    metadata: { huge: bigString(70000) }
+  }, token);
+  const res = makeRes();
+  await ingestLifeEventSingle(db, req, res);
+  assert.equal(res.statusCode, 413);
+  assert.equal(res.payload.code, "validation_error");
+});
+
+test("oversized metrics is rejected", async () => {
+  const db = new FakeFirestore();
+  const token = "t-over-size-metrics";
+  await setupAuthorized(db, token);
+  const req = makeReq({
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "oversize-metrics",
+    eventType: "arrive_work",
+    occurredAt: "2026-07-20T09:00:00Z",
+    metrics: { huge: bigString(70000) }
+  }, token);
+  const res = makeRes();
+  await ingestLifeEventSingle(db, req, res);
+  assert.equal(res.statusCode, 413);
+  assert.equal(res.payload.code, "validation_error");
 });
 
 test("server calculated duration is used when absent from payload", async () => {
@@ -580,6 +702,28 @@ test("registry resolves canonical timeLeftUserId", async () => {
   assert.equal(event.data().timeLeftUserId, "owner-99");
 });
 
+test("client-supplied owner ID is ignored", async () => {
+  const db = new FakeFirestore();
+  const token = "t-owner-override";
+  await setupAuthorized(db, token, { connection: { timeLeftUserId: "owner-1" } });
+  const req = makeReq({
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "owner-override",
+    timeLeftUserId: "owner-spoofed",
+    eventType: "arrive_work",
+    occurredAt: "2026-07-20T09:00:00Z"
+  }, token);
+  const res = makeRes();
+  await ingestLifeEventSingle(db, req, res);
+  const event = await db.collection("lifeCalendars").doc("calendar-1").collection("lifeEvents").doc(res.payload.lifeEventId).get();
+  assert.equal(event.data().timeLeftUserId, "owner-1");
+});
+
 test("disabled connection is rejected", async () => {
   const db = new FakeFirestore();
   const token = "t-disabled";
@@ -621,6 +765,107 @@ test("wrong integrationId is rejected", async () => {
   assert.equal(res.payload.code, "auth_error");
 });
 
+test("invalid bearer token is rejected", async () => {
+  const db = new FakeFirestore();
+  const token = "t-valid";
+  await setupAuthorized(db, token);
+  const req = makeReq({
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "bad-token",
+    eventType: "arrive_work",
+    occurredAt: "2026-07-20T09:00:00Z"
+  }, "t-wrong");
+  const res = makeRes();
+  await ingestLifeEventSingle(db, req, res);
+  assert.equal(res.statusCode, 401);
+});
+
+test("revoked token is rejected", async () => {
+  const db = new FakeFirestore();
+  const token = "t-revoked";
+  await setupAuthorized(db, token, { connection: { tokenStatus: "revoked" } });
+  const req = makeReq({
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "revoked-token",
+    eventType: "arrive_work",
+    occurredAt: "2026-07-20T09:00:00Z"
+  }, token);
+  const res = makeRes();
+  await ingestLifeEventSingle(db, req, res);
+  assert.equal(res.statusCode, 401);
+});
+
+test("wrong calendarId is rejected", async () => {
+  const db = new FakeFirestore();
+  const token = "t-bad-calendar";
+  await setupAuthorized(db, token);
+  const req = makeReq({
+    calendarId: "calendar-not-found",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "bad-calendar",
+    eventType: "arrive_work",
+    occurredAt: "2026-07-20T09:00:00Z"
+  }, token);
+  const res = makeRes();
+  await ingestLifeEventSingle(db, req, res);
+  assert.equal(res.statusCode, 404);
+});
+
+test("wrong connectionId is rejected", async () => {
+  const db = new FakeFirestore();
+  const token = "t-bad-connection";
+  await setupAuthorized(db, token);
+  const req = makeReq({
+    calendarId: "calendar-1",
+    connectionId: "conn-not-found",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "bad-connection",
+    eventType: "arrive_work",
+    occurredAt: "2026-07-20T09:00:00Z"
+  }, token);
+  const res = makeRes();
+  await ingestLifeEventSingle(db, req, res);
+  assert.equal(res.statusCode, 404);
+});
+
+test("wrong sourceProjectId is rejected", async () => {
+  const db = new FakeFirestore();
+  const token = "t-wrong-project";
+  await setupAuthorized(db, token);
+  const req = makeReq({
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-xxx",
+    sourceRecordId: "bad-project",
+    eventType: "arrive_work",
+    occurredAt: "2026-07-20T09:00:00Z"
+  }, token);
+  const res = makeRes();
+  await ingestLifeEventSingle(db, req, res);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.payload.code, "validation_error");
+});
+
 test("disallowed source app is rejected", async () => {
   const db = new FakeFirestore();
   const token = "t-app";
@@ -639,6 +884,29 @@ test("disallowed source app is rejected", async () => {
   const res = makeRes();
   await ingestLifeEventSingle(db, req, res);
   assert.equal(res.statusCode, 400);
+});
+
+test("disallowed event class scope is rejected", async () => {
+  const db = new FakeFirestore();
+  const token = "t-scope";
+  await setupAuthorized(db, token, {
+    connection: { permissions: { eventClasses: ["completed_activity"] } }
+  });
+  const req = makeReq({
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "scope",
+    eventType: "arrive_work",
+    occurredAt: "2026-07-20T09:00:00Z"
+  }, token);
+  const res = makeRes();
+  await ingestLifeEventSingle(db, req, res);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.payload.code, "validation_error");
 });
 
 test("missing bearer token is rejected", async () => {
@@ -799,6 +1067,86 @@ test("batch endpoint supports partial success", async () => {
   assert.equal(res.payload.results.length, 2);
 });
 
+test("batch item clientReference and index are stable", async () => {
+  const db = new FakeFirestore();
+  const token = "t-batch-reference";
+  await setupAuthorized(db, token);
+  const req = makeReq({
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    items: [
+      {
+        schemaVersion: 1,
+        sourceApp: "aigridline",
+        sourceProjectId: "project-a",
+        sourceRecordId: "clientref-1",
+        clientReference: "cr-1",
+        eventType: "arrive_work",
+        occurredAt: "2026-07-20T09:00:00Z"
+      },
+      {
+        schemaVersion: 1,
+        sourceApp: "aigridline",
+        sourceProjectId: "project-a",
+        sourceRecordId: "clientref-2",
+        clientReference: "cr-2",
+        eventType: "arrive_work",
+        occurredAt: "2026-07-20T10:00:00Z"
+      }
+    ]
+  }, token);
+  const res = makeRes();
+  await ingestLifeEventBatch(db, req, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.results[0].index, 0);
+  assert.equal(res.payload.results[1].index, 1);
+  assert.equal(res.payload.results[0].clientReference, "cr-1");
+  assert.equal(res.payload.results[1].clientReference, "cr-2");
+});
+
+test("one invalid batch item does not roll back valid items", async () => {
+  const db = new FakeFirestore();
+  const token = "t-batch-rollback";
+  await setupAuthorized(db, token);
+  const req = makeReq({
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    items: [
+      {
+        schemaVersion: 1,
+        sourceApp: "aigridline",
+        sourceProjectId: "project-a",
+        sourceRecordId: "rollback-ok",
+        eventType: "arrive_work",
+        occurredAt: "2026-07-20T09:00:00Z"
+      },
+      {
+        schemaVersion: 1,
+        sourceApp: "aigridline",
+        sourceProjectId: "project-a",
+        sourceRecordId: "rollback-bad",
+        eventType: "arrive_work"
+      },
+      {
+        schemaVersion: 1,
+        sourceApp: "aigridline",
+        sourceProjectId: "project-a",
+        sourceRecordId: "rollback-ok-2",
+        eventType: "arrive_work",
+        occurredAt: "2026-07-20T11:00:00Z"
+      }
+    ]
+  }, token);
+  const res = makeRes();
+  await ingestLifeEventBatch(db, req, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.failed, 1);
+  const lifeEvents = [...db._store.keys()].filter((entry) => entry.includes("/lifeEvents/"));
+  assert.equal(lifeEvents.length, 2);
+});
+
 test("batch endpoint rejects oversized payload", async () => {
   const db = new FakeFirestore();
   const token = "t-batch-large";
@@ -820,6 +1168,78 @@ test("batch endpoint rejects oversized payload", async () => {
   await ingestLifeEventBatch(db, req, res);
   assert.equal(res.statusCode, 400);
   assert.equal(res.payload.code, "validation_error");
+});
+
+test("batch duplicates are processed independently", async () => {
+  const db = new FakeFirestore();
+  const token = "t-batch-dup-indep";
+  await setupAuthorized(db, token);
+  const req = makeReq({
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    items: [
+      {
+        schemaVersion: 1,
+        sourceApp: "aigridline",
+        sourceProjectId: "project-a",
+        sourceRecordId: "dup-indep",
+        eventType: "arrive_work",
+        occurredAt: "2026-07-20T09:00:00Z"
+      },
+      {
+        schemaVersion: 1,
+        sourceApp: "aigridline",
+        sourceProjectId: "project-a",
+        sourceRecordId: "dup-indep",
+        eventType: "arrive_work",
+        occurredAt: "2026-07-20T09:00:00Z"
+      },
+      {
+        schemaVersion: 1,
+        sourceApp: "aigridline",
+        sourceProjectId: "project-a",
+        sourceRecordId: "dup-indep-2",
+        eventType: "arrive_work",
+        occurredAt: "2026-07-20T10:00:00Z"
+      }
+    ]
+  }, token);
+  const res = makeRes();
+  await ingestLifeEventBatch(db, req, res);
+  assert.equal(res.payload.status, "success");
+  assert.equal(res.payload.results[0].status, "success");
+  assert.equal(res.payload.results[1].status, "success");
+  assert.equal(res.payload.results[0].duplicate, false);
+  assert.equal(res.payload.results[1].duplicate, true);
+  assert.equal(res.payload.results[2].duplicate, false);
+});
+
+test("internal batch failure uses generic error response", async () => {
+  const db = new ThrowingEventWritesFirestore();
+  const token = "t-batch-internal";
+  await setupAuthorized(db, token);
+  const req = makeReq({
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    items: [
+      {
+        schemaVersion: 1,
+        sourceApp: "aigridline",
+        sourceProjectId: "project-a",
+        sourceRecordId: "batch-internal",
+        eventType: "arrive_work",
+        occurredAt: "2026-07-20T09:00:00Z"
+      }
+    ]
+  }, token);
+  const res = makeRes();
+  await ingestLifeEventBatch(db, req, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.results[0].status, "error");
+  assert.equal(res.payload.results[0].code, "server_error");
+  assert.equal(res.payload.results[0].message, "Internal ingestion failure.");
 });
 
 test("validation failures do not create dead-letter records", async () => {
@@ -863,6 +1283,31 @@ test("unexpected internal failure writes dead-letter", async () => {
   assert.equal(res.statusCode, 500);
   const deadLetterCount = [...db._store.keys()].filter((entry) => entry.includes("ingestionDeadLetters")).length;
   assert.equal(deadLetterCount > 0, true);
+});
+
+test("dead-letter records do not persist token-like values", async () => {
+  const db = new ThrowingEventWritesFirestore();
+  const token = "t-dl-redact";
+  await setupAuthorized(db, token);
+  const req = makeReq({
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "dl-redact",
+    eventType: "arrive_work",
+    occurredAt: "2026-07-20T09:00:00Z",
+    authorization: "nope"
+  }, token);
+  const res = makeRes();
+  await ingestLifeEventSingle(db, req, res);
+  const dead = [...db._store.values()].find((value) => value && value.errorCode);
+  assert.equal(dead.errorCode, "internal_error");
+  assert.equal(Object.prototype.hasOwnProperty.call(dead, "payload"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(dead, "payloadHash"), true);
+  assert.equal(res.payload.status, "error");
 });
 
 test("raw audit snapshot is sanitized and non-sensitive", async () => {
@@ -925,6 +1370,34 @@ test("raw audit snapshot stores expiry near 90 days", async () => {
   assert.ok(days >= 89.5 && days <= 90.5);
 });
 
+test("cleanup removes expired artifacts and keeps valid ones", async () => {
+  const db = new FakeFirestore();
+  const now = Date.now();
+  const oldTimestamp = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+  const newTimestamp = new Date(now + 24 * 60 * 60 * 1000).toISOString();
+  const oldRawRef = db.collection("lifeCalendars").doc("calendar-1").collection("rawIngestionPayloads").doc("old");
+  const newRawRef = db.collection("lifeCalendars").doc("calendar-1").collection("rawIngestionPayloads").doc("new");
+  const oldDeadRef = db.collection("lifeCalendars").doc("calendar-1").collection("ingestionDeadLetters").doc("old");
+  const newDeadRef = db.collection("lifeCalendars").doc("calendar-1").collection("ingestionDeadLetters").doc("new");
+  await oldRawRef.set({ expiresAt: oldTimestamp, payload: {} });
+  await newRawRef.set({ expiresAt: newTimestamp, payload: {} });
+  await oldDeadRef.set({ expiresAt: oldTimestamp, sourceIdentifier: "legacy" });
+  await newDeadRef.set({ expiresAt: newTimestamp, sourceIdentifier: "legacy" });
+  const beforeCount = db._store.size;
+  await cleanupLifeEventArtifacts(db);
+  const after = [...db._store.keys()];
+  const afterRaw = after.filter((entry) => entry.includes("/rawIngestionPayloads/")).length;
+  const afterDead = after.filter((entry) => entry.includes("/ingestionDeadLetters/")).length;
+  assert.equal(after.length, 2);
+  assert.equal(beforeCount, 4);
+  assert.equal(afterRaw, 1);
+  assert.equal(afterDead, 1);
+});
+
+test("cleanupLifeEventArtifacts is exported", () => {
+  assert.equal(typeof cleanupLifeEventArtifacts, "function");
+});
+
 test("legacy single adapter creates canonical LifeEvent", async () => {
   const db = new FakeFirestore();
   const token = "t-legacy-single";
@@ -959,7 +1432,130 @@ test("legacy single adapter creates canonical LifeEvent", async () => {
   await ingestLegacySingle(db, req, res);
   assert.equal(res.statusCode, 200);
   assert.equal(typeof res.payload.lifeEventId, "string");
+  assert.equal(res.payload.status, "created");
+});
+
+test("legacy single writes remain on canonical conflict", async () => {
+  const db = new FakeFirestore();
+  const token = "t-legacy-conflict";
+  await setupAuthorized(db, token, {
+    connection: {
+      permissions: {
+        eventClasses: ["completed_activity", "project", "system", "achievement", "activity_boundary"]
+      }
+    }
+  });
+  const req = {
+    method: "POST",
+    body: {
+      calendarId: "calendar-1",
+      connectionId: "conn-1",
+      item: {
+        sourceApp: "aigridline",
+        sourceFirebaseProjectId: "aigridline",
+        category: "workout",
+        sourceProjectId: "project-a",
+        sourceRecordId: "legacy-conflict",
+        sourceDocumentPath: "workouts/wc",
+        dateId: "2026-07-20",
+        title: "first"
+      }
+    },
+    get(header) {
+      if (header.toLowerCase() === "authorization") return `Bearer ${token}`;
+      return "";
+    }
+  };
+  const first = makeRes();
+  await ingestLegacySingle(db, req, first);
+  const second = makeRes();
+  await ingestLegacySingle(
+    db,
+    {
+      ...req,
+      body: {
+        ...req.body,
+        item: {
+          ...req.body.item,
+          title: "changed"
+        }
+      }
+    },
+    second
+  );
+  assert.equal(first.payload.ok, true);
+  assert.equal(second.payload.ok, true);
+  assert.equal(second.payload.canonicalIngestion, "failed");
+  assert.ok(typeof first.payload.lifeEventId === "string" && first.payload.lifeEventId.length > 0);
+  assert.ok(second.payload.canonicalError);
+  const legacyItemCount = [...db._store.keys()].filter((entry) => entry.includes("/externalItems/")).length;
+  assert.equal(legacyItemCount > 0, true);
+  const lifeEvents = [...db._store.keys()].filter((entry) => entry.includes("/lifeEvents/"));
+  assert.equal(lifeEvents.length > 0, true);
+});
+
+test("legacy stable identifier emits stable canonical idempotency", async () => {
+  const db = new FakeFirestore();
+  const token = "t-legacy-idemp";
+  await setupAuthorized(db, token, {
+    connection: {
+      permissions: {
+        eventClasses: ["completed_activity", "project", "system", "achievement", "activity_boundary"]
+      }
+    }
+  });
+  const req = makeLegacyReq({
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    item: {
+      sourceApp: "aigridline",
+      sourceFirebaseProjectId: "aigridline",
+      category: "workout",
+      sourceProjectId: "project-a",
+      sourceRecordId: "legacy-stable",
+      sourceDocumentPath: "workouts/ws",
+      dateId: "2026-07-20"
+    }
+  }, token);
+  const first = makeRes();
+  const second = makeRes();
+  await ingestLegacySingle(db, req, first);
+  await ingestLegacySingle(db, req, second);
+  assert.equal(first.payload.lifeEventId, second.payload.lifeEventId);
+});
+
+test("legacy unsupported data is skipped instead of invented LifeEvent", async () => {
+  const db = new FakeFirestore();
+  const token = "t-legacy-unsupported";
+  await setupAuthorized(db, token, {
+    connection: {
+      permissions: {
+        eventClasses: ["completed_activity", "project", "system", "achievement", "activity_boundary"]
+      }
+    }
+  });
+  const req = {
+    method: "POST",
+    body: {
+      calendarId: "calendar-1",
+      connectionId: "conn-1",
+      item: {
+        sourceApp: "aigridline",
+        sourceFirebaseProjectId: "aigridline",
+        category: "workout",
+        sourceProjectId: "project-a",
+        sourceRecordId: "legacy-unsupported"
+      }
+    },
+    get(header) {
+      if (header.toLowerCase() === "authorization") return `Bearer ${token}`;
+      return "";
+    }
+  };
+  const res = makeRes();
+  await ingestLegacySingle(db, req, res);
   assert.equal(res.payload.ok, true);
+  assert.equal(res.payload.canonicalIngestion, "skipped");
 });
 
 test("legacy batch adapter maps supported records", async () => {
@@ -1028,12 +1624,36 @@ test("source-app admins cannot read personal lifeEvents", () => {
   assert.doesNotMatch(block, /isAcceptedViewer/);
 });
 
+test("phase-1 function exports include v1 lifecycle endpoints", () => {
+  const indexText = fs.readFileSync(path.resolve(__dirname, "../../../functions/index.js"), "utf8");
+  assert.match(indexText, /exports\.apiV1LifeEvents\s*=\s*onRequest\(/);
+  assert.match(indexText, /exports\.apiV1LifeEventsBatch\s*=\s*onRequest\(/);
+  assert.match(indexText, /exports\.ingestExternalDailyItem\s*=\s*onRequest\(/);
+  assert.match(indexText, /exports\.ingestExternalDailyItemsBatch\s*=\s*onRequest\(/);
+});
+
+test("public routes are rewired to expected v1 paths", () => {
+  const hosting = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../../firebase.json"), "utf8"));
+  const rewrites = hosting.hosting?.rewrites || [];
+  const singleRoute = rewrites.find((rewrite) => rewrite.source === "/api/v1/life-events");
+  const batchRoute = rewrites.find((rewrite) => rewrite.source === "/api/v1/life-events:batch");
+  assert.equal(singleRoute?.function, "apiV1LifeEvents");
+  assert.equal(batchRoute?.function, "apiV1LifeEventsBatch");
+});
+
 test("dead-letter and raw audit collections are server-only", () => {
   const text = rulesText();
   const dead = rulesBlock(text, "ingestionDeadLetters");
   const raw = rulesBlock(text, "rawIngestionPayloads");
   assert.match(dead, /allow read,\s*write:\s*if\s+false;/);
   assert.match(raw, /allow read,\s*write:\s*if\s+false;/);
+});
+
+test("lifeEvents are server-written only", () => {
+  const text = rulesText();
+  const block = rulesBlock(text, "lifeEvents");
+  assert.match(block, /allow read:\s*if\s+isOwner\(calendarId\);/);
+  assert.match(block, /allow write:\s*if\s+false;/);
 });
 
 test("mapLegacyToLifeEvent includes expected defaults", () => {

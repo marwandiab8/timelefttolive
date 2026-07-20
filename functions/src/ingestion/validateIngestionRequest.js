@@ -13,6 +13,12 @@ function validateMethod(req) {
   }
 }
 
+const MAX_REQUEST_BYTES = 64 * 1024;
+
+function payloadTooLarge(payload) {
+  return Buffer.byteLength(JSON.stringify(payload || {}), "utf8") > MAX_REQUEST_BYTES;
+}
+
 function validateItemAgainstConnection(item, connection) {
   if (!item.sourceApp) throw Object.assign(new Error("item.sourceApp is required or unsupported."), { status: 400 });
   if (connection.sourceApp && item.sourceApp !== connection.sourceApp) {
@@ -30,6 +36,12 @@ function validateItemAgainstConnection(item, connection) {
 async function validateIngestionRequest(db, req, itemRequired = true) {
   validateMethod(req);
   const { calendarId, connectionId, item, items } = req.body || {};
+  if (payloadTooLarge(req.body)) {
+    const error = new Error("Payload too large.");
+    error.code = "validation_error";
+    error.status = 413;
+    throw error;
+  }
   const authContext = await validateBearerToken(db, bearerToken(req), calendarId, connectionId);
   const baseContext = {
     calendarId,
