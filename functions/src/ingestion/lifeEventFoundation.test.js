@@ -47,6 +47,9 @@ class FakeDocRef {
     this._store.set(this._path, data);
   }
   async delete() {
+    if (this._store._deleteFailures?.has(this._path)) {
+      throw new Error("injection: forced document delete failure");
+    }
     this._store.delete(this._path);
   }
   collection(name) {
@@ -81,17 +84,28 @@ class FakeCollectionRef {
 }
 
 class FakeQuery {
-  constructor(store, pathName, docs = [], constraints = []) {
+  constructor(store, pathName, docs = [], constraints = [], limitCount = null) {
     this._store = store;
     this._path = pathName;
     this._docs = docs;
     this._constraints = constraints;
+    this._limitCount = limitCount;
   }
   where(field, op, value) {
-    return new FakeQuery(this._store, this._path, this._docs, [...this._constraints, { field, op, value }]);
+    return new FakeQuery(
+      this._store,
+      this._path,
+      this._docs,
+      [...this._constraints, { field, op, value }],
+      this._limitCount
+    );
+  }
+
+  limit(count) {
+    return new FakeQuery(this._store, this._path, this._docs, this._constraints, count);
   }
   async get() {
-    const results = this._docs
+    let results = this._docs
       .filter((item) => {
         const data = item[1];
         return this._constraints.every((constraint) => {
@@ -111,6 +125,11 @@ class FakeQuery {
         exists: true,
         data: () => structuredClone(data)
       }));
+
+    if (this._limitCount !== null) {
+      results = results.slice(0, this._limitCount);
+    }
+
     return { docs: results };
   }
 }
@@ -118,6 +137,8 @@ class FakeQuery {
 class FakeFirestore {
   constructor() {
     this._store = new Map();
+    this._deleteFailures = new Set();
+    this._store._deleteFailures = this._deleteFailures;
   }
   collection(pathName) {
     return new FakeCollectionRef(this._store, pathName);
@@ -147,6 +168,43 @@ class FakeFirestore {
       }
     }
     return result;
+  }
+
+  batch() {
+    const writes = [];
+    return {
+      delete(ref) {
+        writes.push(ref);
+      },
+      async commit() {
+        for (const ref of writes) {
+          await ref.delete();
+        }
+      }
+    };
+  }
+}
+
+class FailingBatchOnceFirestore extends FakeFirestore {
+  constructor() {
+    super();
+    this._batchFailure = true;
+  }
+
+  batch() {
+    const baseBatch = super.batch();
+    if (!this._batchFailure) {
+      return baseBatch;
+    }
+    this._batchFailure = false;
+    return {
+      delete(ref) {
+        baseBatch.delete(ref);
+      },
+      async commit() {
+        throw new Error("injection: forced batch commit failure");
+      }
+    };
   }
 }
 
@@ -1383,15 +1441,159 @@ test("cleanup removes expired artifacts and keeps valid ones", async () => {
   await newRawRef.set({ expiresAt: newTimestamp, payload: {} });
   await oldDeadRef.set({ expiresAt: oldTimestamp, sourceIdentifier: "legacy" });
   await newDeadRef.set({ expiresAt: newTimestamp, sourceIdentifier: "legacy" });
-  const beforeCount = db._store.size;
-  await cleanupLifeEventArtifacts(db);
+
+  const result = await cleanupLifeEventArtifacts(db);
+  assert.equal(result.rawDeleted, 1);
+  assert.equal(result.deadLetterDeleted, 1);
+  assert.equal(result.totalDeleted, 2);
+
   const after = [...db._store.keys()];
   const afterRaw = after.filter((entry) => entry.includes("/rawIngestionPayloads/")).length;
   const afterDead = after.filter((entry) => entry.includes("/ingestionDeadLetters/")).length;
-  assert.equal(after.length, 2);
-  assert.equal(beforeCount, 4);
   assert.equal(afterRaw, 1);
   assert.equal(afterDead, 1);
+});
+
+test("cleanup handles empty artifact set", async () => {
+  const db = new FakeFirestore();
+  const result = await cleanupLifeEventArtifacts(db);
+  assert.equal(result.rawDeleted, 0);
+  assert.equal(result.deadLetterDeleted, 0);
+  assert.equal(result.totalDeleted, 0);
+});
+
+test("cleanup keeps only unexpired artifacts", async () => {
+  const db = new FakeFirestore();
+  const now = Date.now();
+  const futureTimestamp = new Date(now + 24 * 60 * 60 * 1000).toISOString();
+
+  await db.collection("lifeCalendars").doc("calendar-1").collection("rawIngestionPayloads").doc("fresh").set({
+    expiresAt: futureTimestamp,
+    payload: {}
+  });
+  await db.collection("lifeCalendars").doc("calendar-1").collection("ingestionDeadLetters").doc("fresh").set({
+    expiresAt: futureTimestamp,
+    sourceIdentifier: "legacy"
+  });
+
+  const result = await cleanupLifeEventArtifacts(db);
+  assert.equal(result.rawDeleted, 0);
+  assert.equal(result.deadLetterDeleted, 0);
+  assert.equal(result.totalDeleted, 0);
+  assert.equal(db._store.size, 2);
+});
+
+test("cleanup removes expired raw records", async () => {
+  const db = new FakeFirestore();
+  const now = Date.now();
+  const expired = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+  const fresh = new Date(now + 24 * 60 * 60 * 1000).toISOString();
+
+  await db.collection("lifeCalendars").doc("calendar-1").collection("rawIngestionPayloads").doc("expired").set({
+    expiresAt: expired,
+    payload: {}
+  });
+  await db.collection("lifeCalendars").doc("calendar-1").collection("rawIngestionPayloads").doc("fresh").set({
+    expiresAt: fresh,
+    payload: {}
+  });
+
+  const result = await cleanupLifeEventArtifacts(db);
+  assert.equal(result.rawDeleted, 1);
+  assert.equal(result.deadLetterDeleted, 0);
+  assert.equal(db._store.size, 1);
+});
+
+test("cleanup removes expired dead-letter records", async () => {
+  const db = new FakeFirestore();
+  const now = Date.now();
+  const expired = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+  const fresh = new Date(now + 24 * 60 * 60 * 1000).toISOString();
+
+  await db.collection("lifeCalendars").doc("calendar-1").collection("ingestionDeadLetters").doc("expired").set({
+    expiresAt: expired,
+    sourceIdentifier: "legacy"
+  });
+  await db.collection("lifeCalendars").doc("calendar-1").collection("ingestionDeadLetters").doc("fresh").set({
+    expiresAt: fresh,
+    sourceIdentifier: "legacy"
+  });
+
+  const result = await cleanupLifeEventArtifacts(db);
+  assert.equal(result.deadLetterDeleted, 1);
+  assert.equal(result.rawDeleted, 0);
+  assert.equal(db._store.size, 1);
+});
+
+test("cleanup supports mixed collections", async () => {
+  const db = new FakeFirestore();
+  const now = Date.now();
+  const expired = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+  const fresh = new Date(now + 24 * 60 * 60 * 1000).toISOString();
+
+  await db.collection("lifeCalendars").doc("calendar-1").collection("rawIngestionPayloads").doc("expired").set({
+    expiresAt: expired,
+    payload: {}
+  });
+  await db.collection("lifeCalendars").doc("calendar-1").collection("rawIngestionPayloads").doc("fresh").set({
+    expiresAt: fresh,
+    payload: {}
+  });
+  await db.collection("lifeCalendars").doc("calendar-1").collection("ingestionDeadLetters").doc("expired").set({
+    expiresAt: expired,
+    sourceIdentifier: "legacy"
+  });
+  await db.collection("lifeCalendars").doc("calendar-1").collection("ingestionDeadLetters").doc("fresh").set({
+    expiresAt: fresh,
+    sourceIdentifier: "legacy"
+  });
+
+  const result = await cleanupLifeEventArtifacts(db);
+  assert.equal(result.rawDeleted, 1);
+  assert.equal(result.deadLetterDeleted, 1);
+  assert.equal(result.totalDeleted, 2);
+
+  const afterRaw = [...db._store.keys()].filter((entry) => entry.includes("/rawIngestionPayloads/")).length;
+  const afterDead = [...db._store.keys()].filter((entry) => entry.includes("/ingestionDeadLetters/")).length;
+  assert.equal(afterRaw, 1);
+  assert.equal(afterDead, 1);
+});
+
+test("cleanup paginates larger than one query limit", async () => {
+  const db = new FakeFirestore();
+  const now = Date.now();
+  const expired = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+
+  for (let index = 0; index < 150; index += 1) {
+    await db.collection("lifeCalendars").doc("calendar-1").collection("rawIngestionPayloads").doc(`expired-${index}`).set({
+      expiresAt: expired,
+      payload: { idx: index }
+    });
+  }
+
+  const result = await cleanupLifeEventArtifacts(db);
+  assert.equal(result.rawDeleted, 150);
+  assert.equal(result.deadLetterDeleted, 0);
+  assert.equal(result.totalDeleted, 150);
+  assert.equal(db._store.size, 0);
+});
+
+test("cleanup handles batch delete failure and continues safely", async () => {
+  const db = new FailingBatchOnceFirestore();
+  const now = Date.now();
+  const expired = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+
+  const goodDoc = db.collection("lifeCalendars").doc("calendar-1").collection("rawIngestionPayloads").doc("good");
+  const failDoc = db.collection("lifeCalendars").doc("calendar-1").collection("rawIngestionPayloads").doc("failure");
+  await goodDoc.set({ expiresAt: expired, payload: { keep: false } });
+  await failDoc.set({ expiresAt: expired, payload: { keep: false } });
+  db._deleteFailures.add("lifeCalendars/calendar-1/rawIngestionPayloads/failure");
+
+  const result = await cleanupLifeEventArtifacts(db);
+  assert.equal(result.rawDeleted, 1);
+  assert.equal(result.deadLetterDeleted, 0);
+  assert.equal(result.totalDeleted, 1);
+  assert.equal(db._store.size, 1);
 });
 
 test("cleanupLifeEventArtifacts is exported", () => {

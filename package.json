@@ -7,17 +7,24 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run",
-    "backfill:external": "node scripts/backfillExternalDailyItems.js"
+    "backfill:external": "node scripts/backfillExternalDailyItems.js",
+    "test:frontend": "vitest run src --exclude \"functions/**\" --exclude \"scripts/**\" --exclude \"tests/**\"",
+    "test:functions": "node --test functions/src/**/*.test.js",
+    "test:rules": "firebase emulators:exec --only firestore \"node --test tests/firestore-rules.test.js\"",
+    "test:hosting": "firebase emulators:exec --only functions,hosting \"node --test scripts/verify-hosting-routes.test.cjs\"",
+    "test:all": "npm run test:frontend && npm run test:functions && npm run test:rules && npm run test:hosting",
+    "test": "npm run test:all"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.0",
     "firebase": "^12.0.0",
-    "vite": "^7.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "vite": "^7.0.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "firebase-admin": "^14.2.0",
     "vitest": "^3.0.0"
   }
 }

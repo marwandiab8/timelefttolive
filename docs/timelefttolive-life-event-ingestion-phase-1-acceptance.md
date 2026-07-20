@@ -151,4 +151,81 @@ These were not required for phase-1 canonical intake + legacy compatibility and 
 
 ## 11) Recommendation
 
-GO for Phase 1 acceptance, with open caveat: add local emulator and Firestore rules test harness before release sign-off.
+NO-GO until Firestore emulator/JDK is available to execute rules tests; hosting/cleanup/function code paths are otherwise aligned with Phase 1 expectations.
+
+## 12) Phase 1 verification recap (local)
+
+Environment and command intent
+- Branch context reviewed: `9c30158f96a212ee2b38d0fff0a4707306bd6d8d` and `87d8d41`.
+- Emulator tests and hosting checks are local-only (no production reads/writes).
+- Added/used:
+  - `tests/firestore-rules.test.js`
+  - `scripts/verify-hosting-routes.test.cjs`
+  - `npm run test:frontend`
+  - `npm run test:functions`
+  - `npm run test:rules`
+  - `npm run test:hosting`
+  - `npm run test:all`
+
+Emulator setup
+- Frontend runner: Vitest CLI with explicit exclusions.
+- Functions runner: Node test runner (`node --test functions/src/**/*.test.js`).
+- Rules runner: `firebase emulators:exec --only firestore`.
+- Hosting check runner: `firebase emulators:exec --only functions,hosting`.
+
+Rules-test execution
+- Targeted test file: `tests/firestore-rules.test.js`.
+- Assertions implemented for:
+  - owner can read own LifeEvent
+  - owner cannot create/update LifeEvent
+  - owner delete behavior is denied unless rules permit
+  - different user denied read
+  - source admin role does not grant timeline read
+  - unauthenticated read denied
+  - clients cannot read/write `rawIngestionPayloads`, `ingestionDeadLetters`, `sourceConnectionSecrets`.
+  - existing source-connection read behavior still works.
+- Execution result:
+  - `npm run test:rules` fails at emulator startup: `Could not spawn java -version. Please make sure Java is installed and on your system PATH.`
+  - This blocks definitive pass/fail of rules tests in this environment.
+
+Hosting rewrite verification
+- `firebase.json` rewrites now include explicit region:
+  - `/api/v1/life-events` → `apiV1LifeEvents` in `northamerica-northeast1`
+  - `/api/v1/life-events:batch` → `apiV1LifeEventsBatch` in `northamerica-northeast1`
+- Verification file: `scripts/verify-hosting-routes.test.cjs`.
+- Local emulator command result (with only functions+hosting emulators): all 4 checks pass.
+- Observed behavior:
+  - POST routes reach functions (non-404 responses).
+  - non-POST routes return `405`.
+  - responses are client-error JSON without server crashes (no 5xx for auth/method probes).
+- Warning: full authenticated-path checks requiring seeded Firestore fixtures are not currently verifiable without Firestore emulator.
+
+Cleanup scalability verification
+- `cleanupLifeEventArtifacts` now uses:
+  - bounded query page size (`CLEANUP_QUERY_LIMIT = 100`)
+  - bounded write batch size (`CLEANUP_WRITE_BATCH_SIZE = 50`)
+  - paged loop with bounded iteration by consumed results
+  - per-batch retry-safe deletion logging.
+- Added function tests for:
+  - empty cleanup
+  - only unexpired records
+  - expired raw records
+  - expired dead letters
+  - mixed raw + dead-letter collections
+  - more than one query page (150 raw artifacts)
+  - partial delete failure handling while continuing.
+
+Final test command outputs
+- `npm run test:frontend`
+  - Files: 3, Tests: 17, Passed: 17, Failed: 0, Skipped: 0, Exit: 0.
+- `npm run test:functions`
+  - Files: 2, Tests: 2 (subtest files), Passed: 2, Failed: 0, Skipped: 0, Exit: 0.
+- `npm run test:rules`
+  - Start failed before test execution: Java not installed (`java -version` spawn failure), Exit: 1.
+- `npm run test:hosting`
+  - Files: 1 test file, Tests: 4, Passed: 4, Failed: 0, Skipped: 0, Exit: 0.
+- `npm run test:all`
+  - Stops at `test:rules` failure; Exit: 1.
+
+Deployment recommendation
+- Hold staging deployment until `npm run test:rules` is executable in the local environment and rules tests pass.

@@ -10,6 +10,8 @@ const MAX_PAYLOAD_BYTES = 64 * 1024;
 const MAX_REQUEST_BYTES = MAX_PAYLOAD_BYTES;
 const RAW_AUDIT_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const DEAD_LETTER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const CLEANUP_QUERY_LIMIT = 100;
+const CLEANUP_WRITE_BATCH_SIZE = 50;
 const DEFAULT_TIMEZONE = "America/Toronto";
 
 const ALLOWED_EVENT_CLASSES = [
@@ -617,6 +619,7 @@ async function ingestLifeEventSingle(db, req, res, options = {}) {
 
 async function ingestLifeEventBatch(db, req, res, options = {}) {
   try {
+    const auth = await resolveAuth(db, req, options.allowMissingIntegrationId);
     const body = req.body || {};
     const items = body.items;
 
@@ -630,8 +633,6 @@ async function ingestLifeEventBatch(db, req, res, options = {}) {
       err.status = 400;
       throw err;
     }
-
-    const auth = await resolveAuth(db, req, options.allowMissingIntegrationId);
 
     const summary = {
       total: items.length,
@@ -884,10 +885,99 @@ async function ingestLegacyBatch(db, req, res) {
 
 async function cleanupLifeEventArtifacts(db) {
   const now = new Date();
-  const snapshot = await db.collectionGroup("rawIngestionPayloads").where("expiresAt", "<=", now).get();
-  await Promise.all(snapshot.docs.map((docSnap) => docSnap.ref.delete()));
-  const stale = await db.collectionGroup("ingestionDeadLetters").where("expiresAt", "<=", now).get();
-  await Promise.all(stale.docs.map((docSnap) => docSnap.ref.delete()));
+  const rawDeleted = await deleteExpiredCollectionGroupDocuments(db, "rawIngestionPayloads", now);
+  const deadLetterDeleted = await deleteExpiredCollectionGroupDocuments(db, "ingestionDeadLetters", now);
+  return { rawDeleted, deadLetterDeleted, totalDeleted: rawDeleted + deadLetterDeleted };
+}
+
+function chunk(values, size) {
+  const result = [];
+  for (let i = 0; i < values.length; i += size) {
+    result.push(values.slice(i, i + size));
+  }
+  return result;
+}
+
+function logCleanupWarning(details) {
+  console.warn("cleanupLifeEventArtifacts warning:", details);
+}
+
+async function deleteInBatches(db, refs) {
+  let deleted = 0;
+  const chunks = chunk(refs, CLEANUP_WRITE_BATCH_SIZE);
+
+  for (const refsChunk of chunks) {
+    let chunkDeleted = 0;
+    if (typeof db.batch === "function") {
+      const batch = db.batch();
+      for (const ref of refsChunk) {
+        batch.delete(ref);
+      }
+      try {
+        await batch.commit();
+        deleted += refsChunk.length;
+        continue;
+      } catch (error) {
+        logCleanupWarning({
+          collection: refsChunk[0]?.path?.split("/")[1] || "unknown",
+          count: refsChunk.length,
+          message: error.message
+        });
+      }
+    }
+
+    for (const ref of refsChunk) {
+      try {
+        await ref.delete();
+        chunkDeleted += 1;
+      } catch (error) {
+        logCleanupWarning({
+          collection: refsChunk[0]?.path?.split("/")[1] || "unknown",
+          path: ref.path,
+          message: error.message
+        });
+      }
+    }
+    deleted += chunkDeleted;
+  }
+
+  return deleted;
+}
+
+async function deleteExpiredCollectionGroupDocuments(db, collectionName, now) {
+  let deletedTotal = 0;
+  let loops = 0;
+
+  while (loops < 20) {
+    const snapshot = await db.collectionGroup(collectionName)
+      .where("expiresAt", "<=", now)
+      .limit(CLEANUP_QUERY_LIMIT)
+      .get();
+
+    if (!snapshot || snapshot.docs.length === 0) {
+      break;
+    }
+
+    const refs = snapshot.docs
+      .filter((docSnap) => docSnap.exists)
+      .map((docSnap) => docSnap.ref)
+      .filter(Boolean);
+
+    if (refs.length === 0) {
+      break;
+    }
+
+    const deleted = await deleteInBatches(db, refs);
+    deletedTotal += deleted;
+
+    if (deleted === 0 || deleted < snapshot.docs.length) {
+      break;
+    }
+
+    loops += 1;
+  }
+
+  return deletedTotal;
 }
 
 module.exports = {

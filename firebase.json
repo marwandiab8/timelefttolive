@@ -19,11 +19,13 @@
     "rewrites": [
       {
         "source": "/api/v1/life-events",
-        "function": "apiV1LifeEvents"
+        "function": "apiV1LifeEvents",
+        "region": "northamerica-northeast1"
       },
       {
         "source": "/api/v1/life-events:batch",
-        "function": "apiV1LifeEventsBatch"
+        "function": "apiV1LifeEventsBatch",
+        "region": "northamerica-northeast1"
       },
       {
         "source": "**",
