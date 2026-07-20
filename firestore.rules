@@ -62,6 +62,33 @@ service cloud.firestore {
         allow read, write: if isOwner(calendarId);
       }
 
+      match /sourceConnectionSecrets/{connectionId} {
+        allow read, write: if false;
+      }
+
+      match /externalIndex/{externalItemId} {
+        allow read: if isOwner(calendarId);
+        allow write: if false;
+      }
+
+      match /externalNeedsDateReview/{reviewItemId} {
+        allow read, update, delete: if isOwner(calendarId);
+        allow create: if false;
+      }
+
+      match /lifeEvents/{eventId} {
+        allow read: if isOwner(calendarId);
+        allow write: if false;
+      }
+
+      match /ingestionDeadLetters/{deadLetterId} {
+        allow read, write: if false;
+      }
+
+      match /rawIngestionPayloads/{snapshotId} {
+        allow read, write: if false;
+      }
+
       match /events/{eventId} {
         allow read: if isOwner(calendarId) || (isAcceptedViewer(calendarId) && isViewerVisible());
         allow write: if isOwner(calendarId);
