@@ -10,8 +10,8 @@
     "backfill:external": "node scripts/backfillExternalDailyItems.js",
     "test:frontend": "vitest run src --exclude \"functions/**\" --exclude \"scripts/**\" --exclude \"tests/**\"",
     "test:functions": "node --test functions/src/**/*.test.js",
-    "test:rules": "firebase emulators:exec --only firestore \"node --test tests/firestore-rules.test.js\"",
-    "test:hosting": "firebase emulators:exec --only functions,hosting \"node --test scripts/verify-hosting-routes.test.cjs\"",
+    "test:rules": "firebase emulators:exec --only firestore \"node --test tests/firestore-rules.test.cjs\"",
+    "test:hosting": "firebase emulators:exec --only firestore,functions,hosting \"node --test scripts/verify-hosting-routes.test.cjs\"",
     "test:all": "npm run test:frontend && npm run test:functions && npm run test:rules && npm run test:hosting",
     "test": "npm run test:all"
   },
