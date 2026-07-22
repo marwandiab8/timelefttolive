@@ -131,12 +131,12 @@ Dry-run command order and outcomes (per host run):
 3. `firebase deploy --project timelefttolive-stg-go --dry-run --only functions:apiV1LifeEvents,functions:apiV1LifeEventsBatch,functions:ingestExternalDailyItem,functions:ingestExternalDailyItemsBatch,functions:createSourceIngestionToken,functions:revokeSourceIngestionToken,functions:cleanupLifeEventIngestionArtifacts`
 4. `firebase deploy --project timelefttolive-stg-go --dry-run --only hosting`
 
-Outcome placeholders from host run:
+Outcome from host run (all targeted `timelefttolive-stg-go` explicitly):
 
-- Firestore indexes: `[PASTE RESULT]`
-- Firestore rules: `[PASTE RESULT]`
-- Phase 1 Functions: `[PASTE RESULT]`
-- Hosting: `[PASTE RESULT]`
+- Firestore indexes: exit `0`, compile passed, `firestore.indexes.json` and `firestore.rules` read successfully, dry run complete.
+- Firestore rules: exit `0`, `firestore.rules` compiled successfully, dry run complete.
+- Phase 1 Functions: exit `0`, packaging/analyzing codebase succeeded, Firebase Extensions API preflight triggered, required APIs auto-enable steps logged, dry run complete.
+- Hosting: exit `0`, deploying hosting preflight succeeded, dry run complete; hosting URL `https://timelefttolive-stg-go.web.app`.
 
 ## 11) Final staging deployment command order
 
