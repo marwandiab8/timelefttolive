@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "timelefttolive"
+    "default": "timelefttolive",
+    "production": "timelefttolive",
+    "staging": "timelefttolive-stg-go"
   }
 }

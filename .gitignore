@@ -11,3 +11,4 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 firestore-debug.log
+.staging-fixture-token

@@ -6,8 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:staging": "vite build --mode staging && node scripts/verify-staging-build.js",
     "preview": "vite preview",
     "backfill:external": "node scripts/backfillExternalDailyItems.js",
+    "staging:fixture:create": "node scripts/staging-fixture.js create --project timelefttolive-stg-go --token-file .staging-fixture-token",
+    "staging:fixture:cleanup": "node scripts/staging-fixture.js cleanup --project timelefttolive-stg-go --token-file .staging-fixture-token",
+    "staging:smoke-test": "node scripts/staging-smoke-test.js --project timelefttolive-stg-go --fixture-token-file .staging-fixture-token",
+    "test:staging-build": "node scripts/verify-staging-build.js",
     "test:frontend": "vitest run src --exclude \"functions/**\" --exclude \"scripts/**\" --exclude \"tests/**\"",
     "test:functions": "node --test functions/src/**/*.test.js",
     "test:rules": "firebase emulators:exec --only firestore \"node --test tests/firestore-rules.test.cjs\"",
