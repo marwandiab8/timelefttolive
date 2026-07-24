@@ -2,6 +2,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
@@ -10,7 +11,14 @@ const FORBIDDEN_PROJECT_ID = 'timelefttolive-stg-marwan';
 const FIXTURE_CALENDAR_ID = 'calendar-staging-fixture';
 const FIXTURE_CONNECTION_ID = 'connection-staging-test-source';
 const FIXTURE_INTEGRATION_ID = 'integration-staging-test-source';
+const FIXTURE_LEGACY_CONNECTION_ID = 'connection-staging-legacy-test';
+const FIXTURE_LEGACY_INTEGRATION_ID = 'integration-staging-legacy-test';
 const FIXTURE_OWNER_UID = 'staging-owner-fixture';
+const FIXTURE_LEGACY_SOURCE_APP = 'manual';
+const FIXTURE_SOURCE_FIREBASE_PROJECT_ID = 'staging-source-project';
+const FIXTURE_SOURCE_PROJECT_ID = 'staging-source-calendar-001';
+const FIXTURE_LEGACY_SOURCE_FIREBASE_PROJECT_ID = 'staging-legacy-source-project';
+const FIXTURE_LEGACY_SOURCE_PROJECT_ID = 'staging-legacy-project-001';
 const FUNCTION_REGION = 'northamerica-northeast1';
 const FIXTURE_TOKEN_FILE = '.staging-fixture-token';
 
@@ -65,11 +73,25 @@ function buildCanonicalPayload(sourceRecordId, eventType = 'arrive_work') {
     integrationId: FIXTURE_INTEGRATION_ID,
     schemaVersion: 1,
     sourceApp: 'staging_test_source',
-    sourceFirebaseProjectId: 'staging-source-project',
-    sourceProjectId: 'staging-source-calendar-001',
+    sourceFirebaseProjectId: FIXTURE_SOURCE_FIREBASE_PROJECT_ID,
+    sourceProjectId: FIXTURE_SOURCE_PROJECT_ID,
     sourceRecordId,
     eventType,
     occurredAt: nowIso()
+  };
+}
+
+function buildLegacyPayload(sourceRecordId, title = 'legacy-probe') {
+  const timestamp = nowIso();
+  return {
+    sourceApp: FIXTURE_LEGACY_SOURCE_APP,
+    sourceFirebaseProjectId: FIXTURE_LEGACY_SOURCE_FIREBASE_PROJECT_ID,
+    sourceProjectId: FIXTURE_LEGACY_SOURCE_PROJECT_ID,
+    sourceRecordId,
+    title,
+    occurredAt: timestamp,
+    originalCreatedAt: timestamp,
+    dateId: timestamp.slice(0, 10)
   };
 }
 
@@ -171,6 +193,10 @@ async function main() {
   const fixtureToken = fixture.token;
   if (!fixtureToken || typeof fixtureToken !== 'string') {
     fail('Fixture token missing from metadata file. Re-run fixture create.', { fixturePath });
+  }
+  const legacyToken = fixture.legacyToken;
+  if (!legacyToken || typeof legacyToken !== 'string') {
+    fail('Legacy fixture token missing from metadata file. Re-run fixture create.', { fixturePath });
   }
 
   const apiKey = options.apiKey || process.env.VITE_FIREBASE_API_KEY;
@@ -317,12 +343,13 @@ async function main() {
     method: 'POST',
     body: {
       calendarId: FIXTURE_CALENDAR_ID,
-      connectionId: FIXTURE_CONNECTION_ID,
-      integrationId: FIXTURE_INTEGRATION_ID,
+      connectionId: FIXTURE_LEGACY_CONNECTION_ID,
+      integrationId: FIXTURE_LEGACY_INTEGRATION_ID,
       item: {
         sourceApp: 'aigridline',
         sourceFirebaseProjectId: 'project-id',
         sourceProjectId: 'project-a',
+        sourceRecordId: `legacy-unauth-${Date.now()}`,
         title: 'legacy-probe'
       }
     }
@@ -331,24 +358,18 @@ async function main() {
 
   const ingestionUrl = `${functionBase}/ingestExternalDailyItem`;
   if (functionBase && functionBase.includes('cloudfunctions.net')) {
-    const response = await callJson(ingestionUrl, {
+    const legacyResponse = await callJson(ingestionUrl, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${fixtureToken}` },
+      headers: { Authorization: `Bearer ${legacyToken}` },
       body: {
         calendarId: FIXTURE_CALENDAR_ID,
-        connectionId: FIXTURE_CONNECTION_ID,
-        integrationId: FIXTURE_INTEGRATION_ID,
-        item: {
-          sourceApp: 'staging_test_source',
-          sourceFirebaseProjectId: 'staging-source-project',
-          sourceProjectId: 'staging-source-calendar-001',
-          title: 'legacy-compatible',
-          category: 'other'
-        }
+        connectionId: FIXTURE_LEGACY_CONNECTION_ID,
+        integrationId: FIXTURE_LEGACY_INTEGRATION_ID,
+        item: buildLegacyPayload(`legacy-smoke-${Date.now()}`)
       }
     });
-    if (response.status !== 200) {
-      fail('Legacy endpoint should remain operational when valid credentials are supplied.', { response: response.payload });
+    if (legacyResponse.status !== 200 || legacyResponse.payload?.ok !== true) {
+      fail('Legacy endpoint should remain operational when valid credentials are supplied.', { response: legacyResponse.payload });
     }
   }
 
@@ -368,9 +389,13 @@ async function main() {
     });
   }
 
-  const remaining = await db.collection('lifeCalendars').doc(FIXTURE_CALENDAR_ID).collection('lifeEvents').where('integrationId', '==', FIXTURE_INTEGRATION_ID).get();
-  if (!remaining.empty) {
-    fail('Fixture cleanup should remove synthetic lifeEvents created during smoke run.', { remaining: remaining.size });
+  const remainingCanonical = await db.collection('lifeCalendars').doc(FIXTURE_CALENDAR_ID).collection('lifeEvents').where('integrationId', '==', FIXTURE_INTEGRATION_ID).get();
+  const remainingLegacy = await db.collection('lifeCalendars').doc(FIXTURE_CALENDAR_ID).collection('lifeEvents').where('integrationId', '==', FIXTURE_LEGACY_INTEGRATION_ID).get();
+  if (!remainingCanonical.empty || !remainingLegacy.empty) {
+    fail('Fixture cleanup should remove synthetic lifeEvents created during smoke run.', {
+      remainingCanonical: remainingCanonical.size,
+      remainingLegacy: remainingLegacy.size
+    });
   }
 
   console.log(JSON.stringify({
@@ -393,9 +418,18 @@ async function main() {
   }));
 }
 
-main().catch((error) => {
-  fail('smoke test failed', {
-    message: error?.message || 'unknown',
-    details: error?.stack || null
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    fail('smoke test failed', {
+      message: error?.message || 'unknown',
+      details: error?.stack || null
+    });
   });
-});
+}
+
+export {
+  buildCanonicalPayload,
+  buildLegacyPayload,
+  FIXTURE_LEGACY_CONNECTION_ID,
+  FIXTURE_LEGACY_INTEGRATION_ID
+};

@@ -207,7 +207,7 @@
 
 - Current status: `STAGING DEPLOYMENT BLOCKED`
 - Blocking conditions:
-  1. Fixture and smoke automation cannot complete in this environment due missing authenticated token/credentials path and DNS instability.
+  1. The owner-run fixture and smoke rerun is still pending from the host terminal.
   2. Billing/auth/API readiness still requires manual confirmation (`gcloud` unavailable in sandbox).
 
 - Remote smoke-script findings (this correction cycle):
@@ -215,3 +215,21 @@
   - Replay was returning `HTTP 409` with `idempotency_conflict` because the smoke script regenerated `occurredAt` on replay.
   - `scripts/staging-smoke-test.js` now builds the canonical payload once and reuses the same payload for replay (defensive clone), while the conflict case changes only `title`.
   - No backend redeployment was required for this fix.
+
+## 18) Staging utility repair status
+
+- Canonical remote smoke checks already passed in the owner's previous run:
+  - Missing token rejection
+  - Invalid token rejection
+  - Canonical create/read path
+  - `timeLeftUserId` resolution
+  - Exact canonical replay checks
+- Initial replay conflict was caused by changing `occurredAt` for the replay payload, causing a content hash mismatch and a valid `idempotency_conflict`.
+- `scripts/staging-fixture.js` initially sent only one synthetic connection and failed cleanup for QuerySnapshot-like inputs; both were corrected by:
+  - adding canonical + legacy fixture connections in staging
+  - storing legacy token hash in dedicated legacy secret
+  - supporting `makeBatchDeleteOps` for arrays and `{docs}`-style query snapshots
+  - cleaning canonical + legacy synthetic records and both source connections/secrets
+- Legacy smoke now uses `sourceApp: manual` plus matching legacy source IDs; it is no longer blocked by unsupported source app validation.
+- No backend redeployment occurred for these utility-only corrections.
+- Owner-hosted remote smoke rerun is still pending.

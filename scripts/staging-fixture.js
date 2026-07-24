@@ -2,6 +2,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { initializeApp } from 'firebase-admin/app';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 
@@ -10,7 +11,13 @@ const FORBIDDEN_PROJECT_ID = 'timelefttolive-stg-marwan';
 const FIXTURE_CALENDAR_ID = 'calendar-staging-fixture';
 const FIXTURE_CONNECTION_ID = 'connection-staging-test-source';
 const FIXTURE_INTEGRATION_ID = 'integration-staging-test-source';
+const FIXTURE_LEGACY_CONNECTION_ID = 'connection-staging-legacy-test';
+const FIXTURE_LEGACY_INTEGRATION_ID = 'integration-staging-legacy-test';
 const DEFAULT_TOKEN_FILE = '.staging-fixture-token';
+const FIXTURE_SOURCE_PROJECT_ID = 'staging-source-calendar-001';
+const FIXTURE_SOURCE_FIREBASE_PROJECT_ID = 'staging-source-project';
+const FIXTURE_LEGACY_SOURCE_PROJECT_ID = 'staging-legacy-project-001';
+const FIXTURE_LEGACY_SOURCE_FIREBASE_PROJECT_ID = 'staging-legacy-source-project';
 
 const ALLOWED_EVENT_CLASSES = [
   'activity_boundary',
@@ -21,12 +28,53 @@ const ALLOWED_EVENT_CLASSES = [
   'system'
 ];
 
+const FIXTURE_INTEGRATION_IDS = [FIXTURE_INTEGRATION_ID, FIXTURE_LEGACY_INTEGRATION_ID];
+const FIXTURE_CONNECTION_IDS = [FIXTURE_CONNECTION_ID, FIXTURE_LEGACY_CONNECTION_ID];
+
 function sha256(value) {
   return createHash('sha256').update(String(value)).digest('hex');
 }
 
 function generateToken() {
   return `tltl_stg_${randomBytes(32).toString('base64url')}`;
+}
+
+function buildFixtureMetadata({
+  token,
+  tokenHash,
+  legacyToken,
+  legacyTokenHash
+}) {
+  return {
+    projectId: APPROVED_PROJECT_ID,
+    calendarId: FIXTURE_CALENDAR_ID,
+    connectionId: FIXTURE_CONNECTION_ID,
+    integrationId: FIXTURE_INTEGRATION_ID,
+    sourceApp: 'staging_test_source',
+    token,
+    tokenHash,
+    sourceFirebaseProjectId: FIXTURE_SOURCE_FIREBASE_PROJECT_ID,
+    sourceProjectId: FIXTURE_SOURCE_PROJECT_ID,
+    legacyConnectionId: FIXTURE_LEGACY_CONNECTION_ID,
+    legacyIntegrationId: FIXTURE_LEGACY_INTEGRATION_ID,
+    legacySourceApp: 'manual',
+    legacySourceFirebaseProjectId: FIXTURE_LEGACY_SOURCE_FIREBASE_PROJECT_ID,
+    legacySourceProjectId: FIXTURE_LEGACY_SOURCE_PROJECT_ID,
+    legacyToken,
+    legacyTokenHash
+  };
+}
+
+function resolveDocumentRefs(input) {
+  const documentSnapshots = Array.isArray(input)
+    ? input
+    : Array.isArray(input?.docs)
+      ? input.docs
+      : null;
+  if (!Array.isArray(documentSnapshots)) {
+    throw new TypeError('makeBatchDeleteOps expected an array of document snapshots or QuerySnapshot-like object with .docs');
+  }
+  return documentSnapshots;
 }
 
 function parseArgs(argv) {
@@ -71,6 +119,10 @@ function readFixtureToken(filePath) {
   }
 }
 
+function shouldDeleteFixtureTokenFile(tokenMeta) {
+  return !tokenMeta || (tokenMeta?.projectId === APPROVED_PROJECT_ID && tokenMeta?.calendarId === FIXTURE_CALENDAR_ID);
+}
+
 function writeFixtureToken(filePath, payload) {
   const dir = dirname(filePath);
   if (dir && dir !== '.') {
@@ -80,8 +132,16 @@ function writeFixtureToken(filePath, payload) {
 }
 
 function makeBatchDeleteOps(db, docs) {
+  const documentSnapshots = resolveDocumentRefs(docs);
+  const all = [];
+  for (const doc of documentSnapshots) {
+    if (!doc || typeof doc !== 'object' || !doc.ref) {
+      throw new TypeError('Document snapshot entries must include a ref field.');
+    }
+    all.push(doc.ref);
+  }
+
   const chunks = [];
-  const all = docs.map((doc) => doc.ref);
   for (let i = 0; i < all.length; i += 500) {
     chunks.push(all.slice(i, i + 500));
   }
@@ -94,14 +154,40 @@ function makeBatchDeleteOps(db, docs) {
   });
 }
 
+async function cleanupIntegrationRecords(db, calendarRef, integrationId) {
+  const [events, rawPayloads, deadLetters] = await Promise.all([
+    calendarRef.collection('lifeEvents').where('integrationId', '==', integrationId).get(),
+    calendarRef.collection('rawIngestionPayloads').where('integrationId', '==', integrationId).get(),
+    calendarRef.collection('ingestionDeadLetters').where('integrationId', '==', integrationId).get()
+  ]);
+
+  const deleteOps = [];
+  deleteOps.push(...makeBatchDeleteOps(db, events));
+  deleteOps.push(...makeBatchDeleteOps(db, rawPayloads));
+  deleteOps.push(...makeBatchDeleteOps(db, deadLetters));
+  await Promise.all(deleteOps);
+
+  return {
+    integrationId,
+    lifeEvents: events.size,
+    rawIngestionPayloads: rawPayloads.size,
+    ingestionDeadLetters: deadLetters.size
+  };
+}
+
 async function createFixture(db, tokenPath) {
   const token = generateToken();
   const tokenHash = sha256(token);
   const tokenLastFour = token.slice(-4);
+  const legacyToken = generateToken();
+  const legacyTokenHash = sha256(legacyToken);
+  const legacyTokenLastFour = legacyToken.slice(-4);
 
   const calendarRef = db.collection('lifeCalendars').doc(FIXTURE_CALENDAR_ID);
   const connectionRef = calendarRef.collection('sourceConnections').doc(FIXTURE_CONNECTION_ID);
   const secretRef = calendarRef.collection('sourceConnectionSecrets').doc(FIXTURE_CONNECTION_ID);
+  const legacyConnectionRef = calendarRef.collection('sourceConnections').doc(FIXTURE_LEGACY_CONNECTION_ID);
+  const legacySecretRef = calendarRef.collection('sourceConnectionSecrets').doc(FIXTURE_LEGACY_CONNECTION_ID);
 
   await calendarRef.set({
     ownerUid: 'staging-owner-fixture',
@@ -113,8 +199,8 @@ async function createFixture(db, tokenPath) {
   await connectionRef.set({
     status: 'active',
     sourceApp: 'staging_test_source',
-    sourceFirebaseProjectId: 'staging-source-project',
-    sourceProjectIds: ['staging-source-calendar-001'],
+    sourceFirebaseProjectId: FIXTURE_SOURCE_FIREBASE_PROJECT_ID,
+    sourceProjectIds: [FIXTURE_SOURCE_PROJECT_ID],
     permissions: {
       eventClasses: ALLOWED_EVENT_CLASSES
     },
@@ -126,6 +212,22 @@ async function createFixture(db, tokenPath) {
     updatedAt: FieldValue.serverTimestamp()
   }, { merge: true });
 
+  await legacyConnectionRef.set({
+    status: 'active',
+    sourceApp: 'manual',
+    sourceFirebaseProjectId: FIXTURE_LEGACY_SOURCE_FIREBASE_PROJECT_ID,
+    sourceProjectIds: [FIXTURE_LEGACY_SOURCE_PROJECT_ID],
+    permissions: {
+      eventClasses: ALLOWED_EVENT_CLASSES
+    },
+    integrationId: FIXTURE_LEGACY_INTEGRATION_ID,
+    timeLeftUserId: 'staging-owner-fixture',
+    tokenStatus: 'active',
+    tokenVersion: 1,
+    tokenLastFour: legacyTokenLastFour,
+    updatedAt: FieldValue.serverTimestamp()
+  }, { merge: true });
+
   await secretRef.set({
     tokenHash,
     tokenVersion: 1,
@@ -134,16 +236,21 @@ async function createFixture(db, tokenPath) {
     updatedAt: FieldValue.serverTimestamp()
   }, { merge: true });
 
-  const payload = {
-    projectId: APPROVED_PROJECT_ID,
-    calendarId: FIXTURE_CALENDAR_ID,
-    connectionId: FIXTURE_CONNECTION_ID,
-    integrationId: FIXTURE_INTEGRATION_ID,
-    sourceApp: 'staging_test_source',
+  await legacySecretRef.set({
+    tokenHash: legacyTokenHash,
+    tokenVersion: 1,
+    tokenStatus: 'active',
+    tokenCreatedAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp()
+  }, { merge: true });
+
+  const payload = buildFixtureMetadata({
     token,
     tokenHash,
-    createdAt: new Date().toISOString()
-  };
+    legacyToken,
+    legacyTokenHash
+  });
+  payload.createdAt = new Date().toISOString();
 
   writeFixtureToken(tokenPath, payload);
 
@@ -151,8 +258,8 @@ async function createFixture(db, tokenPath) {
     status: 'created',
     targetProject: APPROVED_PROJECT_ID,
     calendarId: FIXTURE_CALENDAR_ID,
-    connectionId: FIXTURE_CONNECTION_ID,
-    integrationId: FIXTURE_INTEGRATION_ID,
+    connectionId: FIXTURE_CONNECTION_IDS,
+    integrationId: FIXTURE_INTEGRATION_IDS,
     tokenFile: tokenPath,
     note: 'Plaintext token is stored only in token file.'
   }));
@@ -162,38 +269,48 @@ async function cleanupFixture(db, tokenPath) {
   const calendarRef = db.collection('lifeCalendars').doc(FIXTURE_CALENDAR_ID);
   const connectionRef = calendarRef.collection('sourceConnections').doc(FIXTURE_CONNECTION_ID);
   const secretRef = calendarRef.collection('sourceConnectionSecrets').doc(FIXTURE_CONNECTION_ID);
+  const legacyConnectionRef = calendarRef.collection('sourceConnections').doc(FIXTURE_LEGACY_CONNECTION_ID);
+  const legacySecretRef = calendarRef.collection('sourceConnectionSecrets').doc(FIXTURE_LEGACY_CONNECTION_ID);
 
-  const [events, rawPayloads, deadLetters] = await Promise.all([
-    calendarRef.collection('lifeEvents').where('integrationId', '==', FIXTURE_INTEGRATION_ID).get(),
-    calendarRef.collection('rawIngestionPayloads').where('integrationId', '==', FIXTURE_INTEGRATION_ID).get(),
-    calendarRef.collection('ingestionDeadLetters').where('integrationId', '==', FIXTURE_INTEGRATION_ID).get()
+  const cleanupSummaries = await Promise.all(
+    FIXTURE_INTEGRATION_IDS.map((integrationId) => cleanupIntegrationRecords(db, calendarRef, integrationId))
+  );
+
+  await Promise.all([
+    connectionRef.delete(),
+    secretRef.delete(),
+    legacyConnectionRef.delete(),
+    legacySecretRef.delete()
   ]);
 
-  const deleteOps = [];
-  deleteOps.push(...makeBatchDeleteOps(db, events));
-  deleteOps.push(...makeBatchDeleteOps(db, rawPayloads));
-  deleteOps.push(...makeBatchDeleteOps(db, deadLetters));
-
-  await Promise.all(deleteOps);
-  await Promise.all([connectionRef.delete(), secretRef.delete()]);
-
-  if (existsSync(tokenPath)) {
-    const tokenMeta = readFixtureToken(tokenPath);
-    if (!tokenMeta || tokenMeta.projectId === APPROVED_PROJECT_ID) {
-      rmSync(tokenPath);
-    }
+  const calendarSnap = await calendarRef.get();
+  if (calendarSnap.exists && calendarSnap.get('synthetic') === true) {
+    await calendarRef.delete();
   }
+
+  const tokenMeta = readFixtureToken(tokenPath);
+  const canDeleteTokenFile = shouldDeleteFixtureTokenFile(tokenMeta);
+  if (existsSync(tokenPath) && canDeleteTokenFile) {
+    rmSync(tokenPath);
+  }
+
+  const deleted = cleanupSummaries.reduce((acc, summary) => ({
+    lifeEvents: acc.lifeEvents + summary.lifeEvents,
+    rawIngestionPayloads: acc.rawIngestionPayloads + summary.rawIngestionPayloads,
+    ingestionDeadLetters: acc.ingestionDeadLetters + summary.ingestionDeadLetters
+  }), {
+    lifeEvents: 0,
+    rawIngestionPayloads: 0,
+    ingestionDeadLetters: 0
+  });
 
   console.log(JSON.stringify({
     status: 'cleanup-complete',
     targetProject: APPROVED_PROJECT_ID,
     calendarId: FIXTURE_CALENDAR_ID,
-    connectionId: FIXTURE_CONNECTION_ID,
-    deleted: {
-      lifeEvents: events.size,
-      rawIngestionPayloads: rawPayloads.size,
-      ingestionDeadLetters: deadLetters.size
-    }
+    connectionIds: FIXTURE_CONNECTION_IDS,
+    integrationIds: FIXTURE_INTEGRATION_IDS,
+    deleted
   }));
 }
 
@@ -224,8 +341,8 @@ async function main() {
     command,
     targetProject: projectId,
     calendarId: FIXTURE_CALENDAR_ID,
-    connectionId: FIXTURE_CONNECTION_ID,
-    integrationId: FIXTURE_INTEGRATION_ID
+    connectionId: FIXTURE_CONNECTION_IDS,
+    integrationId: FIXTURE_INTEGRATION_IDS
   }));
 
   if (command === 'create') {
@@ -236,9 +353,24 @@ async function main() {
   await cleanupFixture(db, tokenPath);
 }
 
-main().catch((error) => {
-  fail('staging fixture command failed.', {
-    message: error?.message || 'unknown',
-    code: error?.code || null
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    fail('staging fixture command failed.', {
+      message: error?.message || 'unknown',
+      code: error?.code || null
+    });
   });
-});
+}
+
+export {
+  buildFixtureMetadata,
+  resolveDocumentRefs,
+  makeBatchDeleteOps,
+  cleanupIntegrationRecords,
+  FIXTURE_INTEGRATION_IDS,
+  FIXTURE_CONNECTION_IDS,
+  FIXTURE_LEGACY_CONNECTION_ID,
+  FIXTURE_LEGACY_INTEGRATION_ID,
+  shouldDeleteFixtureTokenFile,
+  readFixtureToken
+};
