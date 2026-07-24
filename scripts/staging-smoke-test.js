@@ -192,10 +192,11 @@ async function main() {
   assertStatus(invalid.status, [401, 403], 'Invalid token should be rejected.');
 
   const validPayloadId = `smoke-valid-${Date.now()}`;
+  const validPayload = buildCanonicalPayload(validPayloadId);
   const valid = await callJson(`${baseHost}/api/v1/life-events`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${fixtureToken}` },
-    body: buildCanonicalPayload(validPayloadId)
+    body: validPayload
   });
   if (valid.status !== 200 || valid.payload.status !== 'success' || !valid.payload.lifeEventId) {
     fail('Valid token should create canonical event.', { response: valid.payload });
@@ -217,7 +218,7 @@ async function main() {
   const replay = await callJson(`${baseHost}/api/v1/life-events`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${fixtureToken}` },
-    body: buildCanonicalPayload(validPayloadId)
+    body: structuredClone(validPayload)
   });
   if (replay.status !== 200 || replay.payload.duplicate !== true || replay.payload.lifeEventId !== lifeEventId) {
     fail('Replay should return duplicate=true and stable lifeEventId.', { response: replay.payload });
@@ -227,7 +228,7 @@ async function main() {
     method: 'POST',
     headers: { Authorization: `Bearer ${fixtureToken}` },
     body: {
-      ...buildCanonicalPayload(validPayloadId),
+      ...validPayload,
       title: `changed-${randomBytes(4).toString('hex')}`
     }
   });

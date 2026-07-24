@@ -209,3 +209,9 @@
 - Blocking conditions:
   1. Fixture and smoke automation cannot complete in this environment due missing authenticated token/credentials path and DNS instability.
   2. Billing/auth/API readiness still requires manual confirmation (`gcloud` unavailable in sandbox).
+
+- Remote smoke-script findings (this correction cycle):
+  - First canonical request against staging returned success (expected behavior).
+  - Replay was returning `HTTP 409` with `idempotency_conflict` because the smoke script regenerated `occurredAt` on replay.
+  - `scripts/staging-smoke-test.js` now builds the canonical payload once and reuses the same payload for replay (defensive clone), while the conflict case changes only `title`.
+  - No backend redeployment was required for this fix.
