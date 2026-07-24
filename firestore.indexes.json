@@ -41,13 +41,6 @@
         { "fieldPath": "timeLeftUserId", "order": "ASCENDING" },
         { "fieldPath": "occurredAt", "order": "DESCENDING" }
       ]
-    },
-    {
-      "collectionGroup": "rawIngestionPayloads",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "expiresAt", "order": "ASCENDING" }
-      ]
     }
   ],
   "fieldOverrides": []

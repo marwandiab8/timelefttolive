@@ -1,26 +1,28 @@
-# TimeLeftToLive Life-Event Phase 1 Staging Deployment Plan (Final Owner-Verified)
+# TimeLeftToLive Life-Event Phase 1 Staging Deployment Plan (Deployment Status Updated)
 
 ## 1) Project configuration and separation
 
-- Approved production project: `timelefttolive`
-- Approved staging project: `timelefttolive-stg-go`
-- Obsolete staging project to never use: `timelefttolive-stg-marwan`
-- Legacy placeholders to avoid: `timelefttolive-staging`, `timelefttolive-stg-nam5`
+- Production: `timelefttolive`
+- Approved staging: `timelefttolive-stg-go`
+- Forbidden staging IDs: `timelefttolive-stg-marwan`, `timelefttolive-staging`, `timelefttolive-stg-nam5`, placeholders
 
 ## 2) Firestore verification (authoritative)
 
-- Production: `projects/timelefttolive/databases/(default)`
-  - database: `(default)`
-  - location: `nam5`
-  - edition: `STANDARD`
-  - type: `FIRESTORE_NATIVE`
-- Staging: `projects/timelefttolive-stg-go/databases/(default)`
-  - database: `(default)`
-  - location: `nam5`
-  - edition: `STANDARD`
-  - type: `FIRESTORE_NATIVE`
+### Production
+- Project: `timelefttolive`
+- Database: `(default)`
+- Location: `nam5`
+- Edition: `STANDARD`
+- Type: `FIRESTORE_NATIVE`
 
-## 3) Aliases (`.firebaserc`)
+### Staging
+- Project: `timelefttolive-stg-go`
+- Database: `(default)`
+- Location: `nam5`
+- Edition: `STANDARD`
+- Type: `FIRESTORE_NATIVE`
+
+## 3) `.firebaserc` aliases
 
 ```json
 {
@@ -32,191 +34,178 @@
 }
 ```
 
-- Do not switch default/active project.
-- All staging/production operations must use explicit staging target:
-  - `--project timelefttolive-stg-go` or `--project staging`
+- Confirmed unchanged by this run.
+- All explicit staging commands were run with `--project timelefttolive-stg-go`.
 
-## 4) Host-run functional verification evidence
-
-Owner-run terminal (outside Codex) results:
+## 4) Owner-run verification evidence (outside Codex)
 
 ### Frontend
-
 - Command: `npm run test:frontend`
 - Files: `3`
 - Tests: `17`
 - Passed: `17`
 - Failed: `0`
-- Skipped: `0`
 - Exit: `0`
 
 ### Functions
-
 - Command: `npm run test:functions`
-- Files: not file-counted in this run (commit harness)
 - Tests: `75`
 - Passed: `75`
 - Failed: `0`
-- Skipped: `0`
 - Exit: `0`
 
 ### Firestore rules
-
 - Command: `npm run test:rules`
 - Tests: `13`
 - Passed: `13`
 - Failed: `0`
-- Skipped: `0`
 - Exit: `0`
-- Verified through real Firestore emulator scenarios:
-  - owner reads own LifeEvent
-  - owner cannot create/update/delete a LifeEvent directly
-  - other user cannot read owner event
-  - source-project admin role does not grant timeline read
-  - unauthenticated cannot read LifeEvents
-  - no client access to `rawIngestionPayloads`
-  - no client access to `sourceConnectionSecrets`
-  - no client access to `ingestionDeadLetters`
-  - owner source-connection access remains valid
 
 ### Hosting + authenticated ingestion
-
 - Command: `npm run test:hosting`
 - Tests: `7`
 - Passed: `7`
 - Failed: `0`
-- Skipped: `0`
 - Exit: `0`
-- Verified with Firestore + Functions + Hosting emulators:
-  - single endpoint rewrite works
-  - batch endpoint rewrite works
-  - invalid methods return `405`
-  - missing token rejected
-  - invalid token rejected
-  - valid token creates canonical LifeEvent
-  - `timeLeftUserId` resolves from registry
-  - canonical write contains no plaintext bearer token
-  - exact replay returns same `lifeEventId`
-  - replay returns `duplicate: true`
-  - changed content under same identity returns `409`
-  - idempotency conflict does not overwrite
-  - valid batch succeeds
-  - partial batch has independent item-level failure handling
 
-### Full suite
-
-- Command: `npm run test:all`
-- Total passed: `112`
-- Failed: `0`
-- Exit: `0`
-- Includes all sections: frontend (17), functions (75), rules (13), hosting (7)
+### Combined
+- `npm run test:all` summary:
+  - Frontend: `17/17`
+  - Functions: `75/75`
+  - Rules: `13/13`
+  - Hosting: `7/7`
+  - Total: `112`
+  - Failed: `0`
+  - Exit: `0`
 
 ## 5) Staging build safety
 
 - Command: `npm run build:staging`
 - Exit: `0`
-- Embedded project ID in build: `timelefttolive-stg-go`
-- Production project ID blocked from staging build: `true`
-- Staging safety verification script passed.
+- Embedded project: `timelefttolive-stg-go`
+- Production project blocked: `true`
+- Verification file: `scripts/verify-staging-build.js` reports `status: ok`
 
 ## 6) Codex sandbox limitation
 
-- Codex did not rerun emulator-based commands in this task.
-- The sandbox cannot reliably bind local Firebase emulator ports for `test:rules`, `test:hosting`, or emulator-driven `test:all`.
-- Evidence is therefore owner-run terminal execution only, not Codex execution.
+- Emulator-port checks are not run in this sandbox.
+- Internet/DNS instability in this environment prevents reliable direct staging endpoint probing from Codex.
 
-## 7) Billing / Authentication / Scheduler / APIs (manual confirmations)
+## 7) Billing / Authentication / Scheduler / APIs
 
-- Billing: `PASTE BILLING CONFIRMATION HERE`
-- Firebase Authentication: `PASTE AUTHENTICATION CONFIRMATION HERE`
-- Cloud Scheduler and required APIs: `PASTE API CONFIRMATION HERE`
+- Billing: not verifiable in this environment; `gcloud` is unavailable.
+- Authentication: not fully verifiable in this run; smoke-test helper requires user credentials and fixture token.
+- APIs / Scheduler: not verifiable fully in this run due missing `gcloud`.
+- Required manual confirmations:
+  - `gcloud billing projects describe timelefttolive-stg-go --format='value(billingEnabled)'`
+  - confirm required APIs enabled:
+    - `cloudfunctions.googleapis.com`, `cloudbuild.googleapis.com`, `artifactregistry.googleapis.com`, `run.googleapis.com`, `eventarc.googleapis.com`, `pubsub.googleapis.com`, `cloudscheduler.googleapis.com`, `firestore.googleapis.com`, `identitytoolkit.googleapis.com`
+  - verify cleanup scheduler job exists for `cleanupLifeEventIngestionArtifacts`
 
 ## 8) Functions region and routing
 
-- Current runtime region: `northamerica-northeast1`
-- Hosting rewrites:
+- Current function region for LifeEvent/ingestion functions: `northamerica-northeast1`
+- Hosting rewrites in use:
   - `/api/v1/life-events` → `apiV1LifeEvents`
   - `/api/v1/life-events:batch` → `apiV1LifeEventsBatch`
-- Direct regional function URLs remain callable directly; Hosting rewrites keep canonical endpoints behind Hosting URLs.
-- No region changes were made during this documentation task.
-- Recommendation remains: keep `northamerica-northeast1` for first staging deployment unless production-verified compatibility concerns arise.
+- `functions:list` shows:
+  - `cleanupLifeEventIngestionArtifacts` with trigger `scheduled`
+- Recommendation remains: keep `northamerica-northeast1` for first staging release.
 
-## 9) Fixture and smoke tooling
+## 9) Staging fixture and smoke execution this run
 
-### Staging fixtures
+### Fixture
+- Attempted command:
+  - `node scripts/staging-fixture.js create --project=timelefttolive-stg-go --token-file=.staging-fixture-token`
+- Result:
+  - failed: `ERR_SYSTEM_ERROR: uv_interface_addresses returned Unknown system error 1`
+- Also observed package-script argument parsing issue:
+  - `npm run staging:fixture:create` passes spaced options and fails `Refused unexpected project id`.
+  - documented command form uses `--project=<id> --token-file=<file>`.
 
-- Command: `npm run staging:fixture:create`
-- Command: `npm run staging:fixture:cleanup`
-- Required behavior (per script implementation):
-  - accepts only `timelefttolive-stg-go`
-  - refuses `timelefttolive`
-  - refuses `timelefttolive-stg-marwan`
-  - generates synthetic fixture artifacts
-  - writes token hash only into source secret document
-  - stores token only in `.staging-fixture-token` (gitignored)
-  - cleanup removes synthetic records for synthetic integration
+### Smoke
+- Attempted command:
+  - `node scripts/staging-smoke-test.js --project=timelefttolive-stg-go --fixture-token-file=.staging-fixture-token --api-key=...`
+- Result:
+  - failed due missing fixture token file (fixture creation did not complete).
+- Direct endpoint probes from Codex were inconsistent due DNS resolution failures for `timelefttolive-stg-go.web.app` and Cloud Run hostnames.
 
-### Staging smoke test
+## 10) Deployment commands executed (staging, explicit project only)
 
-- Command: `npm run staging:smoke-test`
-- Intended assertions:
-  - missing token rejection
-  - invalid token rejection
-  - canonical creation
-  - registry-resolved `timeLeftUserId`
-  - token non-persistence
-  - exact replay duplicate behavior
-  - changed-content idempotency conflict
-  - valid batch success
-  - partial batch item independence
-  - direct client write/read restrictions
-  - legacy endpoint remains operational
-  - fixture cleanup removes synthetic records after run
+- `firebase deploy --project timelefttolive-stg-go --only firestore:indexes`
+  - first attempt failed on unnecessary single-field index:
+    - `Error: this index is not necessary, configure using single field index controls`
+  - `firestore.indexes.json` was corrected by removing `rawIngestionPayloads.expiresAt` single field index
+  - redeploy succeeded.
+- `firebase deploy --project timelefttolive-stg-go --only firestore:rules`
+  - success
+- `firebase deploy --project timelefttolive-stg-go --only functions:apiV1LifeEvents`
+  - success (updated function)
+- `firebase deploy --project timelefttolive-stg-go --only functions:apiV1LifeEventsBatch,functions:ingestExternalDailyItem,functions:ingestExternalDailyItemsBatch,functions:createSourceIngestionToken,functions:revokeSourceIngestionToken,functions:cleanupLifeEventIngestionArtifacts --force`
+  - success (`✔ Deploy complete!`)
+- `firebase deploy --project timelefttolive-stg-go --only hosting`
+  - success (`✔ Deploy complete!`, URL: `https://timelefttolive-stg-go.web.app`)
 
-## 10) Dry-runs (staging-only deploy validation, no deploy)
+## 11) Deployment scope and results
 
-- `firebase deploy --project timelefttolive-stg-go --dry-run --only firestore:indexes`
-- `firebase deploy --project timelefttolive-stg-go --dry-run --only firestore:rules`
-- `firebase deploy --project timelefttolive-stg-go --dry-run --only functions:apiV1LifeEvents,functions:apiV1LifeEventsBatch,functions:ingestExternalDailyItem,functions:ingestExternalDailyItemsBatch,functions:createSourceIngestionToken,functions:revokeSourceIngestionToken,functions:cleanupLifeEventIngestionArtifacts`
-- `firebase deploy --project timelefttolive-stg-go --dry-run --only hosting`
+- Project: `timelefttolive-stg-go`
+- Scope deployed:
+  - `firestore:indexes`
+  - `firestore:rules`
+  - `functions:apiV1LifeEvents`
+  - `functions:apiV1LifeEventsBatch`
+  - `functions:ingestExternalDailyItem`
+  - `functions:ingestExternalDailyItemsBatch`
+  - `functions:createSourceIngestionToken`
+  - `functions:revokeSourceIngestionToken`
+  - `functions:cleanupLifeEventIngestionArtifacts`
+  - `hosting`
+- No deployment to production project occurred.
 
-## 11) Deployment scope and exact sequence
+## 12) Rules/index status verification
 
-- Exact staging deployment scope:
-  `timelefttolive-stg-go`
-- Exact sequencing when approved:
-  1. `firebase deploy --project timelefttolive-stg-go --only firestore:indexes`
-  2. `firebase deploy --project timelefttolive-stg-go --only firestore:rules`
-  3. `firebase deploy --project timelefttolive-stg-go --only functions:apiV1LifeEvents,functions:apiV1LifeEventsBatch,functions:ingestExternalDailyItem,functions:ingestExternalDailyItemsBatch,functions:createSourceIngestionToken,functions:revokeSourceIngestionToken,functions:cleanupLifeEventIngestionArtifacts`
-  4. `firebase deploy --project timelefttolive-stg-go --only hosting`
-- Do not deploy to `timelefttolive-stg-marwan`.
+- `firebase firestore:indexes --project timelefttolive-stg-go` returns staged indexes including `lifeEvents`, `events`, `externalItems`, `dailyEntries`; no `rawIngestionPayloads` single-field index entry remains in config.
+- Firestore rules deployed successfully.
 
-## 12) Rollback steps
+## 13) Smoke assertions still pending (manual follow-up)
 
-Rollback scope (staging-only explicit):
+- Missing token rejected
+- Invalid token rejected
+- Valid canonical write
+- `timeLeftUserId` resolution from registry
+- Plaintext bearer token non-persistence
+- Exact replay returns same `lifeEventId` + `duplicate: true`
+- Idempotency conflict with changed payload returns `409`
+- Valid batch success
+- Partial batch failure isolation
+- Direct client LifeEvent writes denied
+- Cross-user read denied for synthetic event
+- Raw secret/audit/dead-letter read denied
+- Legacy ingestion endpoint checks
 
-1. `firebase deploy --project timelefttolive-stg-go --only hosting`
-2. `firebase deploy --project timelefttolive-stg-go --only functions:apiV1LifeEvents,functions:apiV1LifeEventsBatch,functions:ingestExternalDailyItem,functions:ingestExternalDailyItemsBatch,functions:createSourceIngestionToken,functions:revokeSourceIngestionToken,functions:cleanupLifeEventIngestionArtifacts`
-3. `firebase deploy --project timelefttolive-stg-go --only firestore:rules`
-4. `firebase deploy --project timelefttolive-stg-go --only firestore:indexes`
+## 14) Rollback commands
 
-## 13) Repository and push status (as requested)
+- `firebase deploy --project timelefttolive-stg-go --only hosting`
+- `firebase deploy --project timelefttolive-stg-go --only functions:apiV1LifeEvents,functions:apiV1LifeEventsBatch,functions:ingestExternalDailyItem,functions:ingestExternalDailyItemsBatch,functions:createSourceIngestionToken,functions:revokeSourceIngestionToken,functions:cleanupLifeEventIngestionArtifacts`
+- `firebase deploy --project timelefttolive-stg-go --only firestore:rules`
+- `firebase deploy --project timelefttolive-stg-go --only firestore:indexes`
 
-- `git status --short` (non-emulator): clean
-- `git log -10 --oneline`: latest history starts at
-  - `docs: finalize TimeLeftToLive staging readiness` / etc. (full list in repository)
-- `git branch -vv`: `main` on commit `9eab529` (and now updated below after this doc edit)
-- `git rev-list --left-right --count origin/main...HEAD`:
-  - local ahead indicator from this run: `0	3` (remote push check indicates local commits not yet fully pushed)
-- `git remote -v`: origin points to `https://github.com/marwandiab8/timelefttolive.git`
+## 15) Repository and git status
 
-## 14) Staging build and production separation controls
+- `git status --short`: `M firestore.indexes.json` and `M docs/timelefttolive-life-event-ingestion-staging-plan.md` (after this edit)
+- `git log --oneline -10` top commits: `6c61b5a`, `9eab529`, `6a83025`, `a23d81c`, ...
+- `git branch -vv`: `main` currently at `6c61b5a`
+- `git rev-list --left-right --count origin/main...HEAD`: `0 4` at last checked fetch
+- `git remote -v`: `origin https://github.com/marwandiab8/timelefttolive.git`
+- `git fetch origin` currently fails in this sandbox with DNS resolution error to `github.com`.
 
-- Production/staging are separate and explicit:
-  - prod: `timelefttolive`
-  - staging: `timelefttolive-stg-go`
-- Staging frontend validation blocks production config, and production project ID is explicitly rejected in staging build output.
-
-## 15) Final deployment approval phrase
+## 16) Final deployment approval phrase
 
 `I approve TimeLeftToLive Phase 1 staging deployment for [Staging Project ID: timelefttolive-stg-go] using Firebase Functions/Firestore/Hosting exactly as defined in this plan.`
+
+## 17) Deployment outcome
+
+- Current status: `STAGING DEPLOYMENT BLOCKED`
+- Blocking conditions:
+  1. Fixture and smoke automation cannot complete in this environment due missing authenticated token/credentials path and DNS instability.
+  2. Billing/auth/API readiness still requires manual confirmation (`gcloud` unavailable in sandbox).
