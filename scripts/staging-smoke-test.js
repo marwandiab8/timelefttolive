@@ -24,10 +24,22 @@ const FIXTURE_TOKEN_FILE = '.staging-fixture-token';
 
 function parseArgs(argv) {
   const options = {};
-  for (const value of argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const value = argv[index];
     if (value.startsWith('--')) {
       const eq = value.indexOf('=');
-      options[value.slice(2, eq === -1 ? undefined : eq)] = eq === -1 ? true : value.slice(eq + 1);
+      const key = value.slice(2, eq === -1 ? undefined : eq);
+      if (eq !== -1) {
+        options[key] = value.slice(eq + 1);
+        continue;
+      }
+      const next = argv[index + 1];
+      if (next && !next.startsWith('--')) {
+        options[key] = next;
+        index += 1;
+      } else {
+        options[key] = true;
+      }
     }
   }
   return options;
@@ -78,6 +90,14 @@ function buildCanonicalPayload(sourceRecordId, eventType = 'arrive_work') {
     sourceRecordId,
     eventType,
     occurredAt: nowIso()
+  };
+}
+
+function buildTorontoDateOnlyPayload(sourceRecordId, dateId = '2026-08-11') {
+  return {
+    ...buildCanonicalPayload(sourceRecordId),
+    occurredAt: dateId,
+    timezone: 'America/Toronto'
   };
 }
 
@@ -250,6 +270,36 @@ async function main() {
     fail('Replay should return duplicate=true and stable lifeEventId.', { response: replay.payload });
   }
 
+  const torontoDateId = '2026-08-11';
+  const torontoPayload = buildTorontoDateOnlyPayload(`smoke-toronto-date-${Date.now()}`, torontoDateId);
+  const torontoResponse = await callJson(`${baseHost}/api/v1/life-events`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${fixtureToken}` },
+    body: torontoPayload
+  });
+  if (torontoResponse.status !== 200 || !torontoResponse.payload.lifeEventId) {
+    fail('Toronto date-only staging event should be accepted.', { response: torontoResponse.payload });
+  }
+  const torontoEventDoc = await db.collection('lifeCalendars').doc(FIXTURE_CALENDAR_ID)
+    .collection('lifeEvents').doc(torontoResponse.payload.lifeEventId).get();
+  const torontoOccurredAt = torontoEventDoc.get('occurredAt')?.toDate?.();
+  const torontoLocalDate = torontoOccurredAt
+    ? new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Toronto',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(torontoOccurredAt)
+    : '';
+  if (!torontoEventDoc.exists || torontoOccurredAt?.toISOString() !== '2026-08-11T04:00:00.000Z' || torontoLocalDate !== torontoDateId) {
+    fail('Toronto date-only event should remain on its intended local day.', {
+      exists: torontoEventDoc.exists,
+      occurredAt: torontoOccurredAt?.toISOString() || null,
+      localDate: torontoLocalDate || null,
+      expectedLocalDate: torontoDateId
+    });
+  }
+
   const conflict = await callJson(`${baseHost}/api/v1/life-events`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${fixtureToken}` },
@@ -305,12 +355,15 @@ async function main() {
     fail('Partial batch should report partial_success and preserve valid items.', { response: partial.payload });
   }
 
-  const ownerEmail = options.userEmail || process.env.TLTL_SMOKE_USER_EMAIL;
-  const ownerPassword = options.userPassword || process.env.TLTL_SMOKE_USER_PASSWORD;
-  const peerEmail = options.peerUserEmail || process.env.TLTL_SMOKE_SECOND_USER_EMAIL;
-  const peerPassword = options.peerUserPassword || process.env.TLTL_SMOKE_SECOND_USER_PASSWORD;
+  const ownerEmail = options.userEmail || process.env.TLTL_SMOKE_USER_EMAIL || fixture.smokeUsers?.owner?.email;
+  const ownerPassword = options.userPassword || process.env.TLTL_SMOKE_USER_PASSWORD || fixture.smokeUsers?.owner?.password;
+  const peerEmail = options.peerUserEmail || process.env.TLTL_SMOKE_SECOND_USER_EMAIL || fixture.smokeUsers?.peer?.email;
+  const peerPassword = options.peerUserPassword || process.env.TLTL_SMOKE_SECOND_USER_PASSWORD || fixture.smokeUsers?.peer?.password;
   const ownerToken = await signInForSmokeUser(apiKey, ownerEmail, ownerPassword);
   const peerToken = await signInForSmokeUser(apiKey, peerEmail, peerPassword);
+
+  const ownerRead = await firestoreGet(projectId, ownerToken, `lifeCalendars/${FIXTURE_CALENDAR_ID}/lifeEvents/${lifeEventId}`);
+  assertStatus(ownerRead.status, [200], 'Calendar owner should read synthetic lifeEvent.');
 
   const peerRead = await firestoreGet(projectId, peerToken, `lifeCalendars/${FIXTURE_CALENDAR_ID}/lifeEvents/${lifeEventId}`);
   assertStatus(peerRead.status, [403, 404], 'Another user should not read synthetic lifeEvent.');
@@ -406,6 +459,7 @@ async function main() {
       'invalid token rejected',
       'canonical create/read path',
       'idempotent replay',
+      'Toronto date-only event remains on intended local day',
       'idempotency conflict',
       'batch success',
       'partial batch',
@@ -413,6 +467,7 @@ async function main() {
       'token not persisted',
       'client write denied',
       'authenticated read denied',
+      'owner read allowed',
       'legacy endpoint reachable'
     ]
   }));
@@ -429,6 +484,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
 export {
   buildCanonicalPayload,
+  buildTorontoDateOnlyPayload,
   buildLegacyPayload,
   FIXTURE_LEGACY_CONNECTION_ID,
   FIXTURE_LEGACY_INTEGRATION_ID

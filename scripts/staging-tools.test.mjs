@@ -8,7 +8,7 @@ import {
   FIXTURE_INTEGRATION_IDS,
   shouldDeleteFixtureTokenFile
 } from './staging-fixture.js';
-import { buildLegacyPayload } from './staging-smoke-test.js';
+import { buildLegacyPayload, buildTorontoDateOnlyPayload } from './staging-smoke-test.js';
 
 function makeFakeBatch() {
   const deletions = [];
@@ -102,6 +102,13 @@ test('legacy payload helper uses supported source app and dates', () => {
   assert.equal(typeof payload.originalCreatedAt, 'string');
   assert.equal(typeof payload.dateId, 'string');
   assert.match(payload.dateId, /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test('Toronto staging payload uses a date-only value and explicit IANA timezone', () => {
+  const payload = buildTorontoDateOnlyPayload('toronto-date-only', '2026-03-08');
+  assert.equal(payload.occurredAt, '2026-03-08');
+  assert.equal(payload.timezone, 'America/Toronto');
+  assert.equal(payload.sourceRecordId, 'toronto-date-only');
 });
 
 test('cleanup handles both fixture integration IDs', async () => {

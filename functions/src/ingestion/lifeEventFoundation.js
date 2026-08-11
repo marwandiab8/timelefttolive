@@ -1,6 +1,13 @@
 const { validateBearerToken } = require("./tokens");
 const { normalizeExternalItem } = require("./normalize");
-const { resolveDateId, isValidDateId } = require("./dateId");
+const {
+  DEFAULT_TIMEZONE,
+  dateIdToZonedDate,
+  normalizeTimezone,
+  parseDateInTimezone,
+  resolveDateId,
+  isValidDateId
+} = require("./dateId");
 const { sha256 } = require("./dedupe");
 const { validateIngestionRequest } = require("./validateIngestionRequest");
 const { upsertExternalItem } = require("./upsertExternalItem");
@@ -12,7 +19,6 @@ const RAW_AUDIT_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const DEAD_LETTER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const CLEANUP_QUERY_LIMIT = 100;
 const CLEANUP_WRITE_BATCH_SIZE = 50;
-const DEFAULT_TIMEZONE = "America/Toronto";
 
 const ALLOWED_EVENT_CLASSES = [
   "activity_boundary",
@@ -111,21 +117,6 @@ function stableStringify(value) {
 
 function buildHash(value) {
   return sha256(stableStringify(value));
-}
-
-function parseDate(value, fieldName) {
-  if (value === undefined || value === null || value === "") return null;
-  const parsed = value instanceof Date
-    ? value
-    : typeof value === "number"
-      ? new Date(value)
-      : (value.toDate instanceof Function)
-        ? value.toDate()
-        : new Date(value);
-  if (!parsed || Number.isNaN(parsed.getTime())) {
-    throw payloadError(`${fieldName} must be an ISO-8601 timestamp.`);
-  }
-  return parsed;
 }
 
 function normalizeLocation(raw, path = "location") {
@@ -278,9 +269,10 @@ function normalizeLifeEventRecord(raw, context) {
     throw payloadError("sourceRecordId or sourceEventId is required.");
   }
 
-  const occurredAt = parseDate(raw.occurredAt, "occurredAt");
-  const startAt = parseDate(raw.startAt, "startAt");
-  const endAt = parseDate(raw.endAt, "endAt");
+  const timezone = normalizeTimezone(toTrimmedString(raw.timezone, DEFAULT_TIMEZONE) || DEFAULT_TIMEZONE);
+  const occurredAt = parseDateInTimezone(raw.occurredAt, timezone, "occurredAt");
+  const startAt = parseDateInTimezone(raw.startAt, timezone, "startAt");
+  const endAt = parseDateInTimezone(raw.endAt, timezone, "endAt");
 
   if (!occurredAt && !startAt) {
     throw payloadError("occurredAt or startAt is required.");
@@ -328,7 +320,7 @@ function normalizeLifeEventRecord(raw, context) {
     startAt,
     endAt,
     durationSeconds,
-    timezone: toTrimmedString(raw.timezone, DEFAULT_TIMEZONE) || DEFAULT_TIMEZONE,
+    timezone,
     location: normalizeLocation(raw.location, "location"),
     metrics: normalizeObject(raw.metrics, "metrics"),
     metadata: normalizeObject(raw.metadata, "metadata"),
@@ -713,8 +705,9 @@ function mapLegacyToLifeEvent(record, context) {
   if (!dateParts.dateId && !mapped.originalCreatedAt && !mapped.createdAt) return null;
 
   const dateId = dateParts.dateId || "";
+  const timezone = normalizeTimezone(toTrimmedString(record.timezone, DEFAULT_TIMEZONE) || DEFAULT_TIMEZONE);
   const occurredAt = dateId && isValidDateId(dateId)
-    ? new Date(`${dateId}T00:00:00.000Z`)
+    ? dateIdToZonedDate(dateId, timezone)
     : null;
 
   const sourceKey = mapped.sourceEventId
@@ -743,10 +736,10 @@ function mapLegacyToLifeEvent(record, context) {
     categoryId: toTrimmedString(category),
     title: mapped.title || `Legacy ${category}`,
     occurredAt,
-    startAt: parseDate(mapped.capturedAt, "capturedAt") || occurredAt,
+    startAt: parseDateInTimezone(mapped.capturedAt, timezone, "capturedAt") || occurredAt,
     endAt: null,
     durationSeconds: null,
-    timezone: toTrimmedString(record.timezone, DEFAULT_TIMEZONE) || DEFAULT_TIMEZONE,
+    timezone,
     location: normalizeLocation(record.location || {}, "location") || null,
     metrics: normalizeObject(record.metrics || {}, "metrics"),
     metadata: {

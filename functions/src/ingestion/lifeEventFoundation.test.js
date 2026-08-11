@@ -349,6 +349,77 @@ test("normalizeLifeEventRecord is deterministic for idempotency", async () => {
   assert.equal(first.idempotencyKey, second.idempotencyKey);
 });
 
+test("canonical date-only values use Toronto midnight and replay exactly", async () => {
+  const db = new FakeFirestore();
+  const token = "t-date-only-toronto";
+  await setupAuthorized(db, token);
+  const body = {
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "date-only-toronto",
+    eventType: "arrive_work",
+    occurredAt: "2026-08-11",
+    timezone: "America/Toronto"
+  };
+  const first = makeRes();
+  const replay = makeRes();
+  await ingestLifeEventSingle(db, makeReq(body, token), first);
+  await ingestLifeEventSingle(db, makeReq(body, token), replay);
+  const event = await db.collection("lifeCalendars").doc("calendar-1").collection("lifeEvents").doc(first.payload.lifeEventId).get();
+  assert.equal(first.statusCode, 200);
+  assert.equal(replay.statusCode, 200);
+  assert.equal(replay.payload.duplicate, true);
+  assert.equal(event.data().occurredAt.toISOString(), "2026-08-11T04:00:00.000Z");
+  assert.equal(first.payload.idempotencyKey, replay.payload.idempotencyKey);
+});
+
+test("legacy date-only records stay on the intended Toronto day", () => {
+  const event = mapLegacyToLifeEvent({
+    sourceApp: "GYM-K2",
+    sourceFirebaseProjectId: "gym-k2",
+    sourceProjectId: "project-a",
+    sourceDocumentPath: "workouts/toronto-day",
+    category: "workout",
+    dateId: "2026-08-11",
+    timezone: "America/Toronto"
+  }, {
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    timeLeftUserId: "owner-1",
+    connection: {
+      sourceApp: "GYM-K2",
+      sourceFirebaseProjectId: "gym-k2",
+      sourceProjectIds: ["project-a"],
+      permissions: { eventClasses: ["completed_activity"] }
+    }
+  });
+  assert.equal(event.occurredAt.toISOString(), "2026-08-11T04:00:00.000Z");
+  assert.equal(event.startAt.toISOString(), "2026-08-11T04:00:00.000Z");
+});
+
+test("canonical normalization rejects an invalid supplied timezone", () => {
+  assert.throws(() => normalizeLifeEventRecord({
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "bad-timezone",
+    eventType: "arrive_work",
+    occurredAt: "2026-08-11",
+    timezone: "America/Not-Toronto"
+  }, {
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    timeLeftUserId: "owner-1",
+    connection: { sourceApp: "aigridline", sourceProjectIds: ["project-a"], permissions: { eventClasses: ["activity_boundary"] } }
+  }), /valid IANA timezone/);
+});
+
 test("valid single canonical event", async () => {
   const db = new FakeFirestore();
   const token = "t-single";

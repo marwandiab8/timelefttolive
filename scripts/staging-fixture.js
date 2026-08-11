@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initializeApp } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 
 const APPROVED_PROJECT_ID = 'timelefttolive-stg-go';
@@ -18,6 +19,8 @@ const FIXTURE_SOURCE_PROJECT_ID = 'staging-source-calendar-001';
 const FIXTURE_SOURCE_FIREBASE_PROJECT_ID = 'staging-source-project';
 const FIXTURE_LEGACY_SOURCE_PROJECT_ID = 'staging-legacy-project-001';
 const FIXTURE_LEGACY_SOURCE_FIREBASE_PROJECT_ID = 'staging-legacy-source-project';
+const FIXTURE_OWNER_UID = 'staging-owner-fixture';
+const FIXTURE_PEER_UID = 'staging-peer-fixture';
 
 const ALLOWED_EVENT_CLASSES = [
   'activity_boundary',
@@ -43,7 +46,8 @@ function buildFixtureMetadata({
   token,
   tokenHash,
   legacyToken,
-  legacyTokenHash
+  legacyTokenHash,
+  smokeUsers
 }) {
   return {
     projectId: APPROVED_PROJECT_ID,
@@ -61,8 +65,60 @@ function buildFixtureMetadata({
     legacySourceFirebaseProjectId: FIXTURE_LEGACY_SOURCE_FIREBASE_PROJECT_ID,
     legacySourceProjectId: FIXTURE_LEGACY_SOURCE_PROJECT_ID,
     legacyToken,
-    legacyTokenHash
+    legacyTokenHash,
+    ...(smokeUsers ? { smokeUsers } : {})
   };
+}
+
+async function assertFixtureUserAvailable(auth, uid) {
+  try {
+    await auth.getUser(uid);
+    throw new Error(`Refusing to replace existing staging Auth user '${uid}'.`);
+  } catch (error) {
+    if (error.code === 'auth/user-not-found') return;
+    throw error;
+  }
+}
+
+async function createSmokeUsers(auth) {
+  await assertFixtureUserAvailable(auth, FIXTURE_OWNER_UID);
+  await assertFixtureUserAvailable(auth, FIXTURE_PEER_UID);
+  const suffix = randomBytes(8).toString('hex');
+  const owner = {
+    uid: FIXTURE_OWNER_UID,
+    email: `timeleft-staging-owner-${suffix}@example.invalid`,
+    password: `Aa1!${randomBytes(24).toString('base64url')}`
+  };
+  const peer = {
+    uid: FIXTURE_PEER_UID,
+    email: `timeleft-staging-peer-${suffix}@example.invalid`,
+    password: `Aa1!${randomBytes(24).toString('base64url')}`
+  };
+  await auth.createUser({ uid: owner.uid, email: owner.email, password: owner.password, emailVerified: true });
+  try {
+    await auth.createUser({ uid: peer.uid, email: peer.email, password: peer.password, emailVerified: true });
+  } catch (error) {
+    await auth.deleteUser(owner.uid);
+    throw error;
+  }
+  return { owner, peer };
+}
+
+async function cleanupSmokeUsers(auth, smokeUsers) {
+  let deleted = 0;
+  for (const fixtureUser of [smokeUsers?.owner, smokeUsers?.peer].filter(Boolean)) {
+    try {
+      const existing = await auth.getUser(fixtureUser.uid);
+      if (existing.email !== fixtureUser.email) {
+        throw new Error(`Refusing to delete staging Auth user '${fixtureUser.uid}' because its email does not match this fixture.`);
+      }
+      await auth.deleteUser(fixtureUser.uid);
+      deleted += 1;
+    } catch (error) {
+      if (error.code !== 'auth/user-not-found') throw error;
+    }
+  }
+  return deleted;
 }
 
 function resolveDocumentRefs(input) {
@@ -80,13 +136,24 @@ function resolveDocumentRefs(input) {
 function parseArgs(argv) {
   const positional = [];
   const options = {};
-  for (const arg of argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
     if (!arg.startsWith('--')) {
       positional.push(arg);
       continue;
     }
     const [key, ...rest] = arg.slice(2).split('=');
-    options[key] = rest.length ? rest.join('=') : true;
+    if (rest.length) {
+      options[key] = rest.join('=');
+      continue;
+    }
+    const next = argv[index + 1];
+    if (next && !next.startsWith('--')) {
+      options[key] = next;
+      index += 1;
+    } else {
+      options[key] = true;
+    }
   }
   return { positional, options };
 }
@@ -175,13 +242,24 @@ async function cleanupIntegrationRecords(db, calendarRef, integrationId) {
   };
 }
 
-async function createFixture(db, tokenPath) {
+async function createFixture(db, auth, tokenPath) {
   const token = generateToken();
   const tokenHash = sha256(token);
   const tokenLastFour = token.slice(-4);
   const legacyToken = generateToken();
   const legacyTokenHash = sha256(legacyToken);
   const legacyTokenLastFour = legacyToken.slice(-4);
+  const smokeUsers = await createSmokeUsers(auth);
+
+  const payload = buildFixtureMetadata({
+    token,
+    tokenHash,
+    legacyToken,
+    legacyTokenHash,
+    smokeUsers
+  });
+  payload.createdAt = new Date().toISOString();
+  writeFixtureToken(tokenPath, payload);
 
   const calendarRef = db.collection('lifeCalendars').doc(FIXTURE_CALENDAR_ID);
   const connectionRef = calendarRef.collection('sourceConnections').doc(FIXTURE_CONNECTION_ID);
@@ -190,7 +268,7 @@ async function createFixture(db, tokenPath) {
   const legacySecretRef = calendarRef.collection('sourceConnectionSecrets').doc(FIXTURE_LEGACY_CONNECTION_ID);
 
   await calendarRef.set({
-    ownerUid: 'staging-owner-fixture',
+    ownerUid: FIXTURE_OWNER_UID,
     synthetic: true,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp()
@@ -205,7 +283,7 @@ async function createFixture(db, tokenPath) {
       eventClasses: ALLOWED_EVENT_CLASSES
     },
     integrationId: FIXTURE_INTEGRATION_ID,
-    timeLeftUserId: 'staging-owner-fixture',
+    timeLeftUserId: FIXTURE_OWNER_UID,
     tokenStatus: 'active',
     tokenVersion: 1,
     tokenLastFour,
@@ -221,7 +299,7 @@ async function createFixture(db, tokenPath) {
       eventClasses: ALLOWED_EVENT_CLASSES
     },
     integrationId: FIXTURE_LEGACY_INTEGRATION_ID,
-    timeLeftUserId: 'staging-owner-fixture',
+    timeLeftUserId: FIXTURE_OWNER_UID,
     tokenStatus: 'active',
     tokenVersion: 1,
     tokenLastFour: legacyTokenLastFour,
@@ -244,16 +322,6 @@ async function createFixture(db, tokenPath) {
     updatedAt: FieldValue.serverTimestamp()
   }, { merge: true });
 
-  const payload = buildFixtureMetadata({
-    token,
-    tokenHash,
-    legacyToken,
-    legacyTokenHash
-  });
-  payload.createdAt = new Date().toISOString();
-
-  writeFixtureToken(tokenPath, payload);
-
   console.log(JSON.stringify({
     status: 'created',
     targetProject: APPROVED_PROJECT_ID,
@@ -265,7 +333,8 @@ async function createFixture(db, tokenPath) {
   }));
 }
 
-async function cleanupFixture(db, tokenPath) {
+async function cleanupFixture(db, auth, tokenPath) {
+  const tokenMeta = readFixtureToken(tokenPath);
   const calendarRef = db.collection('lifeCalendars').doc(FIXTURE_CALENDAR_ID);
   const connectionRef = calendarRef.collection('sourceConnections').doc(FIXTURE_CONNECTION_ID);
   const secretRef = calendarRef.collection('sourceConnectionSecrets').doc(FIXTURE_CONNECTION_ID);
@@ -288,7 +357,7 @@ async function cleanupFixture(db, tokenPath) {
     await calendarRef.delete();
   }
 
-  const tokenMeta = readFixtureToken(tokenPath);
+  const deletedAuthUsers = await cleanupSmokeUsers(auth, tokenMeta?.smokeUsers);
   const canDeleteTokenFile = shouldDeleteFixtureTokenFile(tokenMeta);
   if (existsSync(tokenPath) && canDeleteTokenFile) {
     rmSync(tokenPath);
@@ -310,7 +379,8 @@ async function cleanupFixture(db, tokenPath) {
     calendarId: FIXTURE_CALENDAR_ID,
     connectionIds: FIXTURE_CONNECTION_IDS,
     integrationIds: FIXTURE_INTEGRATION_IDS,
-    deleted
+    deleted,
+    deletedAuthUsers
   }));
 }
 
@@ -335,6 +405,7 @@ async function main() {
   const tokenPath = options['token-file'] || options.tokenFile || DEFAULT_TOKEN_FILE;
   const app = initializeApp({ projectId });
   const db = getFirestore(app);
+  const auth = getAuth(app);
 
   console.log(JSON.stringify({
     status: 'target',
@@ -346,11 +417,11 @@ async function main() {
   }));
 
   if (command === 'create') {
-    await createFixture(db, tokenPath);
+    await createFixture(db, auth, tokenPath);
     return;
   }
 
-  await cleanupFixture(db, tokenPath);
+  await cleanupFixture(db, auth, tokenPath);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

@@ -1,7 +1,14 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { buildDedupeKey, externalItemIdForDedupeKey } = require("./dedupe");
-const { dateLikeToDateId, isValidDateId, resolveDateId } = require("./dateId");
+const {
+  dateIdToZonedDate,
+  dateLikeToDateId,
+  isValidDateId,
+  normalizeTimezone,
+  parseDateInTimezone,
+  resolveDateId
+} = require("./dateId");
 const { normalizeCategory, normalizeExternalItem, normalizeSourceApp } = require("./normalize");
 const { generateToken, tokenHash } = require("./tokens");
 
@@ -10,6 +17,25 @@ test("validates dateId without timezone shifting explicit date strings", () => {
   assert.equal(isValidDateId("2028-02-31"), false);
   assert.equal(dateLikeToDateId("2028-07-25"), "2028-07-25");
   assert.equal(dateLikeToDateId("2028-07-25T23:30:00.000Z"), "2028-07-25");
+});
+
+test("converts Toronto date-only values with winter and summer offsets", () => {
+  assert.equal(dateIdToZonedDate("2026-01-15", "America/Toronto").toISOString(), "2026-01-15T05:00:00.000Z");
+  assert.equal(dateIdToZonedDate("2026-07-15", "America/Toronto").toISOString(), "2026-07-15T04:00:00.000Z");
+});
+
+test("converts Toronto DST transition dates without changing the local day", () => {
+  assert.equal(dateIdToZonedDate("2026-03-08", "America/Toronto").toISOString(), "2026-03-08T05:00:00.000Z");
+  assert.equal(dateIdToZonedDate("2026-11-01", "America/Toronto").toISOString(), "2026-11-01T04:00:00.000Z");
+});
+
+test("preserves explicit UTC and offset timestamp instants", () => {
+  assert.equal(parseDateInTimezone("2026-08-11T00:00:00.000Z", "America/Toronto").toISOString(), "2026-08-11T00:00:00.000Z");
+  assert.equal(parseDateInTimezone("2026-08-11T00:00:00-04:00", "America/Toronto").toISOString(), "2026-08-11T04:00:00.000Z");
+});
+
+test("rejects invalid IANA timezone identifiers", () => {
+  assert.throws(() => normalizeTimezone("Canada/Definitely-Not-A-Zone"), /valid IANA timezone/);
 });
 
 test("resolves dates by ingestion priority", () => {
