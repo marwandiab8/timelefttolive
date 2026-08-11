@@ -11,6 +11,7 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  Timestamp,
   updateDoc,
   where
 } from 'firebase/firestore';
@@ -154,6 +155,73 @@ export function useEvents(calendarId, role) {
   }, [calendarId, role]);
 
   return { events, error };
+}
+
+export function useLifeEvents(calendarId, startDate, endDate, enabled = true) {
+  const [lifeEvents, setLifeEvents] = useState([]);
+  const [loading, setLoading] = useState(Boolean(calendarId && enabled));
+  const [error, setError] = useState('');
+  const startTime = startDate?.getTime();
+  const endTime = endDate?.getTime();
+
+  useEffect(() => {
+    if (!calendarId || !enabled || !Number.isFinite(startTime) || !Number.isFinite(endTime)) {
+      setLifeEvents([]);
+      setLoading(false);
+      setError('');
+      return undefined;
+    }
+
+    setLoading(true);
+    setError('');
+    const lifeEventsQuery = query(
+      collection(db, 'lifeCalendars', calendarId, 'lifeEvents'),
+      where('occurredAt', '>=', Timestamp.fromMillis(startTime)),
+      where('occurredAt', '<', Timestamp.fromMillis(endTime)),
+      orderBy('occurredAt', 'asc')
+    );
+
+    return onSnapshot(lifeEventsQuery, (snapshot) => {
+      setLifeEvents(snapshot.docs.map((eventDoc) => ({ id: eventDoc.id, ...eventDoc.data() })));
+      setLoading(false);
+      setError('');
+    }, (err) => {
+      setLifeEvents([]);
+      setLoading(false);
+      setError(err.message);
+    });
+  }, [calendarId, enabled, startTime, endTime]);
+
+  return { lifeEvents, loading, error };
+}
+
+export function useConnectedSources(calendarId, enabled = true) {
+  const [connections, setConnections] = useState([]);
+  const [loading, setLoading] = useState(Boolean(calendarId && enabled));
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!calendarId || !enabled) {
+      setConnections([]);
+      setLoading(false);
+      setError('');
+      return undefined;
+    }
+
+    setLoading(true);
+    setError('');
+    return onSnapshot(collection(db, 'lifeCalendars', calendarId, 'sourceConnections'), (snapshot) => {
+      setConnections(snapshot.docs.map((connectionDoc) => ({ id: connectionDoc.id, ...connectionDoc.data() })));
+      setLoading(false);
+      setError('');
+    }, (err) => {
+      setConnections([]);
+      setLoading(false);
+      setError(err.message);
+    });
+  }, [calendarId, enabled]);
+
+  return { connections, loading, error };
 }
 
 export function useViewers(calendarId) {

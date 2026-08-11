@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import ActivityDashboard from '../components/ActivityDashboard.jsx';
 import CalendarBreadcrumbs from '../components/CalendarBreadcrumbs.jsx';
 import { DayDrilldownView, MonthDetailView, WeekDetailView, YearDetailView } from '../components/CalendarDrilldown.jsx';
 import EventManager from '../components/EventManager.jsx';
@@ -31,6 +32,7 @@ export default function Dashboard() {
   const [showEvents, setShowEvents] = useState(false);
   const [showSources, setShowSources] = useState(false);
   const [showViewers, setShowViewers] = useState(false);
+  const [primaryView, setPrimaryView] = useState('calendar');
   const [selectedWeek, setSelectedWeek] = useState(null);
   const [calendarView, setCalendarView] = useState({ view: 'life' });
   const [zoom, setZoom] = useState(() => Number(localStorage.getItem('lifeHeatmapZoom') || 1));
@@ -92,6 +94,10 @@ export default function Dashboard() {
     );
   }
 
+  if (role === 'owner' && primaryView === 'activity') {
+    return <ActivityDashboard calendar={calendar} onBack={() => setPrimaryView('calendar')} />;
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -102,6 +108,7 @@ export default function Dashboard() {
         <div className="actions">
           {pendingInvite && <button className="secondary" type="button" onClick={() => acceptViewerInvite(pendingInvite.calendarId, pendingInvite.id, user.uid)}>Accept invite</button>}
           <button className="secondary" type="button" onClick={() => heatmapRef.current?.scrollToCurrentWeek()}>Today</button>
+          {role === 'owner' && <button className="secondary" type="button" onClick={() => setPrimaryView('activity')}>Activity dashboard</button>}
           {role === 'owner' && <button className="secondary" type="button" onClick={() => setShowEvents(true)}>Add event</button>}
           {role === 'owner' && <button className="secondary" type="button" onClick={() => setShowSources(true)}>External sources</button>}
           {role === 'owner' && <button className="secondary" type="button" onClick={() => setEditingProfile(true)}>Edit profile</button>}
