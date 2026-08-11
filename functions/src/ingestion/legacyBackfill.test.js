@@ -5,6 +5,7 @@ const {
   executeLegacyBackfill,
   oldUtcMidnightCandidate
 } = require("./legacyBackfill");
+const { buildContentHash } = require("./lifeEventFoundation");
 
 function legacyRecord(overrides = {}) {
   const data = {
@@ -147,4 +148,75 @@ test("protects non-legacy canonical events from replacement", async () => {
   assert.equal(summary.repaired, 0);
   assert.equal(state.writes.length, 0);
   assert.equal(state.canonical.get(candidate.idempotencyKey).contentHash, "different-content");
+});
+
+test("accepts a narrowly marked source-verified timestamp repair as unchanged", async () => {
+  const record = legacyRecord();
+  const connection = { status: "active", sourceApp: "GYM-K2", sourceProjectIds: ["gym-project"] };
+  const calendar = { ownerUid: "owner-1" };
+  const candidate = buildCandidate(record, calendar, connection);
+  const startAt = new Date("2026-08-11T09:10:09.555Z");
+  const endAt = new Date("2026-08-11T10:09:59.770Z");
+  const durationSeconds = (endAt.getTime() - startAt.getTime()) / 1000;
+  const metadata = { ...candidate.metadata, sourceVerified: true };
+  const existing = {
+    ...candidate,
+    startAt,
+    endAt,
+    durationSeconds,
+    metadata,
+    migrationMetadata: {
+      name: "targeted-source-timestamp-repair",
+      version: 1,
+      action: "source-timestamps-repaired",
+      sourceRecordId: candidate.sourceEventId
+    }
+  };
+  existing.contentHash = buildContentHash(existing);
+  const state = harness({ calendar, canonical: [[candidate.idempotencyKey, existing]] });
+  const summary = await executeLegacyBackfill([record], state.dependencies, { apply: true });
+  assert.equal(summary.unchanged, 1);
+  assert.equal(summary.conflicts, 0);
+  assert.equal(state.writes.length, 0);
+});
+
+test("does not accept unmarked or cross-day timestamp differences", async () => {
+  const record = legacyRecord();
+  const connection = { status: "active", sourceApp: "GYM-K2", sourceProjectIds: ["gym-project"] };
+  const calendar = { ownerUid: "owner-1" };
+  const candidate = buildCandidate(record, calendar, connection);
+  const startAt = new Date("2026-08-10T23:30:00.000Z");
+  const endAt = new Date("2026-08-11T10:09:59.770Z");
+  const existing = {
+    ...candidate,
+    startAt,
+    endAt,
+    durationSeconds: (endAt.getTime() - startAt.getTime()) / 1000,
+    migrationMetadata: {
+      name: "targeted-source-timestamp-repair",
+      version: 1,
+      action: "source-timestamps-repaired",
+      sourceRecordId: candidate.sourceEventId
+    }
+  };
+  existing.contentHash = buildContentHash(existing);
+  const state = harness({ calendar, canonical: [[candidate.idempotencyKey, existing]] });
+  const summary = await executeLegacyBackfill([record], state.dependencies, { apply: true });
+  assert.equal(summary.unchanged, 0);
+  assert.equal(summary.conflicts, 1);
+  assert.equal(state.writes.length, 0);
+
+  const sameDayStart = new Date("2026-08-11T09:10:09.555Z");
+  const unmarked = {
+    ...candidate,
+    startAt: sameDayStart,
+    endAt,
+    durationSeconds: (endAt.getTime() - sameDayStart.getTime()) / 1000
+  };
+  unmarked.contentHash = buildContentHash(unmarked);
+  const unmarkedState = harness({ calendar, canonical: [[candidate.idempotencyKey, unmarked]] });
+  const unmarkedSummary = await executeLegacyBackfill([record], unmarkedState.dependencies, { apply: true });
+  assert.equal(unmarkedSummary.unchanged, 0);
+  assert.equal(unmarkedSummary.conflicts, 1);
+  assert.equal(unmarkedState.writes.length, 0);
 });

@@ -85,11 +85,56 @@ function oldUtcMidnightCandidate(candidate, dateId) {
   return oldCandidate;
 }
 
+function localDateId(value, timezone) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(value);
+}
+
+function isVerifiedSourceTimestampRepair(existing, candidate, dateId) {
+  const migration = existing?.migrationMetadata || {};
+  if (migration.name !== "targeted-source-timestamp-repair"
+    || migration.version !== 1
+    || migration.action !== "source-timestamps-repaired") {
+    return false;
+  }
+
+  const startAt = toDate(existing.startAt, candidate.timezone, "existing.startAt");
+  const endAt = toDate(existing.endAt, candidate.timezone, "existing.endAt");
+  const durationSeconds = Number(existing.durationSeconds);
+  if (!startAt || !endAt || endAt <= startAt || !Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    return false;
+  }
+  if (localDateId(startAt, candidate.timezone) !== dateId || localDateId(endAt, candidate.timezone) !== dateId) {
+    return false;
+  }
+  const calculatedDuration = (endAt.getTime() - startAt.getTime()) / 1000;
+  if (Math.abs(durationSeconds - calculatedDuration) > 0.001) return false;
+
+  const sourceIdentity = candidate.sourceEventId || candidate.sourceRecordId || "";
+  if (!sourceIdentity || migration.sourceRecordId !== sourceIdentity) return false;
+
+  const expectedEnrichedHash = buildContentHash({
+    ...candidate,
+    startAt,
+    endAt,
+    durationSeconds,
+    metadata: existing.metadata
+  });
+  return existing.contentHash === expectedEnrichedHash;
+}
+
 function classifyCanonical(existing, candidate, dateId) {
   if (!existing) return { action: "create" };
   if (existing.contentHash === candidate.contentHash) return { action: "unchanged" };
   if (!isLegacyGenerated(existing) || !identityMatches(existing, candidate)) {
     return { action: "conflict", reason: "canonical_identity_or_origin_mismatch" };
+  }
+  if (isVerifiedSourceTimestampRepair(existing, candidate, dateId)) {
+    return { action: "unchanged", reason: "verified_source_timestamp_repair" };
   }
 
   const oldCandidate = oldUtcMidnightCandidate(candidate, dateId);
@@ -310,6 +355,7 @@ module.exports = {
   executeLegacyBackfill,
   identityMatches,
   isSyntheticRecord,
+  isVerifiedSourceTimestampRepair,
   oldUtcMidnightCandidate,
   validateOwnership
 };
