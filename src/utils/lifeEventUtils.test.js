@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildActivityAnalysis,
   buildActivityBreakdown,
+  buildActivitySessions,
   buildDailyInsight,
+  filterLifeEvents,
   formatDuration,
   getDailySummary,
+  getDeliveryLatencySeconds,
+  getEventDurationSeconds,
+  getEventTime,
   getDonutBackground,
   getLocalDateId,
   getLocalDayBounds,
@@ -66,5 +72,77 @@ describe('life event dashboard utilities', () => {
     expect(sorted.map((event) => event.id)).toEqual(['early', 'late']);
     expect(buildDailyInsight([])).toContain('No life events');
     expect(buildDailyInsight([{ sourceApp: 'GYM-K2', eventType: 'completed_workout' }])).toContain('Workout');
+  });
+
+  it('prioritizes the real start time and computes finish duration and delivery latency', () => {
+    const workout = {
+      occurredAt: '2026-08-11T04:00:00Z',
+      startAt: '2026-08-11T09:10:09Z',
+      endAt: '2026-08-11T10:09:59Z',
+      receivedAt: '2026-08-11T10:10:04Z'
+    };
+    expect(getEventTime(workout).toISOString()).toBe('2026-08-11T09:10:09.000Z');
+    expect(getEventDurationSeconds(workout)).toBe(3590);
+    expect(getDeliveryLatencySeconds(workout)).toBe(5);
+  });
+
+  it('filters drill-down events by category, source, or exact event identity', () => {
+    const events = [
+      { id: 'workout', sourceApp: 'GYM-K2', activityFamily: 'workout' },
+      { id: 'gym', sourceApp: 'gridlineai', activityFamily: 'gym' },
+      { id: 'work', sourceApp: 'gridlineai', activityFamily: 'work' }
+    ];
+    expect(filterLifeEvents(events, { kind: 'category', value: 'Workout' }).map((event) => event.id)).toEqual(['workout']);
+    expect(filterLifeEvents(events, { kind: 'category', value: 'Gym' }).map((event) => event.id)).toEqual(['workout', 'gym']);
+    expect(filterLifeEvents(events, { kind: 'source', value: 'GRIDLINEAI' }).map((event) => event.id)).toEqual(['gym', 'work']);
+    expect(filterLifeEvents(events, { kind: 'event', value: 'work' }).map((event) => event.id)).toEqual(['work']);
+  });
+
+  it('pairs arrival and departure boundaries into calculated sessions', () => {
+    const sessions = buildActivitySessions([
+      {
+        id: 'arrive',
+        eventType: 'arrive_gym',
+        activityFamily: 'gym',
+        occurredAt: '2026-08-11T09:00:00Z',
+        sourceApp: 'gridlineai'
+      },
+      {
+        id: 'leave',
+        eventType: 'leave_gym',
+        activityFamily: 'gym',
+        occurredAt: '2026-08-11T10:30:00Z',
+        sourceApp: 'gridlineai'
+      }
+    ]);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({ kind: 'paired', durationSeconds: 5400, sourceApp: 'gridlineai' });
+  });
+
+  it('builds a source analysis from sessions, timings, event types, and delivery delays', () => {
+    const analysis = buildActivityAnalysis([
+      {
+        id: 'one',
+        sourceApp: 'GYM-K2',
+        eventType: 'completed_workout',
+        activityFamily: 'workout',
+        startAt: '2026-08-11T09:10:00Z',
+        endAt: '2026-08-11T10:10:00Z',
+        receivedAt: '2026-08-11T10:10:05Z'
+      },
+      {
+        id: 'two',
+        sourceApp: 'GYM-K2',
+        eventType: 'achievement',
+        occurredAt: '2026-08-11T10:10:00Z',
+        receivedAt: '2026-08-11T10:10:15Z'
+      }
+    ]);
+    expect(analysis.eventCount).toBe(2);
+    expect(analysis.sourceCount).toBe(1);
+    expect(analysis.sessionCount).toBe(1);
+    expect(analysis.trackedSeconds).toBe(3600);
+    expect(analysis.averageDeliverySeconds).toBe(10);
+    expect(analysis.eventTypes[0]).toEqual({ label: 'achievement', count: 1 });
   });
 });
