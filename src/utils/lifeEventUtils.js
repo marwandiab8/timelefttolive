@@ -30,6 +30,24 @@ export function getLocalDateId(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+export function getDateIdInTimeZone(date, timeZone) {
+  const safeDate = toJsDate(date);
+  if (!safeDate) return '';
+  if (!timeZone) return getLocalDateId(safeDate);
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(safeDate);
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${values.year}-${values.month}-${values.day}`;
+  } catch (_error) {
+    return getLocalDateId(safeDate);
+  }
+}
+
 export function getLocalDayBounds(dateId) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateId || '');
   if (!match) return null;
@@ -86,6 +104,24 @@ export function getActivityLabel(event) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+export function getTallyActivityLabel(event) {
+  const eventType = String(event?.eventType || '').trim().toLowerCase();
+  const boundaryMatch = /^(?:arrive|leave|start|finish|stop)[_-](.+)$/.exec(eventType);
+  const activityToken = String(boundaryMatch?.[1] || event?.activityFamily || getActivityLabel(event))
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+
+  if (activityToken.includes('workout') || activityToken === 'gym' || eventType.includes('workout')) return 'Gym';
+  if (activityToken === 'work' || activityToken === 'workplace' || /(?:^|_)work(?:_|$)/.test(eventType)) return 'Work';
+  if (activityToken === 'home' || /(?:^|_)home(?:_|$)/.test(eventType)) return 'Home';
+  if (activityToken.includes('spotify') || activityToken.includes('music') || activityToken.includes('listening')) return 'Music';
+  if (activityToken === 'location') return 'Location';
+  return activityToken
+    .replace(/_+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 export function filterLifeEvents(events, selection) {
   const safeEvents = Array.isArray(events) ? events : [];
   if (!selection) return safeEvents;
@@ -99,6 +135,7 @@ export function filterLifeEvents(events, selection) {
   if (selection.kind === 'category') {
     const category = String(selection.value || '').toLowerCase();
     return safeEvents.filter((event) => {
+      if (selection.tally) return getTallyActivityLabel(event).toLowerCase() === category;
       const label = getActivityLabel(event).toLowerCase();
       if (category === 'gym') return label === 'gym' || label === 'workout';
       return label === category;
@@ -218,9 +255,11 @@ export function buildActivitySessions(events) {
       id: `timed-${event.id || signature}`,
       title: event.title || getActivityLabel(event),
       sourceApp: event.sourceApp || '',
+      timezone: event.timezone || '',
       startAt: start,
       endAt: end,
       durationSeconds: (end.getTime() - start.getTime()) / 1000,
+      activityLabel: getTallyActivityLabel(event),
       kind: 'reported'
     });
   });
@@ -241,11 +280,13 @@ export function buildActivitySessions(events) {
     const start = starts.pop();
     if (!start || eventTime <= start.eventTime) return;
     openBoundaries.set(descriptor.key, starts);
-    const title = `${getActivityLabel(start.event)} session`;
+    const activityLabel = getTallyActivityLabel(start.event);
+    const title = `${activityLabel} session`;
     const signature = `${start.eventTime.toISOString()}|${eventTime.toISOString()}|${title}`;
     if (seen.has(signature)) return;
     const overlapsReportedSession = sessions.some((session) => {
       if (session.kind !== 'reported') return false;
+      if (session.activityLabel !== activityLabel) return false;
       const overlapStart = Math.max(session.startAt.getTime(), start.eventTime.getTime());
       const overlapEnd = Math.min(session.endAt.getTime(), eventTime.getTime());
       const overlap = Math.max(0, overlapEnd - overlapStart);
@@ -261,14 +302,111 @@ export function buildActivitySessions(events) {
       id: `paired-${start.event.id || start.eventTime.getTime()}-${event.id || eventTime.getTime()}`,
       title,
       sourceApp: start.event.sourceApp || event.sourceApp || '',
+      timezone: start.event.timezone || event.timezone || '',
       startAt: start.eventTime,
       endAt: eventTime,
       durationSeconds: (eventTime.getTime() - start.eventTime.getTime()) / 1000,
+      activityLabel,
       kind: 'paired'
     });
   });
 
   return sessions.sort((left, right) => left.startAt - right.startAt);
+}
+
+export function getActivityTallyRange(rangeId, now = new Date()) {
+  const end = new Date(now);
+  end.setHours(0, 0, 0, 0);
+  end.setDate(end.getDate() + 1);
+
+  if (rangeId === 'year') {
+    const start = new Date(now.getFullYear(), 0, 1);
+    return { id: 'year', label: `${now.getFullYear()}`, start, end };
+  }
+  if (rangeId === '30d' || rangeId === '7d') {
+    const days = rangeId === '30d' ? 30 : 7;
+    const start = new Date(end);
+    start.setDate(start.getDate() - days);
+    return { id: rangeId, label: `Last ${days} days`, start, end };
+  }
+  return { id: 'all', label: 'All time', start: null, end: null };
+}
+
+export function filterLifeEventsByRange(events, range) {
+  const safeEvents = Array.isArray(events) ? events : [];
+  if (!range?.start && !range?.end) return safeEvents;
+  const startMs = range?.start?.getTime?.() ?? Number.NEGATIVE_INFINITY;
+  const endMs = range?.end?.getTime?.() ?? Number.POSITIVE_INFINITY;
+  return safeEvents.filter((event) => {
+    const time = getEventTime(event)?.getTime();
+    return Number.isFinite(time) && time >= startMs && time < endMs;
+  });
+}
+
+export function buildActivityTallies(events) {
+  const safeEvents = sortLifeEvents(events);
+  const sessions = buildActivitySessions(safeEvents);
+  const groups = new Map();
+
+  function getGroup(label) {
+    if (!groups.has(label)) {
+      groups.set(label, {
+        label,
+        eventCount: 0,
+        sessionCount: 0,
+        totalSeconds: 0,
+        days: new Set(),
+        sources: new Set(),
+        firstAt: null,
+        lastAt: null
+      });
+    }
+    return groups.get(label);
+  }
+
+  safeEvents.forEach((event) => {
+    const label = getTallyActivityLabel(event);
+    const group = getGroup(label);
+    const time = getEventTime(event);
+    const end = getEventEndTime(event) || time;
+    group.eventCount += 1;
+    if (event.sourceApp) group.sources.add(event.sourceApp);
+    if (time) {
+      group.days.add(getDateIdInTimeZone(time, event.timezone));
+      if (!group.firstAt || time < group.firstAt) group.firstAt = time;
+    }
+    if (end && (!group.lastAt || end > group.lastAt)) group.lastAt = end;
+  });
+
+  sessions.forEach((session) => {
+    const group = getGroup(session.activityLabel || 'Other');
+    group.sessionCount += 1;
+    group.totalSeconds += session.durationSeconds;
+    group.days.add(getDateIdInTimeZone(session.startAt, session.timezone));
+    if (session.sourceApp) group.sources.add(session.sourceApp);
+    if (!group.firstAt || session.startAt < group.firstAt) group.firstAt = session.startAt;
+    if (!group.lastAt || session.endAt > group.lastAt) group.lastAt = session.endAt;
+  });
+
+  return [...groups.values()]
+    .map((group) => ({
+      label: group.label,
+      eventCount: group.eventCount,
+      sessionCount: group.sessionCount,
+      totalSeconds: group.totalSeconds,
+      averageSeconds: group.sessionCount > 0 ? group.totalSeconds / group.sessionCount : 0,
+      dayCount: group.days.size,
+      sourceCount: group.sources.size,
+      firstAt: group.firstAt,
+      lastAt: group.lastAt
+    }))
+    .sort((left, right) => (
+      right.totalSeconds - left.totalSeconds
+      || right.dayCount - left.dayCount
+      || right.eventCount - left.eventCount
+      || left.label.localeCompare(right.label)
+    ))
+    .map((group, index) => ({ ...group, color: ACTIVITY_COLORS[index % ACTIVITY_COLORS.length] }));
 }
 
 export function buildActivityAnalysis(events) {
@@ -277,6 +415,7 @@ export function buildActivityAnalysis(events) {
   const sources = new Set(safeEvents.map((event) => event.sourceApp).filter(Boolean));
   const eventTypes = new Map();
   const deliveryLatencies = [];
+  const activityDays = new Set();
   let firstAt = null;
   let lastAt = null;
 
@@ -287,6 +426,7 @@ export function buildActivityAnalysis(events) {
     const eventType = String(event.eventType || 'activity').replace(/[_-]+/g, ' ');
     eventTypes.set(eventType, (eventTypes.get(eventType) || 0) + 1);
     if (start && (!firstAt || start < firstAt)) firstAt = start;
+    if (start) activityDays.add(getDateIdInTimeZone(start, event.timezone));
     if (end && (!lastAt || end > lastAt)) lastAt = end;
     if (Number.isFinite(latency)) deliveryLatencies.push(latency);
   });
@@ -300,7 +440,9 @@ export function buildActivityAnalysis(events) {
     eventCount: safeEvents.length,
     sourceCount: sources.size,
     sessionCount: sessions.length,
+    activityDayCount: activityDays.size,
     trackedSeconds,
+    averageSessionSeconds: sessions.length > 0 ? trackedSeconds / sessions.length : 0,
     firstAt,
     lastAt,
     spanSeconds: firstAt && lastAt && lastAt >= firstAt

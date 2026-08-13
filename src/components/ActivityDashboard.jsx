@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useConnectedSources, useLifeEvents } from '../hooks/useCalendar.js';
+import { useAllLifeEvents, useConnectedSources, useLifeEvents } from '../hooks/useCalendar.js';
 import {
   buildActivityAnalysis,
   buildActivityBreakdown,
+  buildActivityTallies,
   buildDailyInsight,
   filterLifeEvents,
+  filterLifeEventsByRange,
   formatDuration,
   getActivityLabel,
+  getActivityTallyRange,
   getDailySummary,
   getDeliveryLatencySeconds,
   getEventDurationSeconds,
@@ -28,6 +31,13 @@ const DATE_HEADING_FORMAT = new Intl.DateTimeFormat(undefined, {
 });
 
 const HIDDEN_DETAIL_KEY = /(authorization|token|secret|password|credential|api.?key|hash|owner.?uid|calendar.?id|connection.?id|integration.?id|idempotency|source.?record.?id|source.?event.?id|exercises|exercise.?summaries|migration)/i;
+
+const TALLY_RANGES = [
+  { id: 'all', label: 'All time' },
+  { id: 'year', label: 'This year' },
+  { id: '30d', label: '30 days' },
+  { id: '7d', label: '7 days' }
+];
 
 function timeOptions(event, options = {}) {
   const output = { ...options };
@@ -93,18 +103,26 @@ export default function ActivityDashboard({ calendar, onBack }) {
   const [selectedDate, setSelectedDate] = useState(() => getLocalDateId());
   const [theme, setTheme] = useState(() => (localStorage.getItem('activityDashboardTheme') === 'light' ? 'light' : 'dark'));
   const [drilldown, setDrilldown] = useState(null);
+  const [tallyRangeId, setTallyRangeId] = useState('all');
   const dayBounds = useMemo(() => getLocalDayBounds(selectedDate), [selectedDate]);
   const lifeEventState = useLifeEvents(calendar.id, dayBounds?.start, dayBounds?.end, Boolean(dayBounds));
+  const allLifeEventState = useAllLifeEvents(calendar.id);
   const sourceState = useConnectedSources(calendar.id);
   const summary = useMemo(() => getDailySummary(lifeEventState.lifeEvents), [lifeEventState.lifeEvents]);
   const breakdown = useMemo(() => buildActivityBreakdown(lifeEventState.lifeEvents), [lifeEventState.lifeEvents]);
   const timeline = useMemo(() => sortLifeEvents(lifeEventState.lifeEvents), [lifeEventState.lifeEvents]);
+  const tallyRange = useMemo(() => getActivityTallyRange(tallyRangeId), [tallyRangeId]);
+  const tallyEvents = useMemo(
+    () => filterLifeEventsByRange(allLifeEventState.lifeEvents, tallyRange),
+    [allLifeEventState.lifeEvents, tallyRange]
+  );
+  const tallies = useMemo(() => buildActivityTallies(tallyEvents), [tallyEvents]);
   const selectedEvents = useMemo(
-    () => filterLifeEvents(lifeEventState.lifeEvents, drilldown),
-    [drilldown, lifeEventState.lifeEvents]
+    () => filterLifeEvents(drilldown?.scope === 'tally' ? tallyEvents : lifeEventState.lifeEvents, drilldown),
+    [drilldown, lifeEventState.lifeEvents, tallyEvents]
   );
   const insight = useMemo(() => buildDailyInsight(lifeEventState.lifeEvents), [lifeEventState.lifeEvents]);
-  const error = lifeEventState.error || sourceState.error;
+  const error = lifeEventState.error || allLifeEventState.error || sourceState.error;
 
   useEffect(() => {
     setDrilldown(null);
@@ -149,6 +167,17 @@ export default function ActivityDashboard({ calendar, onBack }) {
     });
   }
 
+  function openTally(tally) {
+    setDrilldown({
+      kind: 'category',
+      scope: 'tally',
+      tally: true,
+      value: tally.label,
+      label: tally.label,
+      color: tally.color
+    });
+  }
+
   const activeConnections = sourceState.connections.filter((connection) => connection.status === 'active').length;
   const dateLabel = dayBounds ? DATE_HEADING_FORMAT.format(dayBounds.start) : selectedDate;
 
@@ -190,6 +219,36 @@ export default function ActivityDashboard({ calendar, onBack }) {
         <DailySummaryCard label="Tracked time" value={lifeEventState.loading ? '—' : formatDuration(summary.activeSeconds)} detail="Duration reported by sources" />
         <DailySummaryCard label="Sources today" value={lifeEventState.loading ? '—' : summary.sourceCount.toLocaleString()} detail="Unique source apps" />
         <DailySummaryCard label="Completed" value={lifeEventState.loading ? '—' : summary.completedCount.toLocaleString()} detail="Completed activities" />
+      </section>
+
+      <section className="activity-card activity-tally-card">
+        <div className="activity-tally-heading">
+          <SectionHeading eyebrow="Hours, days, sessions, and events" title="Activity tallies" />
+          <div className="activity-range-switcher" aria-label="Activity tally period">
+            {TALLY_RANGES.map((range) => (
+              <button
+                aria-pressed={tallyRangeId === range.id}
+                className={tallyRangeId === range.id ? 'selected' : ''}
+                key={range.id}
+                onClick={() => setTallyRangeId(range.id)}
+                type="button"
+              >
+                {range.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {allLifeEventState.loading ? (
+          <LoadingState label="Calculating activity totals…" />
+        ) : tallies.length === 0 ? (
+          <EmptyState>No activities were recorded during {tallyRange.label.toLowerCase()}.</EmptyState>
+        ) : (
+          <div className="activity-tally-grid">
+            {tallies.map((tally) => (
+              <ActivityTallyCard key={tally.label} onSelect={() => openTally(tally)} tally={tally} />
+            ))}
+          </div>
+        )}
       </section>
 
       <div className="activity-main-grid">
@@ -269,9 +328,39 @@ export default function ActivityDashboard({ calendar, onBack }) {
       </div>
 
       {drilldown && (
-        <ActivityDetailPanel dateLabel={dateLabel} events={selectedEvents} onClose={() => setDrilldown(null)} selection={drilldown} />
+        <ActivityDetailPanel
+          dateLabel={drilldown.scope === 'tally' ? tallyRange.label : dateLabel}
+          events={selectedEvents}
+          onClose={() => setDrilldown(null)}
+          selection={drilldown}
+        />
       )}
     </main>
+  );
+}
+
+function ActivityTallyCard({ tally, onSelect }) {
+  return (
+    <button className="activity-tally-item" type="button" onClick={onSelect} aria-haspopup="dialog">
+      <span className="activity-tally-glyph" style={{ '--activity-tally-color': tally.color }} aria-hidden="true">
+        {activityGlyph(tally.label)}
+      </span>
+      <div className="activity-tally-title">
+        <strong>{tally.label}</strong>
+        <small>{tally.sourceCount} {tally.sourceCount === 1 ? 'source' : 'sources'} · Click for complete history</small>
+      </div>
+      <div className="activity-tally-total">
+        <strong>{tally.totalSeconds > 0 ? formatDuration(tally.totalSeconds) : '—'}</strong>
+        <small>Total tracked time</small>
+      </div>
+      <dl>
+        <div><dt>Days</dt><dd>{tally.dayCount}</dd></div>
+        <div><dt>Sessions</dt><dd>{tally.sessionCount}</dd></div>
+        <div><dt>Events</dt><dd>{tally.eventCount}</dd></div>
+        <div><dt>Average</dt><dd>{tally.averageSeconds > 0 ? formatDuration(tally.averageSeconds) : '—'}</dd></div>
+      </dl>
+      <b aria-hidden="true">›</b>
+    </button>
   );
 }
 
@@ -433,8 +522,10 @@ function ActivityDetailPanel({ selection, events, dateLabel, onClose }) {
             <p className="activity-analysis-lead">{buildAnalysisSentence(selection.label, analysis)}</p>
 
             <section className="activity-analysis-grid" aria-label={`${selection.label} analysis`}>
-              <AnalysisMetric label="Events" value={analysis.eventCount.toLocaleString()} detail={`${analysis.sourceCount} ${analysis.sourceCount === 1 ? 'source' : 'sources'}`} />
-              <AnalysisMetric label="Tracked time" value={analysis.trackedSeconds > 0 ? formatDuration(analysis.trackedSeconds) : '—'} detail={`${analysis.sessionCount} timed ${analysis.sessionCount === 1 ? 'session' : 'sessions'}`} />
+              <AnalysisMetric label="Active days" value={analysis.activityDayCount.toLocaleString()} detail="Distinct calendar days" />
+              <AnalysisMetric label="Total time" value={analysis.trackedSeconds > 0 ? formatDuration(analysis.trackedSeconds) : '—'} detail="Reliable timed sessions" />
+              <AnalysisMetric label="Sessions" value={analysis.sessionCount.toLocaleString()} detail={`${analysis.eventCount} canonical ${analysis.eventCount === 1 ? 'event' : 'events'}`} />
+              <AnalysisMetric label="Average session" value={analysis.averageSessionSeconds > 0 ? formatDuration(analysis.averageSessionSeconds) : '—'} detail={`${analysis.sourceCount} ${analysis.sourceCount === 1 ? 'source' : 'sources'}`} />
               <AnalysisMetric label="Time window" value={timeWindow} detail={analysis.spanSeconds > 0 ? `${formatDuration(analysis.spanSeconds)} span` : 'Single point in time'} />
               <AnalysisMetric
                 label="Average delivery"
@@ -494,7 +585,7 @@ function AnalysisMetric({ label, value, detail }) {
 function buildAnalysisSentence(label, analysis) {
   const events = `${analysis.eventCount} ${analysis.eventCount === 1 ? 'event' : 'events'}`;
   const timing = analysis.sessionCount > 0
-    ? `I found ${analysis.sessionCount} timed ${analysis.sessionCount === 1 ? 'session' : 'sessions'} totalling ${formatDuration(analysis.trackedSeconds)}.`
+    ? `I found ${analysis.sessionCount} timed ${analysis.sessionCount === 1 ? 'session' : 'sessions'} across ${analysis.activityDayCount} active ${analysis.activityDayCount === 1 ? 'day' : 'days'}, totalling ${formatDuration(analysis.trackedSeconds)}.`
     : 'These activities were recorded as points in time rather than timed sessions.';
   const delivery = Number.isFinite(analysis.averageDeliverySeconds)
     ? `The average delivery delay was ${formatDelay(analysis.averageDeliverySeconds).replace(/ later$/, '')}.`

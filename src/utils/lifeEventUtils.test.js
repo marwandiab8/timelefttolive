@@ -3,9 +3,12 @@ import {
   buildActivityAnalysis,
   buildActivityBreakdown,
   buildActivitySessions,
+  buildActivityTallies,
   buildDailyInsight,
   filterLifeEvents,
+  filterLifeEventsByRange,
   formatDuration,
+  getActivityTallyRange,
   getDailySummary,
   getDeliveryLatencySeconds,
   getEventDurationSeconds,
@@ -98,6 +101,19 @@ describe('life event dashboard utilities', () => {
     expect(filterLifeEvents(events, { kind: 'event', value: 'work' }).map((event) => event.id)).toEqual(['work']);
   });
 
+  it('groups workout and gym records together for tally drill-downs', () => {
+    const events = [
+      { id: 'workout', eventType: 'completed_workout', activityFamily: 'workout' },
+      { id: 'arrive-gym', eventType: 'arrive_gym', activityFamily: 'location' },
+      { id: 'work', eventType: 'arrive_work', activityFamily: 'location' }
+    ];
+    expect(filterLifeEvents(events, { kind: 'category', value: 'Gym', tally: true }).map((event) => event.id)).toEqual([
+      'workout',
+      'arrive-gym'
+    ]);
+    expect(filterLifeEvents(events, { kind: 'category', value: 'Work', tally: true }).map((event) => event.id)).toEqual(['work']);
+  });
+
   it('pairs arrival and departure boundaries into calculated sessions', () => {
     const sessions = buildActivitySessions([
       {
@@ -141,8 +157,105 @@ describe('life event dashboard utilities', () => {
     expect(analysis.eventCount).toBe(2);
     expect(analysis.sourceCount).toBe(1);
     expect(analysis.sessionCount).toBe(1);
+    expect(analysis.activityDayCount).toBe(1);
     expect(analysis.trackedSeconds).toBe(3600);
+    expect(analysis.averageSessionSeconds).toBe(3600);
     expect(analysis.averageDeliverySeconds).toBe(10);
     expect(analysis.eventTypes[0]).toEqual({ label: 'achievement', count: 1 });
+  });
+
+  it('keeps per-activity totals for distinct days, sessions, hours, and events', () => {
+    const events = [
+      {
+        id: 'work-start-one',
+        eventType: 'arrive_work',
+        activityFamily: 'location',
+        occurredAt: '2026-08-10T12:00:00Z',
+        timezone: 'America/Toronto',
+        sourceApp: 'gridlineai'
+      },
+      {
+        id: 'work-end-one',
+        eventType: 'leave_work',
+        activityFamily: 'location',
+        occurredAt: '2026-08-10T20:00:00Z',
+        timezone: 'America/Toronto',
+        sourceApp: 'gridlineai'
+      },
+      {
+        id: 'work-start-two',
+        eventType: 'arrive_work',
+        activityFamily: 'location',
+        occurredAt: '2026-08-11T12:00:00Z',
+        timezone: 'America/Toronto',
+        sourceApp: 'gridlineai'
+      },
+      {
+        id: 'work-end-two',
+        eventType: 'leave_work',
+        activityFamily: 'location',
+        occurredAt: '2026-08-11T21:00:00Z',
+        timezone: 'America/Toronto',
+        sourceApp: 'gridlineai'
+      },
+      {
+        id: 'gym-workout',
+        eventType: 'completed_workout',
+        activityFamily: 'workout',
+        startAt: '2026-08-11T09:00:00Z',
+        endAt: '2026-08-11T10:00:00Z',
+        occurredAt: '2026-08-11T09:00:00Z',
+        timezone: 'America/Toronto',
+        sourceApp: 'GYM-K2'
+      }
+    ];
+
+    const tallies = buildActivityTallies(events);
+    const work = tallies.find((tally) => tally.label === 'Work');
+    const gym = tallies.find((tally) => tally.label === 'Gym');
+    expect(work).toMatchObject({ dayCount: 2, sessionCount: 2, eventCount: 4, totalSeconds: 61_200 });
+    expect(work.averageSeconds).toBe(30_600);
+    expect(gym).toMatchObject({ dayCount: 1, sessionCount: 1, eventCount: 1, totalSeconds: 3600 });
+  });
+
+  it('does not double-count a completed workout that overlaps gym boundaries', () => {
+    const tally = buildActivityTallies([
+      {
+        id: 'arrive',
+        eventType: 'arrive_gym',
+        activityFamily: 'gym',
+        occurredAt: '2026-08-11T09:00:00Z',
+        timezone: 'America/Toronto'
+      },
+      {
+        id: 'workout',
+        eventType: 'completed_workout',
+        activityFamily: 'workout',
+        startAt: '2026-08-11T09:02:00Z',
+        endAt: '2026-08-11T10:00:00Z',
+        occurredAt: '2026-08-11T09:02:00Z',
+        timezone: 'America/Toronto'
+      },
+      {
+        id: 'leave',
+        eventType: 'leave_gym',
+        activityFamily: 'gym',
+        occurredAt: '2026-08-11T10:02:00Z',
+        timezone: 'America/Toronto'
+      }
+    ]).find((item) => item.label === 'Gym');
+
+    expect(tally).toMatchObject({ dayCount: 1, sessionCount: 1, totalSeconds: 3480, eventCount: 3 });
+  });
+
+  it('filters tally events into calendar-day ranges', () => {
+    const now = new Date(2026, 7, 12, 14, 0, 0);
+    const range = getActivityTallyRange('7d', now);
+    const filtered = filterLifeEventsByRange([
+      { id: 'inside', occurredAt: new Date(2026, 7, 6, 12, 0, 0) },
+      { id: 'outside', occurredAt: new Date(2026, 7, 5, 12, 0, 0) }
+    ], range);
+    expect(range.label).toBe('Last 7 days');
+    expect(filtered.map((event) => event.id)).toEqual(['inside']);
   });
 });

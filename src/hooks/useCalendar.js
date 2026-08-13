@@ -195,6 +195,40 @@ export function useLifeEvents(calendarId, startDate, endDate, enabled = true) {
   return { lifeEvents, loading, error };
 }
 
+export function useAllLifeEvents(calendarId, enabled = true) {
+  const [lifeEvents, setLifeEvents] = useState([]);
+  const [loading, setLoading] = useState(Boolean(calendarId && enabled));
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!calendarId || !enabled) {
+      setLifeEvents([]);
+      setLoading(false);
+      setError('');
+      return undefined;
+    }
+
+    setLoading(true);
+    setError('');
+    const lifeEventsQuery = query(
+      collection(db, 'lifeCalendars', calendarId, 'lifeEvents'),
+      orderBy('occurredAt', 'asc')
+    );
+
+    return onSnapshot(lifeEventsQuery, (snapshot) => {
+      setLifeEvents(snapshot.docs.map((eventDoc) => ({ id: eventDoc.id, ...eventDoc.data() })));
+      setLoading(false);
+      setError('');
+    }, (err) => {
+      setLifeEvents([]);
+      setLoading(false);
+      setError(err.message);
+    });
+  }, [calendarId, enabled]);
+
+  return { lifeEvents, loading, error };
+}
+
 export function useConnectedSources(calendarId, enabled = true) {
   const [connections, setConnections] = useState([]);
   const [loading, setLoading] = useState(Boolean(calendarId && enabled));
