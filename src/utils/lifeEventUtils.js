@@ -1,13 +1,9 @@
 const ACTIVITY_COLORS = [
-  '#4f8cff',
-  '#58c6a6',
-  '#f2b84b',
-  '#a979e8',
-  '#ef7d6c',
-  '#50b8d8',
-  '#db75a6',
-  '#8cad55'
+  '#4f8cff', '#58c6a6', '#f2b84b', '#a979e8',
+  '#ef7d6c', '#50b8d8', '#db75a6', '#8cad55'
 ];
+
+export const APP_TIMEZONE = 'America/Toronto';
 
 export function toJsDate(value) {
   if (!value) return null;
@@ -23,39 +19,103 @@ export function toJsDate(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-export function getLocalDateId(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+function zonedParts(value, timeZone = APP_TIMEZONE) {
+  const date = toJsDate(value);
+  if (!date) return null;
+  return Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  }).formatToParts(date)
+    .filter((part) => part.type !== 'literal')
+    .map((part) => [part.type, Number(part.value)]));
 }
 
-export function getDateIdInTimeZone(date, timeZone) {
-  const safeDate = toJsDate(date);
-  if (!safeDate) return '';
-  if (!timeZone) return getLocalDateId(safeDate);
-  try {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    }).formatToParts(safeDate);
-    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-    return `${values.year}-${values.month}-${values.day}`;
-  } catch (_error) {
-    return getLocalDateId(safeDate);
+function zonedDateTimeToDate(parts, timeZone = APP_TIMEZONE) {
+  const desired = Date.UTC(
+    parts.year, parts.month - 1, parts.day,
+    parts.hour || 0, parts.minute || 0, parts.second || 0
+  );
+  let instant = new Date(desired);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const actual = zonedParts(instant, timeZone);
+    const localAsUtc = Date.UTC(
+      actual.year, actual.month - 1, actual.day,
+      actual.hour, actual.minute, actual.second
+    );
+    const next = new Date(desired - (localAsUtc - (Math.floor(instant.getTime() / 1000) * 1000)));
+    if (next.getTime() === instant.getTime()) break;
+    instant = next;
   }
+  return instant;
 }
 
-export function getLocalDayBounds(dateId) {
+function dateIdFromParts(parts) {
+  return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+}
+
+export function getDateIdInTimezone(value, timeZone = APP_TIMEZONE) {
+  const parts = zonedParts(value, timeZone);
+  return parts ? dateIdFromParts(parts) : '';
+}
+
+export const getDateIdInTimeZone = getDateIdInTimezone;
+
+export function getLocalDateId(date = new Date(), timeZone = APP_TIMEZONE) {
+  return getDateIdInTimezone(date, timeZone);
+}
+
+export function getPeriodBounds(period = 'day', dateId = getLocalDateId(), timeZone = APP_TIMEZONE) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateId || '');
   if (!match) return null;
-  const start = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  if (getLocalDateId(start) !== dateId) return null;
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return { start, end };
+  let parts = { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) };
+  const candidate = zonedDateTimeToDate(parts, timeZone);
+  if (getDateIdInTimezone(candidate, timeZone) !== dateId) return null;
+
+  if (period === 'week') {
+    const dayName = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' }).format(candidate);
+    const sundayIndex = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(dayName);
+    const mondayOffset = (sundayIndex + 6) % 7;
+    const localNoon = zonedDateTimeToDate({ ...parts, hour: 12 }, timeZone);
+    localNoon.setUTCDate(localNoon.getUTCDate() - mondayOffset);
+    const monday = zonedParts(localNoon, timeZone);
+    parts = { year: monday.year, month: monday.month, day: monday.day };
+  } else if (period === 'month') {
+    parts.day = 1;
+  } else if (period === 'year') {
+    parts.month = 1;
+    parts.day = 1;
+  }
+
+  const start = zonedDateTimeToDate(parts, timeZone);
+  const next = { ...parts };
+  if (period === 'year') next.year += 1;
+  else if (period === 'month') next.month += 1;
+  else next.day += period === 'week' ? 7 : 1;
+  const end = zonedDateTimeToDate(next, timeZone);
+
+  return {
+    period,
+    timezone: timeZone,
+    start,
+    end,
+    startDateId: dateIdFromParts(parts),
+    endDateId: getDateIdInTimezone(new Date(end.getTime() - 1), timeZone)
+  };
+}
+
+export function shiftPeriodDate(dateId, period, amount, timeZone = APP_TIMEZONE) {
+  const bounds = getPeriodBounds(period, dateId, timeZone);
+  if (!bounds) return dateId;
+  const parts = zonedParts(bounds.start, timeZone);
+  if (period === 'year') parts.year += amount;
+  else if (period === 'month') parts.month += amount;
+  else parts.day += amount * (period === 'week' ? 7 : 1);
+  return getDateIdInTimezone(zonedDateTimeToDate(parts, timeZone), timeZone);
+}
+
+export function getLocalDayBounds(dateId, timeZone = APP_TIMEZONE) {
+  return getPeriodBounds('day', dateId, timeZone);
 }
 
 export function getEventTime(event) {
@@ -78,15 +138,13 @@ export function getEventSentTime(event) {
 }
 
 export function getEventDurationSeconds(event) {
-  const rawDuration = event?.durationSeconds;
-  const reported = rawDuration === null || rawDuration === undefined || rawDuration === ''
-    ? null
-    : Number(rawDuration);
-  if (Number.isFinite(reported) && reported >= 0) return reported;
+  const raw = event?.durationSeconds;
+  if (raw !== null && raw !== undefined && raw !== '' && Number.isFinite(Number(raw)) && Number(raw) >= 0) {
+    return Number(raw);
+  }
   const start = getEventTime(event);
   const end = getEventEndTime(event);
-  if (!start || !end || end < start) return null;
-  return (end.getTime() - start.getTime()) / 1000;
+  return start && end && end >= start ? (end.getTime() - start.getTime()) / 1000 : null;
 }
 
 export function getDeliveryLatencySeconds(event) {
@@ -99,94 +157,352 @@ export function getDeliveryLatencySeconds(event) {
 
 export function getActivityLabel(event) {
   const raw = event?.activityFamily || event?.categoryId || event?.eventClass || event?.eventType || 'Other';
-  return String(raw)
-    .replace(/[_-]+/g, ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return String(raw).replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 export function getTallyActivityLabel(event) {
   const eventType = String(event?.eventType || '').trim().toLowerCase();
-  const boundaryMatch = /^(?:arrive|leave|start|finish|stop)[_-](.+)$/.exec(eventType);
-  const activityToken = String(boundaryMatch?.[1] || event?.activityFamily || getActivityLabel(event))
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, '_');
+  const boundary = /^(?:arrive|leave|start|finish|stop)[_-](.+)$/.exec(eventType);
+  const token = String(boundary?.[1] || event?.activityFamily || event?.categoryId || getActivityLabel(event))
+    .trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (token.includes('workout') || token === 'gym' || eventType.includes('workout')) return 'Gym';
+  if (token === 'work' || token === 'workplace' || /(?:^|_)work(?:_|$)/.test(eventType)) return 'Work';
+  if (token === 'home' || /(?:^|_)home(?:_|$)/.test(eventType)) return 'Home';
+  if (token.includes('spotify') || token.includes('music') || token.includes('listening')) return 'Music';
+  if (token === 'location') return event?.location?.label || 'Location';
+  return token.replace(/_+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 
-  if (activityToken.includes('workout') || activityToken === 'gym' || eventType.includes('workout')) return 'Gym';
-  if (activityToken === 'work' || activityToken === 'workplace' || /(?:^|_)work(?:_|$)/.test(eventType)) return 'Work';
-  if (activityToken === 'home' || /(?:^|_)home(?:_|$)/.test(eventType)) return 'Home';
-  if (activityToken.includes('spotify') || activityToken.includes('music') || activityToken.includes('listening')) return 'Music';
-  if (activityToken === 'location') return 'Location';
-  return activityToken
-    .replace(/_+/g, ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+export function sortLifeEvents(events) {
+  return [...(Array.isArray(events) ? events : [])].sort((left, right) => (
+    (getEventTime(left)?.getTime() ?? Number.MAX_SAFE_INTEGER)
+    - (getEventTime(right)?.getTime() ?? Number.MAX_SAFE_INTEGER)
+  ));
+}
+
+export function isPointEvent(event) {
+  const duration = getEventDurationSeconds(event);
+  return !getEventEndTime(event) && !(Number.isFinite(duration) && duration > 0);
+}
+
+function boundaryDescriptor(event) {
+  const eventType = String(event?.eventType || '').toLowerCase();
+  let phase = '';
+  let activity = '';
+  if (/^(arrive|start)_/.test(eventType)) {
+    phase = 'start';
+    activity = eventType.replace(/^(arrive|start)_/, '');
+  } else if (/^(leave|finish|stop)_/.test(eventType)) {
+    phase = 'end';
+    activity = eventType.replace(/^(leave|finish|stop)_/, '');
+  }
+  if (!phase) return null;
+  const family = String(event?.activityFamily || activity).trim().toLowerCase();
+  const location = String(event?.location?.placeId || event?.location?.label || '').trim().toLowerCase();
+  const subject = String(event?.sourceUserId || event?.timeLeftUserId || '').trim().toLowerCase();
+  return { phase, key: `${subject}|${family}|${location}` };
+}
+
+function intervalForEvent(event, bounds) {
+  const start = getEventTime(event);
+  if (!start) return null;
+  const explicitEnd = getEventEndTime(event);
+  const duration = getEventDurationSeconds(event);
+  const finish = explicitEnd || (Number.isFinite(duration) && duration > 0
+    ? new Date(start.getTime() + (duration * 1000))
+    : null);
+  if (!finish || finish <= start) return null;
+  if (!bounds) {
+    return { startAt: start, endAt: finish, durationSeconds: (finish.getTime() - start.getTime()) / 1000 };
+  }
+  const clippedStart = new Date(Math.max(start.getTime(), bounds.start.getTime()));
+  const clippedEnd = new Date(Math.min(finish.getTime(), bounds.end.getTime()));
+  if (clippedEnd <= clippedStart) return null;
+  return {
+    startAt: clippedStart,
+    endAt: clippedEnd,
+    durationSeconds: (clippedEnd.getTime() - clippedStart.getTime()) / 1000
+  };
+}
+
+export function buildActivitySessions(events, bounds = null) {
+  const safeEvents = sortLifeEvents(events);
+  const sessions = [];
+  const seen = new Set();
+  const openBoundaries = new Map();
+
+  safeEvents.forEach((event) => {
+    const interval = intervalForEvent(event, bounds);
+    if (interval) {
+      const identity = event.id || `${interval.startAt.toISOString()}|${interval.endAt.toISOString()}|${getTallyActivityLabel(event)}`;
+      if (!seen.has(identity)) {
+        seen.add(identity);
+        sessions.push({
+          id: `timed-${identity}`,
+          event,
+          title: event.title || getTallyActivityLabel(event),
+          sourceApp: event.sourceApp || '',
+          timezone: event.timezone || APP_TIMEZONE,
+          category: getTallyActivityLabel(event),
+          rawCategory: getActivityLabel(event),
+          activityLabel: getTallyActivityLabel(event),
+          ...interval,
+          kind: 'reported',
+          active: false
+        });
+      }
+    }
+
+    const descriptor = boundaryDescriptor(event);
+    const eventTime = getEventTime(event);
+    if (!descriptor || !eventTime) return;
+    if (descriptor.phase === 'start') {
+      const starts = openBoundaries.get(descriptor.key) || [];
+      starts.push({ event, eventTime });
+      openBoundaries.set(descriptor.key, starts);
+      return;
+    }
+
+    const starts = openBoundaries.get(descriptor.key) || [];
+    const start = starts.pop();
+    openBoundaries.set(descriptor.key, starts);
+    if (!start || eventTime <= start.eventTime) return;
+    const identity = `${start.event.id || start.eventTime.getTime()}|${event.id || eventTime.getTime()}`;
+    if (seen.has(identity)) return;
+    seen.add(identity);
+    const raw = {
+      id: `paired-${identity}`,
+      event: start.event,
+      title: `${getTallyActivityLabel(start.event)} session`,
+      sourceApp: start.event.sourceApp || event.sourceApp || '',
+      timezone: start.event.timezone || event.timezone || APP_TIMEZONE,
+      category: getTallyActivityLabel(start.event),
+      rawCategory: getActivityLabel(start.event),
+      activityLabel: getTallyActivityLabel(start.event),
+      startAt: start.eventTime,
+      endAt: eventTime,
+      kind: 'paired',
+      active: false
+    };
+    const clipped = intervalForEvent(raw, bounds);
+    if (!clipped) return;
+    const duplicate = sessions.some((session) => (
+      session.category === raw.category
+      && session.startAt.getTime() === clipped.startAt.getTime()
+      && session.endAt.getTime() === clipped.endAt.getTime()
+    ));
+    if (!duplicate) sessions.push({ ...raw, ...clipped });
+  });
+
+  openBoundaries.forEach((starts) => starts.forEach(({ event, eventTime }) => {
+    if (bounds && (eventTime >= bounds.end || eventTime < new Date(bounds.start.getTime() - (36 * 3600 * 1000)))) return;
+    sessions.push({
+      id: `active-${event.id || eventTime.getTime()}`,
+      event,
+      title: event.title || `${getTallyActivityLabel(event)} in progress`,
+      sourceApp: event.sourceApp || '',
+      timezone: event.timezone || APP_TIMEZONE,
+      category: getTallyActivityLabel(event),
+      rawCategory: getActivityLabel(event),
+      activityLabel: getTallyActivityLabel(event),
+      startAt: eventTime,
+      endAt: null,
+      durationSeconds: null,
+      kind: 'active',
+      active: true
+    });
+  }));
+
+  return sessions.sort((left, right) => left.startAt - right.startAt);
+}
+
+function allocateIntervals(sessions) {
+  const complete = [...sessions]
+    .filter((session) => session.endAt)
+    .sort((left, right) => left.startAt - right.startAt || right.endAt - left.endAt);
+  const accepted = [];
+  complete.forEach((session) => {
+    let fragments = [{ start: session.startAt.getTime(), end: session.endAt.getTime() }];
+    accepted.forEach((prior) => {
+      prior.fragments.forEach((occupied) => {
+        fragments = fragments.flatMap((fragment) => {
+          const overlapStart = Math.max(fragment.start, occupied.start);
+          const overlapEnd = Math.min(fragment.end, occupied.end);
+          if (overlapEnd <= overlapStart) return [fragment];
+          return [
+            { start: fragment.start, end: overlapStart },
+            { start: overlapEnd, end: fragment.end }
+          ].filter((part) => part.end > part.start);
+        });
+      });
+    });
+    const allocatedSeconds = fragments.reduce((sum, part) => sum + ((part.end - part.start) / 1000), 0);
+    if (allocatedSeconds > 0) accepted.push({ ...session, allocatedSeconds, fragments });
+  });
+  return accepted;
+}
+
+export function buildPeriodAnalysis(events, bounds = null) {
+  const source = Array.isArray(events) ? events : [];
+  const sessions = buildActivitySessions(source, bounds);
+  const allocatedSessions = allocateIntervals(sessions);
+  const periodEvents = source.filter((event) => {
+    if (!bounds) return true;
+    const start = getEventTime(event);
+    const end = getEventEndTime(event) || start;
+    return start && end && end >= bounds.start && start < bounds.end;
+  });
+  const moments = periodEvents.filter(isPointEvent);
+  const groups = new Map();
+
+  allocatedSessions.forEach((session) => {
+    const label = session.category;
+    const group = groups.get(label) || {
+      label,
+      seconds: 0,
+      sessions: [],
+      nestedSessions: [],
+      color: ACTIVITY_COLORS[groups.size % ACTIVITY_COLORS.length]
+    };
+    group.seconds += session.allocatedSeconds;
+    group.sessions.push(session);
+    groups.set(label, group);
+  });
+
+  sessions.filter((session) => session.endAt).forEach((nested) => {
+    const parent = sessions.find((candidate) => (
+      candidate !== nested
+      && candidate.endAt
+      && candidate.rawCategory !== nested.rawCategory
+      && candidate.startAt <= nested.startAt
+      && candidate.endAt >= nested.endAt
+    ));
+    const parentGroup = parent && groups.get(parent.category);
+    if (parentGroup && !parentGroup.nestedSessions.some((session) => session.id === nested.id)) {
+      parentGroup.nestedSessions.push(nested);
+    }
+  });
+
+  const categories = [...groups.values()].sort((left, right) => (
+    right.seconds - left.seconds || left.label.localeCompare(right.label)
+  ));
+  const timedSeconds = categories.reduce((sum, category) => sum + category.seconds, 0);
+  return {
+    events: sortLifeEvents(periodEvents),
+    sessions,
+    allocatedSessions,
+    moments: sortLifeEvents(moments),
+    categories,
+    timedSeconds,
+    incompleteCount: sessions.filter((session) => session.kind === 'active').length,
+    coveredDays: new Set(allocatedSessions.map((session) => (
+      getDateIdInTimezone(session.startAt, bounds?.timezone || session.timezone || APP_TIMEZONE)
+    ))).size
+  };
+}
+
+export function getActivityTallyRange(rangeId, now = new Date(), timeZone = APP_TIMEZONE) {
+  const today = getLocalDateId(now, timeZone);
+  const end = getPeriodBounds('day', shiftPeriodDate(today, 'day', 1, timeZone), timeZone).start;
+  if (rangeId === 'year') {
+    const start = getPeriodBounds('year', today, timeZone).start;
+    return { id: 'year', label: String(zonedParts(now, timeZone).year), start, end };
+  }
+  if (rangeId === '30d' || rangeId === '7d') {
+    const days = rangeId === '30d' ? 30 : 7;
+    const startDateId = shiftPeriodDate(today, 'day', -(days - 1), timeZone);
+    return { id: rangeId, label: `Last ${days} days`, start: getPeriodBounds('day', startDateId, timeZone).start, end };
+  }
+  return { id: 'all', label: 'All time', start: null, end: null };
+}
+
+export function filterLifeEventsByRange(events, range) {
+  const safeEvents = Array.isArray(events) ? events : [];
+  if (!range?.start && !range?.end) return safeEvents;
+  const start = range?.start?.getTime?.() ?? Number.NEGATIVE_INFINITY;
+  const end = range?.end?.getTime?.() ?? Number.POSITIVE_INFINITY;
+  return safeEvents.filter((event) => {
+    const eventTime = getEventTime(event)?.getTime();
+    return Number.isFinite(eventTime) && eventTime >= start && eventTime < end;
+  });
+}
+
+export function buildActivityTallies(events) {
+  const safeEvents = sortLifeEvents(events);
+  const analysis = buildPeriodAnalysis(safeEvents);
+  const groups = new Map();
+  function groupFor(label) {
+    if (!groups.has(label)) {
+      groups.set(label, { label, eventCount: 0, sessions: [], seconds: 0, days: new Set(), sources: new Set() });
+    }
+    return groups.get(label);
+  }
+  safeEvents.forEach((event) => {
+    const group = groupFor(getTallyActivityLabel(event));
+    group.eventCount += 1;
+    if (event.sourceApp) group.sources.add(event.sourceApp);
+    const time = getEventTime(event);
+    if (time) group.days.add(getDateIdInTimezone(time, event.timezone || APP_TIMEZONE));
+  });
+  analysis.allocatedSessions.forEach((session) => {
+    const group = groupFor(session.category);
+    group.sessions.push(session);
+    group.seconds += session.allocatedSeconds;
+    group.days.add(getDateIdInTimezone(session.startAt, session.timezone || APP_TIMEZONE));
+    if (session.sourceApp) group.sources.add(session.sourceApp);
+  });
+  return [...groups.values()]
+    .map((group, index) => ({
+      label: group.label,
+      eventCount: group.eventCount,
+      sessionCount: group.sessions.length,
+      totalSeconds: group.seconds,
+      averageSeconds: group.sessions.length ? group.seconds / group.sessions.length : 0,
+      dayCount: group.days.size,
+      sourceCount: group.sources.size,
+      sessions: group.sessions,
+      color: ACTIVITY_COLORS[index % ACTIVITY_COLORS.length]
+    }))
+    .sort((left, right) => (
+      right.totalSeconds - left.totalSeconds
+      || right.dayCount - left.dayCount
+      || right.eventCount - left.eventCount
+      || left.label.localeCompare(right.label)
+    ));
 }
 
 export function filterLifeEvents(events, selection) {
   const safeEvents = Array.isArray(events) ? events : [];
   if (!selection) return safeEvents;
-  if (selection.kind === 'event') {
-    return safeEvents.filter((event) => event.id === selection.value);
-  }
+  if (selection.kind === 'event') return safeEvents.filter((event) => event.id === selection.value);
   if (selection.kind === 'source') {
-    const source = String(selection.value || '').toLowerCase();
-    return safeEvents.filter((event) => String(event.sourceApp || '').toLowerCase() === source);
+    return safeEvents.filter((event) => String(event.sourceApp || '').toLowerCase() === String(selection.value || '').toLowerCase());
   }
   if (selection.kind === 'category') {
     const category = String(selection.value || '').toLowerCase();
-    return safeEvents.filter((event) => {
-      if (selection.tally) return getTallyActivityLabel(event).toLowerCase() === category;
-      const label = getActivityLabel(event).toLowerCase();
-      if (category === 'gym') return label === 'gym' || label === 'workout';
-      return label === category;
-    });
+    return safeEvents.filter((event) => getTallyActivityLabel(event).toLowerCase() === category);
   }
   return safeEvents;
 }
 
 export function getDailySummary(events) {
   const safeEvents = Array.isArray(events) ? events : [];
-  const sources = new Set(safeEvents.map((event) => event.sourceApp).filter(Boolean));
-  const activeSeconds = safeEvents.reduce((total, event) => {
-    const duration = Number(event.durationSeconds);
-    return total + (Number.isFinite(duration) && duration > 0 ? duration : 0);
-  }, 0);
-  const completed = safeEvents.filter((event) => (
-    event.eventClass === 'completed_activity'
-    || /(^|[_-])completed?([_-]|$)/i.test(event.eventType || '')
-  )).length;
-
+  const analysis = buildPeriodAnalysis(safeEvents);
   return {
     eventCount: safeEvents.length,
-    activeSeconds,
-    sourceCount: sources.size,
-    completedCount: completed
+    activeSeconds: analysis.timedSeconds,
+    sourceCount: new Set(safeEvents.map((event) => event.sourceApp).filter(Boolean)).size,
+    completedCount: analysis.allocatedSessions.length
   };
 }
 
 export function buildActivityBreakdown(events) {
-  const groups = new Map();
-  (Array.isArray(events) ? events : []).forEach((event) => {
-    const label = getActivityLabel(event);
-    const duration = Number(event.durationSeconds);
-    const current = groups.get(label) || { label, seconds: 0, count: 0, timedCount: 0 };
-    current.count += 1;
-    if (Number.isFinite(duration) && duration > 0) {
-      current.seconds += duration;
-      current.timedCount += 1;
-    }
-    groups.set(label, current);
-  });
-
-  const usesDuration = groups.size > 0 && [...groups.values()].every((group) => group.timedCount === group.count);
-  return [...groups.values()]
-    .map((group, index) => ({
-      ...group,
-      value: usesDuration ? group.seconds : group.count,
-      usesDuration,
-      color: ACTIVITY_COLORS[index % ACTIVITY_COLORS.length]
-    }))
-    .sort((left, right) => right.value - left.value || left.label.localeCompare(right.label));
+  return buildPeriodAnalysis(events).categories.map((category) => ({
+    ...category,
+    value: category.seconds,
+    usesDuration: true,
+    count: category.sessions.length
+  }));
 }
 
 export function getDonutBackground(breakdown) {
@@ -201,281 +517,65 @@ export function getDonutBackground(breakdown) {
   return `conic-gradient(${stops.join(', ')})`;
 }
 
-export function sortLifeEvents(events) {
-  return [...(Array.isArray(events) ? events : [])].sort((left, right) => {
-    const leftTime = getEventTime(left)?.getTime() ?? Number.MAX_SAFE_INTEGER;
-    const rightTime = getEventTime(right)?.getTime() ?? Number.MAX_SAFE_INTEGER;
-    return leftTime - rightTime;
-  });
+export function formatDuration(seconds) {
+  const minutes = Math.round(Math.max(0, Number(seconds) || 0) / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
 }
 
-function boundaryDescriptor(event) {
-  const eventType = String(event?.eventType || '').toLowerCase();
-  let phase = '';
-  let activity = '';
-  if (eventType.startsWith('arrive_')) {
-    phase = 'start';
-    activity = eventType.slice('arrive_'.length);
-  } else if (eventType.startsWith('leave_')) {
-    phase = 'end';
-    activity = eventType.slice('leave_'.length);
-  } else if (eventType.startsWith('start_')) {
-    phase = 'start';
-    activity = eventType.slice('start_'.length);
-  } else if (eventType.startsWith('finish_')) {
-    phase = 'end';
-    activity = eventType.slice('finish_'.length);
-  } else if (eventType.startsWith('stop_')) {
-    phase = 'end';
-    activity = eventType.slice('stop_'.length);
-  }
-  if (!phase || !activity) return null;
-  const location = String(event?.location?.label || '').trim().toLowerCase();
-  const family = String(event?.activityFamily || activity).trim().toLowerCase();
+export function buildComparison(current, previous) {
+  const currentSeconds = current?.timedSeconds || 0;
+  const previousSeconds = previous?.timedSeconds || 0;
   return {
-    phase,
-    activity,
-    key: `${family}|${location}`
+    currentSeconds,
+    previousSeconds,
+    deltaSeconds: currentSeconds - previousSeconds,
+    hasPrevious: Boolean(previous && (previous.events?.length || previous.timedSeconds))
   };
 }
 
-export function buildActivitySessions(events) {
-  const safeEvents = sortLifeEvents(events);
-  const sessions = [];
-  const seen = new Set();
-
-  safeEvents.forEach((event) => {
-    const start = toJsDate(event?.startAt);
-    const end = getEventEndTime(event);
-    if (!start || !end || end <= start) return;
-    const signature = `${start.toISOString()}|${end.toISOString()}|${event.id || ''}`;
-    if (seen.has(signature)) return;
-    seen.add(signature);
-    sessions.push({
-      id: `timed-${event.id || signature}`,
-      title: event.title || getActivityLabel(event),
-      sourceApp: event.sourceApp || '',
-      timezone: event.timezone || '',
-      startAt: start,
-      endAt: end,
-      durationSeconds: (end.getTime() - start.getTime()) / 1000,
-      activityLabel: getTallyActivityLabel(event),
-      kind: 'reported'
-    });
-  });
-
-  const openBoundaries = new Map();
-  safeEvents.forEach((event) => {
-    const descriptor = boundaryDescriptor(event);
-    const eventTime = getEventTime(event);
-    if (!descriptor || !eventTime) return;
-    if (descriptor.phase === 'start') {
-      const starts = openBoundaries.get(descriptor.key) || [];
-      starts.push({ event, eventTime, descriptor });
-      openBoundaries.set(descriptor.key, starts);
-      return;
-    }
-
-    const starts = openBoundaries.get(descriptor.key) || [];
-    const start = starts.pop();
-    if (!start || eventTime <= start.eventTime) return;
-    openBoundaries.set(descriptor.key, starts);
-    const activityLabel = getTallyActivityLabel(start.event);
-    const title = `${activityLabel} session`;
-    const signature = `${start.eventTime.toISOString()}|${eventTime.toISOString()}|${title}`;
-    if (seen.has(signature)) return;
-    const overlapsReportedSession = sessions.some((session) => {
-      if (session.kind !== 'reported') return false;
-      if (session.activityLabel !== activityLabel) return false;
-      const overlapStart = Math.max(session.startAt.getTime(), start.eventTime.getTime());
-      const overlapEnd = Math.min(session.endAt.getTime(), eventTime.getTime());
-      const overlap = Math.max(0, overlapEnd - overlapStart);
-      const shorterDuration = Math.min(
-        session.endAt.getTime() - session.startAt.getTime(),
-        eventTime.getTime() - start.eventTime.getTime()
-      );
-      return shorterDuration > 0 && overlap / shorterDuration >= 0.8;
-    });
-    if (overlapsReportedSession) return;
-    seen.add(signature);
-    sessions.push({
-      id: `paired-${start.event.id || start.eventTime.getTime()}-${event.id || eventTime.getTime()}`,
-      title,
-      sourceApp: start.event.sourceApp || event.sourceApp || '',
-      timezone: start.event.timezone || event.timezone || '',
-      startAt: start.eventTime,
-      endAt: eventTime,
-      durationSeconds: (eventTime.getTime() - start.eventTime.getTime()) / 1000,
-      activityLabel,
-      kind: 'paired'
-    });
-  });
-
-  return sessions.sort((left, right) => left.startAt - right.startAt);
-}
-
-export function getActivityTallyRange(rangeId, now = new Date()) {
-  const end = new Date(now);
-  end.setHours(0, 0, 0, 0);
-  end.setDate(end.getDate() + 1);
-
-  if (rangeId === 'year') {
-    const start = new Date(now.getFullYear(), 0, 1);
-    return { id: 'year', label: `${now.getFullYear()}`, start, end };
+export function buildDailyInsight(events, bounds = null) {
+  const analysis = buildPeriodAnalysis(events, bounds);
+  if (!analysis.events.length) {
+    return 'No activities were recorded for this period. That may mean a quiet period or incomplete source coverage.';
   }
-  if (rangeId === '30d' || rangeId === '7d') {
-    const days = rangeId === '30d' ? 30 : 7;
-    const start = new Date(end);
-    start.setDate(start.getDate() - days);
-    return { id: rangeId, label: `Last ${days} days`, start, end };
+  if (!analysis.timedSeconds) {
+    return `${analysis.moments.length} ${analysis.moments.length === 1 ? 'moment was' : 'moments were'} recorded, but no complete timed sessions are available yet.`;
   }
-  return { id: 'all', label: 'All time', start: null, end: null };
+  const leading = analysis.categories[0];
+  const coverage = bounds?.period === 'day'
+    ? ` ${formatDuration(analysis.timedSeconds)} of the day is classified.`
+    : '';
+  const incomplete = analysis.incompleteCount
+    ? ` ${analysis.incompleteCount} session${analysis.incompleteCount === 1 ? ' is' : 's are'} still in progress or incomplete.`
+    : '';
+  return `${leading.label} was your largest time category at ${formatDuration(leading.seconds)}.${coverage}${incomplete}`;
 }
 
-export function filterLifeEventsByRange(events, range) {
-  const safeEvents = Array.isArray(events) ? events : [];
-  if (!range?.start && !range?.end) return safeEvents;
-  const startMs = range?.start?.getTime?.() ?? Number.NEGATIVE_INFINITY;
-  const endMs = range?.end?.getTime?.() ?? Number.POSITIVE_INFINITY;
-  return safeEvents.filter((event) => {
-    const time = getEventTime(event)?.getTime();
-    return Number.isFinite(time) && time >= startMs && time < endMs;
-  });
-}
-
-export function buildActivityTallies(events) {
-  const safeEvents = sortLifeEvents(events);
-  const sessions = buildActivitySessions(safeEvents);
-  const groups = new Map();
-
-  function getGroup(label) {
-    if (!groups.has(label)) {
-      groups.set(label, {
-        label,
-        eventCount: 0,
-        sessionCount: 0,
-        totalSeconds: 0,
-        days: new Set(),
-        sources: new Set(),
-        firstAt: null,
-        lastAt: null
-      });
-    }
-    return groups.get(label);
-  }
-
-  safeEvents.forEach((event) => {
-    const label = getTallyActivityLabel(event);
-    const group = getGroup(label);
-    const time = getEventTime(event);
-    const end = getEventEndTime(event) || time;
-    group.eventCount += 1;
-    if (event.sourceApp) group.sources.add(event.sourceApp);
-    if (time) {
-      group.days.add(getDateIdInTimeZone(time, event.timezone));
-      if (!group.firstAt || time < group.firstAt) group.firstAt = time;
-    }
-    if (end && (!group.lastAt || end > group.lastAt)) group.lastAt = end;
-  });
-
-  sessions.forEach((session) => {
-    const group = getGroup(session.activityLabel || 'Other');
-    group.sessionCount += 1;
-    group.totalSeconds += session.durationSeconds;
-    group.days.add(getDateIdInTimeZone(session.startAt, session.timezone));
-    if (session.sourceApp) group.sources.add(session.sourceApp);
-    if (!group.firstAt || session.startAt < group.firstAt) group.firstAt = session.startAt;
-    if (!group.lastAt || session.endAt > group.lastAt) group.lastAt = session.endAt;
-  });
-
-  return [...groups.values()]
-    .map((group) => ({
-      label: group.label,
-      eventCount: group.eventCount,
-      sessionCount: group.sessionCount,
-      totalSeconds: group.totalSeconds,
-      averageSeconds: group.sessionCount > 0 ? group.totalSeconds / group.sessionCount : 0,
-      dayCount: group.days.size,
-      sourceCount: group.sources.size,
-      firstAt: group.firstAt,
-      lastAt: group.lastAt
-    }))
-    .sort((left, right) => (
-      right.totalSeconds - left.totalSeconds
-      || right.dayCount - left.dayCount
-      || right.eventCount - left.eventCount
-      || left.label.localeCompare(right.label)
-    ))
-    .map((group, index) => ({ ...group, color: ACTIVITY_COLORS[index % ACTIVITY_COLORS.length] }));
-}
-
-export function buildActivityAnalysis(events) {
-  const safeEvents = sortLifeEvents(events);
-  const sessions = buildActivitySessions(safeEvents);
-  const sources = new Set(safeEvents.map((event) => event.sourceApp).filter(Boolean));
-  const eventTypes = new Map();
-  const deliveryLatencies = [];
-  const activityDays = new Set();
-  let firstAt = null;
-  let lastAt = null;
-
-  safeEvents.forEach((event) => {
-    const start = getEventTime(event);
-    const end = getEventEndTime(event) || start;
-    const latency = getDeliveryLatencySeconds(event);
-    const eventType = String(event.eventType || 'activity').replace(/[_-]+/g, ' ');
-    eventTypes.set(eventType, (eventTypes.get(eventType) || 0) + 1);
-    if (start && (!firstAt || start < firstAt)) firstAt = start;
-    if (start) activityDays.add(getDateIdInTimeZone(start, event.timezone));
-    if (end && (!lastAt || end > lastAt)) lastAt = end;
-    if (Number.isFinite(latency)) deliveryLatencies.push(latency);
-  });
-
-  const averageDeliverySeconds = deliveryLatencies.length
-    ? deliveryLatencies.reduce((sum, value) => sum + value, 0) / deliveryLatencies.length
-    : null;
-  const trackedSeconds = sessions.reduce((total, session) => total + session.durationSeconds, 0);
-
+export function buildActivityAnalysis(events, bounds = null) {
+  const analysis = buildPeriodAnalysis(events, bounds);
+  const sources = new Set(analysis.events.map((event) => event.sourceApp).filter(Boolean));
+  const firstAt = analysis.sessions[0]?.startAt || getEventTime(analysis.events[0]);
+  const lastAt = analysis.sessions.at(-1)?.endAt || getEventTime(analysis.events.at(-1));
   return {
-    eventCount: safeEvents.length,
+    eventCount: analysis.events.length,
     sourceCount: sources.size,
-    sessionCount: sessions.length,
-    activityDayCount: activityDays.size,
-    trackedSeconds,
-    averageSessionSeconds: sessions.length > 0 ? trackedSeconds / sessions.length : 0,
+    sessionCount: analysis.allocatedSessions.length,
+    activityDayCount: analysis.coveredDays,
+    trackedSeconds: analysis.timedSeconds,
+    averageSessionSeconds: analysis.allocatedSessions.length
+      ? analysis.timedSeconds / analysis.allocatedSessions.length
+      : 0,
     firstAt,
     lastAt,
-    spanSeconds: firstAt && lastAt && lastAt >= firstAt
-      ? (lastAt.getTime() - firstAt.getTime()) / 1000
-      : 0,
-    averageDeliverySeconds,
-    deliveredCount: deliveryLatencies.length,
-    eventTypes: [...eventTypes.entries()]
-      .map(([label, count]) => ({ label, count }))
-      .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label)),
-    sessions
+    spanSeconds: firstAt && lastAt ? Math.max(0, (lastAt.getTime() - firstAt.getTime()) / 1000) : 0,
+    averageDeliverySeconds: null,
+    deliveredCount: 0,
+    eventTypes: [],
+    sessions: analysis.sessions,
+    moments: analysis.moments
   };
-}
-
-export function formatDuration(seconds) {
-  const totalMinutes = Math.round(Math.max(0, Number(seconds) || 0) / 60);
-  if (totalMinutes < 60) return `${totalMinutes}m`;
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
-}
-
-export function buildDailyInsight(events) {
-  const summary = getDailySummary(events);
-  if (summary.eventCount === 0) {
-    return 'No life events were recorded for this day. Connected sources will appear here as they send activity.';
-  }
-
-  const breakdown = buildActivityBreakdown(events);
-  const leading = breakdown[0];
-  const sourceText = summary.sourceCount === 1 ? '1 connected source' : `${summary.sourceCount} connected sources`;
-  const durationText = summary.activeSeconds > 0 ? ` with ${formatDuration(summary.activeSeconds)} of tracked time` : '';
-  return `${summary.eventCount} life ${summary.eventCount === 1 ? 'event' : 'events'} arrived from ${sourceText}${durationText}. ${leading.label} was the leading activity.`;
 }
 
 export { ACTIVITY_COLORS };
