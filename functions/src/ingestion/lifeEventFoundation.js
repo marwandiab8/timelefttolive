@@ -706,7 +706,7 @@ function mapLegacyToLifeEvent(record, context) {
 
   const dateId = dateParts.dateId || "";
   const timezone = normalizeTimezone(toTrimmedString(record.timezone, DEFAULT_TIMEZONE) || DEFAULT_TIMEZONE);
-  const occurredAt = dateId && isValidDateId(dateId)
+  const dayOccurredAt = dateId && isValidDateId(dateId)
     ? dateIdToZonedDate(dateId, timezone)
     : null;
 
@@ -721,6 +721,56 @@ function mapLegacyToLifeEvent(record, context) {
 
   const category = mapped.category || "other";
   const eventClass = LEGACY_CLASS_BY_CATEGORY[category] || "system";
+  const sourceCreatedAt = parseDateInTimezone(
+    mapped.originalCreatedAt || record.addedAt || record.sentAt,
+    timezone,
+    "originalCreatedAt"
+  );
+  const pointCategory = ["journal", "image", "projectPicture", "file", "link"].includes(category);
+  const sourceDateId = sourceCreatedAt
+    ? new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).format(sourceCreatedAt)
+    : "";
+  const occurredAt = pointCategory && sourceCreatedAt && (!dateId || sourceDateId === dateId)
+    ? sourceCreatedAt
+    : dayOccurredAt;
+  const capturedAt = pointCategory
+    ? null
+    : parseDateInTimezone(mapped.capturedAt, timezone, "capturedAt") || occurredAt;
+  const noteText = category === "journal" ? toTrimmedString(mapped.description || mapped.summary) : "";
+  const explicitTitle = toTrimmedString(mapped.title);
+  const firstNoteLine = noteText.split(/\r?\n/).find((line) => line.trim())?.replace(/\s+/g, " ").trim() || "";
+  const title = category === "journal" && (!explicitTitle || /^journal entry$/i.test(explicitTitle))
+    ? firstNoteLine.slice(0, 180) || "Journal Entry"
+    : mapped.title || `Legacy ${category}`;
+  const sourceTimestamps = pointCategory ? {
+    ...(mapped.originalCreatedAt ? { createdAt: mapped.originalCreatedAt } : {}),
+    ...(record.sentAt || record.addedAt ? { sentAt: record.sentAt || record.addedAt } : {}),
+    ...(mapped.originalUpdatedAt ? { updatedAt: mapped.originalUpdatedAt } : {})
+  } : {};
+  const contentMetadata = category === "journal"
+    ? {
+      journal: {
+        text: noteText,
+        summary: toTrimmedString(mapped.summary),
+        linkedMediaIds: Array.isArray(record.metadata?.linkedMediaIds) ? record.metadata.linkedMediaIds : []
+      }
+    }
+    : ["image", "projectPicture"].includes(category)
+      ? {
+        media: {
+          caption: toTrimmedString(mapped.description || mapped.summary),
+          contentType: mapped.contentType || "",
+          fileName: mapped.fileName || "",
+          sourceStoragePath: mapped.sourceStoragePath || "",
+          linkedLogEntryId: toTrimmedString(record.metadata?.linkedLogEntryId)
+        }
+      }
+      : {};
 
   const event = {
     schemaVersion: 1,
@@ -734,9 +784,9 @@ function mapLegacyToLifeEvent(record, context) {
     eventClass,
     activityFamily: toTrimmedString(record.activityFamily || category),
     categoryId: toTrimmedString(category),
-    title: mapped.title || `Legacy ${category}`,
+    title,
     occurredAt,
-    startAt: parseDateInTimezone(mapped.capturedAt, timezone, "capturedAt") || occurredAt,
+    startAt: capturedAt,
     endAt: null,
     durationSeconds: null,
     timezone,
@@ -744,6 +794,8 @@ function mapLegacyToLifeEvent(record, context) {
     metrics: normalizeObject(record.metrics || {}, "metrics"),
     metadata: {
       ...(normalizeObject(record.metadata || {}, "metadata") || {}),
+      ...(Object.keys(sourceTimestamps).length ? { sourceTimestamps } : {}),
+      ...contentMetadata,
       legacySourceType: `legacy:${mapped.sourceApp || "unknown"}`
     },
     privacyLevel: mapped.visibility === "viewers" ? "viewers" : "ownerOnly",

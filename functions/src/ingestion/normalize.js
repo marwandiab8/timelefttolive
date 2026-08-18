@@ -7,6 +7,7 @@ function normalizeSourceApp(value) {
 }
 
 function normalizeCategory(category, metadata = {}) {
+  if (category === "journalEntry") return { category: "journal", metadata };
   if (EXTERNAL_CATEGORIES.includes(category)) return { category, metadata };
   return {
     category: "other",

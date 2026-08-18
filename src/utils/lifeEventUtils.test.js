@@ -6,10 +6,14 @@ import {
   buildActivityEntries,
   buildActivityTallies,
   buildComparison,
+  buildJournalEntries,
+  buildJournalMetrics,
   buildPeriodAnalysis,
   buildPointCategoryAnalysis,
   buildWorkAttendance,
   buildWorkoutRecords,
+  deriveJournalTitle,
+  enrichLifeEventsWithJournalDetails,
   filterLifeEventsByRange,
   formatDuration,
   getActivityTallyRange,
@@ -19,6 +23,7 @@ import {
   getPeriodBounds,
   getTallyActivityLabel,
   groupMoments,
+  groupPhotosByDate,
   isPointEvent,
   shiftPeriodDate,
   selectActivityPreviewEntries,
@@ -226,6 +231,92 @@ describe('activity analysis utilities', () => {
     expect(groups).toHaveLength(2);
     expect(groups[0]).toMatchObject({ category: 'Notes', pointCategory: 'Journal', title: 'Journal entry', count: 2 });
     expect(groups[1]).toMatchObject({ count: 1 });
+  });
+
+  it('enriches journal notes with multiline text and the actual source timestamp', () => {
+    const events = enrichLifeEventsWithJournalDetails([{
+      id: 'journal-life-event', sourceApp: 'gridlineai', sourceRecordId: 'logEntries/note-1',
+      eventType: 'other', activityFamily: 'other', title: 'Journal Entry',
+      occurredAt: '2026-08-18T04:00:00Z', startAt: '2026-08-18T16:00:00Z', receivedAt: '2026-08-18T14:00:02Z'
+    }], [{
+      lifeEventId: 'journal-life-event', kind: 'journal', title: '',
+      note: 'Morning site notes\nLevel 3 reinforcing continued.',
+      occurredAt: '2026-08-18T12:42:00Z', sourceSentAt: '2026-08-18T12:42:03Z',
+      dateId: '2026-08-18', projectId: 'home', mediaIds: ['photo-1']
+    }]);
+    const entries = buildJournalEntries(events, [{ id: 'photo-1', createdAt: '2026-08-18T12:43:00Z' }]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      title: 'Morning site notes',
+      note: 'Morning site notes\nLevel 3 reinforcing continued.',
+      timeRecorded: true,
+      projectId: 'home',
+      mediaIds: ['photo-1']
+    });
+    expect(entries[0].occurredAt.toISOString()).toBe('2026-08-18T12:42:00.000Z');
+    expect(entries[0].sourceSentAt.toISOString()).toBe('2026-08-18T12:42:03.000Z');
+    expect(getMeaningfulEventDetails(events[0]).note).toContain('Level 3 reinforcing');
+  });
+
+  it('does not display a date-only journal sentinel as noon', () => {
+    const [event] = enrichLifeEventsWithJournalDetails([{
+      id: 'date-only', sourceRecordId: 'logEntries/date-only', eventType: 'journal', title: 'Journal Entry',
+      occurredAt: '2026-08-18T04:00:00Z', startAt: '2026-08-18T16:00:00Z'
+    }], [{
+      lifeEventId: 'date-only', kind: 'journal', note: 'Date-only note', occurredAt: null,
+      sourceSentAt: null, dateId: '2026-08-18', mediaIds: []
+    }]);
+    const [entry] = buildJournalEntries([event]);
+    expect(entry.occurredAt).toBeNull();
+    expect(entry.timeRecorded).toBe(false);
+    expect(entry.dateId).toBe('2026-08-18');
+  });
+
+  it('uses a meaningful journal title fallback while preserving distinct notes', () => {
+    expect(deriveJournalTitle('First useful line\nSecond line', 'Journal Entry')).toBe('First useful line');
+    const source = [
+      { id: 'fragment-a', sourceRecordId: 'logEntries/shared', eventType: 'journal', title: 'Journal Entry', occurredAt: '2026-08-18T12:00:00Z' },
+      { id: 'fragment-b', sourceRecordId: 'logEntries/shared', eventType: 'journal', title: 'Journal Entry', occurredAt: '2026-08-18T12:00:01Z' },
+      { id: 'distinct', sourceRecordId: 'logEntries/distinct', eventType: 'journal', title: 'Journal Entry', occurredAt: '2026-08-18T13:00:00Z' }
+    ];
+    const details = [
+      { lifeEventId: 'fragment-a', kind: 'journal', note: 'Combined note', occurredAt: '2026-08-18T12:00:00Z', mediaIds: ['p1'] },
+      { lifeEventId: 'fragment-b', kind: 'journal', note: '', occurredAt: '2026-08-18T12:00:01Z', mediaIds: ['p2'] },
+      { lifeEventId: 'distinct', kind: 'journal', note: 'Different note', occurredAt: '2026-08-18T13:00:00Z', mediaIds: [] }
+    ];
+    const entries = buildJournalEntries(enrichLifeEventsWithJournalDetails(source, details), [{ id: 'p1' }, { id: 'p2' }]);
+    expect(entries).toHaveLength(2);
+    expect(entries.find((entry) => entry.id === 'logEntries/shared').mediaIds).toEqual(['p1', 'p2']);
+    expect(entries.map((entry) => entry.note)).toEqual(expect.arrayContaining(['Combined note', 'Different note']));
+  });
+
+  it('excludes exact Shortcut shadow journals while keeping genuine notes', () => {
+    const events = enrichLifeEventsWithJournalDetails([
+      { id: 'shadow', sourceRecordId: 'logEntries/shadow', eventType: 'journal', title: 'Journal Entry', occurredAt: '2026-08-18T12:00:00Z' },
+      { id: 'real', sourceRecordId: 'logEntries/real', eventType: 'journal', title: 'Journal Entry', occurredAt: '2026-08-18T13:00:00Z' }
+    ], [
+      { lifeEventId: 'shadow', kind: 'journal', shortcutShadow: true, note: 'Generated boundary log', occurredAt: '2026-08-18T12:00:00Z' },
+      { lifeEventId: 'real', kind: 'journal', shortcutShadow: false, note: 'A real note', occurredAt: '2026-08-18T13:00:00Z' }
+    ]);
+    const analysis = buildPeriodAnalysis(events, getPeriodBounds('day', '2026-08-18'));
+    expect(analysis.activityEntries).toHaveLength(1);
+    expect(buildJournalEntries(events).map((entry) => entry.note)).toEqual(['A real note']);
+  });
+
+  it('counts journal photos and groups standalone daily images without duplicating them', () => {
+    const entries = [{
+      id: 'note', occurredAt: new Date('2026-08-18T12:00:00Z'), dateId: '2026-08-18', mediaIds: ['p1', 'p2']
+    }];
+    expect(buildJournalMetrics(entries)).toMatchObject({ entryCount: 1, entriesWithPhotos: 1, photoCount: 2, activeDays: 1 });
+    const groups = groupPhotosByDate([
+      { id: 'p1', createdAt: '2026-08-18T12:01:00Z' },
+      { id: 'p1', createdAt: '2026-08-18T12:01:00Z' },
+      { id: 'standalone', createdAt: '2026-08-19T13:00:00Z' }
+    ]);
+    expect(groups).toEqual([
+      { dateId: '2026-08-19', photos: [{ id: 'standalone', createdAt: '2026-08-19T13:00:00Z' }] },
+      { dateId: '2026-08-18', photos: [{ id: 'p1', createdAt: '2026-08-18T12:01:00Z' }] }
+    ]);
   });
 
   it('keeps Spotify visible and selectable without inventing listening time', () => {

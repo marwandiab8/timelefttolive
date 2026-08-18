@@ -28,6 +28,16 @@
         "region": "northamerica-northeast1"
       },
       {
+        "source": "/api/activity/journal-details",
+        "function": "getActivityJournalDetails",
+        "region": "northamerica-northeast1"
+      },
+      {
+        "source": "/api/activity/media",
+        "function": "getActivityMedia",
+        "region": "northamerica-northeast1"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

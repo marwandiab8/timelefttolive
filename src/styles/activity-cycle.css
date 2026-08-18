@@ -42,6 +42,7 @@
 .cycle-hero,
 .cycle-focus-panel,
 .cycle-activity-stream,
+.cycle-photo-gallery,
 .cycle-moments,
 .cycle-totals-view,
 .cycle-technical {
@@ -1629,6 +1630,420 @@
 
   .cycle-total-grid dl {
     grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.cycle-photo-gallery {
+  width: min(1560px, 100%);
+  margin: 26px auto 0;
+  padding: clamp(20px, 2.5vw, 34px);
+  border: 1px solid var(--cycle-border);
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--cycle-surface) 94%, transparent);
+  box-shadow: var(--cycle-shadow);
+}
+
+.cycle-photo-gallery > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.cycle-photo-gallery h2,
+.cycle-journal-focus h2,
+.cycle-journal-days h3 {
+  margin: 0;
+}
+
+.cycle-photo-gallery > header > span {
+  color: var(--cycle-muted);
+  font-weight: 750;
+}
+
+.cycle-photo-empty {
+  box-shadow: none;
+}
+
+.cycle-photo-empty > header {
+  margin-bottom: 8px;
+}
+
+.cycle-photo-empty > p {
+  margin: 0;
+  color: var(--cycle-muted);
+}
+
+.cycle-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+  gap: 16px;
+}
+
+.cycle-photo-collection.compact .cycle-photo-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(180px, 100%), 1fr));
+}
+
+.cycle-photo-thumb {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--cycle-border);
+  border-radius: 20px;
+  background: var(--cycle-surface-soft);
+}
+
+.cycle-photo-thumb > button {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: #06090b;
+  cursor: zoom-in;
+}
+
+.cycle-photo-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 180ms ease, opacity 180ms ease;
+}
+
+.cycle-photo-thumb > button:hover img {
+  transform: scale(1.025);
+}
+
+.cycle-photo-thumb > div:not(.cycle-photo-placeholder) {
+  display: grid;
+  gap: 4px;
+  padding: 13px 15px 15px;
+}
+
+.cycle-photo-thumb strong,
+.cycle-photo-thumb small {
+  overflow-wrap: anywhere;
+}
+
+.cycle-photo-thumb small {
+  color: var(--cycle-muted);
+}
+
+.cycle-photo-placeholder {
+  display: grid;
+  width: 100%;
+  min-height: 180px;
+  place-items: center;
+  padding: 20px;
+  background: linear-gradient(135deg, var(--cycle-surface-soft), color-mix(in srgb, var(--activity-focus) 11%, var(--cycle-surface)));
+  color: var(--cycle-muted);
+  text-align: center;
+}
+
+.cycle-photo-placeholder.error {
+  color: #f0a19b;
+}
+
+.cycle-photo-lightbox {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 64px;
+  align-items: center;
+  padding: clamp(18px, 4vw, 64px);
+  background: rgba(2, 5, 7, 0.94);
+  backdrop-filter: blur(18px);
+}
+
+.cycle-photo-lightbox button {
+  min-width: 48px;
+  min-height: 48px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  background: rgba(15, 22, 27, 0.9);
+  color: white;
+  font-size: 2rem;
+}
+
+.cycle-lightbox-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+}
+
+.cycle-lightbox-content {
+  grid-column: 2;
+  display: grid;
+  max-width: min(1200px, 100%);
+  max-height: calc(100vh - 80px);
+  margin: auto;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 24px;
+  background: #090d11;
+  color: white;
+}
+
+.cycle-lightbox-content > img {
+  width: 100%;
+  max-height: calc(100vh - 220px);
+  object-fit: contain;
+  background: #020405;
+}
+
+.cycle-lightbox-content > div:not(.cycle-photo-placeholder) {
+  display: grid;
+  gap: 5px;
+  padding: 16px 20px 19px;
+}
+
+.cycle-lightbox-content p,
+.cycle-lightbox-content small {
+  margin: 0;
+  color: #aebac0;
+}
+
+.cycle-journal-focus {
+  display: grid;
+  gap: 24px;
+}
+
+.cycle-journal-metrics {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.cycle-period-photo-groups {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 28px;
+  padding: 22px;
+  border: 1px solid var(--cycle-border);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--cycle-surface) 88%, transparent);
+}
+
+.cycle-period-photo-groups > header h3 {
+  margin: 0;
+}
+
+.cycle-period-photo-groups > details {
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--cycle-surface-soft);
+}
+
+.cycle-period-photo-groups > details > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.cycle-period-photo-groups > details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.cycle-period-photo-groups > details > summary span {
+  color: var(--cycle-muted);
+}
+
+.cycle-period-photo-groups .cycle-photo-collection {
+  margin-top: 14px;
+}
+
+.cycle-journal-days,
+.cycle-journal-days > section,
+.cycle-journal-list {
+  display: grid;
+  gap: 16px;
+}
+
+.cycle-journal-days > section > h3 {
+  padding-top: 10px;
+  color: var(--cycle-muted);
+  font-size: 1rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cycle-journal-card {
+  overflow: hidden;
+  border: 1px solid var(--cycle-border);
+  border-radius: 24px;
+  background: var(--cycle-surface-soft);
+}
+
+.cycle-journal-card > summary {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+  padding: clamp(18px, 2vw, 26px);
+  cursor: pointer;
+  list-style: none;
+}
+
+.cycle-journal-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.cycle-journal-card > summary > span {
+  align-self: center;
+  color: var(--activity-focus);
+  font-weight: 800;
+}
+
+.cycle-journal-icon {
+  display: grid;
+  width: 50px;
+  height: 50px;
+  place-items: center;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--activity-focus) 18%, var(--cycle-surface));
+  color: var(--activity-focus);
+  font-size: 1.5rem;
+}
+
+.cycle-journal-card h3 {
+  margin: 0 0 5px;
+  font-size: clamp(1.08rem, 1.6vw, 1.35rem);
+}
+
+.cycle-journal-time,
+.cycle-journal-preview,
+.cycle-journal-missing {
+  margin: 0;
+}
+
+.cycle-journal-time,
+.cycle-journal-card small {
+  color: var(--cycle-muted);
+}
+
+.cycle-journal-preview {
+  margin-top: 10px;
+  white-space: pre-line;
+  line-height: 1.55;
+}
+
+.cycle-journal-missing {
+  margin-top: 10px;
+  color: var(--cycle-muted);
+  font-style: italic;
+}
+
+.cycle-journal-card small {
+  display: block;
+  margin-top: 10px;
+}
+
+.cycle-journal-detail {
+  display: grid;
+  gap: 22px;
+  padding: 0 clamp(18px, 2vw, 26px) clamp(20px, 2.5vw, 32px) 92px;
+}
+
+.cycle-journal-detail > dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.cycle-journal-detail > dl > div {
+  padding: 13px;
+  border-radius: 14px;
+  background: var(--cycle-surface);
+}
+
+.cycle-journal-detail dt {
+  color: var(--cycle-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cycle-journal-detail dd {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.cycle-journal-body {
+  padding: clamp(18px, 2.5vw, 28px);
+  border-left: 4px solid var(--activity-focus);
+  border-radius: 0 18px 18px 0;
+  background: color-mix(in srgb, var(--activity-focus) 7%, var(--cycle-surface));
+  font-size: 1.04rem;
+  line-height: 1.68;
+  white-space: pre-wrap;
+}
+
+.cycle-journal-body p {
+  margin: 0 0 0.9em;
+}
+
+.cycle-journal-body p:last-child {
+  margin-bottom: 0;
+}
+
+@media (max-width: 720px) {
+  .cycle-photo-gallery {
+    padding: 18px;
+    border-radius: 22px;
+  }
+
+  .cycle-photo-grid,
+  .cycle-photo-collection.compact .cycle-photo-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .cycle-photo-thumb > div:not(.cycle-photo-placeholder) {
+    padding: 10px;
+  }
+
+  .cycle-photo-lightbox {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    padding: 70px 8px 20px;
+  }
+
+  .cycle-photo-lightbox button {
+    min-width: 42px;
+    min-height: 42px;
+  }
+
+  .cycle-journal-card > summary {
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .cycle-journal-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 13px;
+  }
+
+  .cycle-journal-card > summary > span {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .cycle-journal-detail {
+    padding: 0 16px 20px;
+  }
+
+  .cycle-journal-detail > dl {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .cycle-period-photo-groups > details > summary {
+    display: grid;
   }
 }
 

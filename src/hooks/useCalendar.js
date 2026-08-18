@@ -18,6 +18,7 @@ import {
 import { db } from '../services/firebase.js';
 import { addYears, formatDateId } from '../utils/dateUtils.js';
 import { defaultCustodySchedule } from '../utils/custodyUtils.js';
+import { loadActivityJournalDetails } from '../services/activityJournal.js';
 
 const defaultSettings = {
   pastColor: '#46505c',
@@ -256,6 +257,55 @@ export function useConnectedSources(calendarId, enabled = true) {
   }, [calendarId, enabled]);
 
   return { connections, loading, error };
+}
+
+export function useActivityJournalDetails(calendarId, lifeEvents, enabled = true) {
+  const [details, setDetails] = useState([]);
+  const [media, setMedia] = useState([]);
+  const [unavailable, setUnavailable] = useState([]);
+  const [partial, setPartial] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const eventKey = useMemo(() => (Array.isArray(lifeEvents) ? lifeEvents : [])
+    .map((event) => event.id)
+    .filter(Boolean)
+    .sort()
+    .join('|'), [lifeEvents]);
+
+  useEffect(() => {
+    if (!calendarId || !enabled) {
+      setDetails([]);
+      setMedia([]);
+      setUnavailable([]);
+      setPartial(false);
+      setLoading(false);
+      setError('');
+      return undefined;
+    }
+    const controller = new AbortController();
+    setLoading(true);
+    setError('');
+    loadActivityJournalDetails(calendarId, lifeEvents, controller.signal)
+      .then((result) => {
+        setDetails(result.details);
+        setMedia(result.media);
+        setUnavailable(result.unavailable);
+        setPartial(result.partial);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (err.name === 'AbortError') return;
+        setDetails([]);
+        setMedia([]);
+        setUnavailable([]);
+        setPartial(false);
+        setError(err.message);
+        setLoading(false);
+      });
+    return () => controller.abort();
+  }, [calendarId, enabled, eventKey]);
+
+  return { details, media, unavailable, partial, loading, error };
 }
 
 export function useViewers(calendarId) {

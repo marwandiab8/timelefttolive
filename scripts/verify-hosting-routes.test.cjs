@@ -12,6 +12,8 @@ const firestoreEmulatorHost = process.env.FIRESTORE_EMULATOR_HOST || "";
 const basePath = `http://${hostingHost}:${hostingPort}`;
 const lifeEventPath = "/api/v1/life-events";
 const lifeEventBatchPath = "/api/v1/life-events:batch";
+const journalDetailsPath = "/api/activity/journal-details";
+const activityMediaPath = "/api/activity/media";
 const projectFromFirebaseConfig = process.env.FIREBASE_CONFIG && (() => {
   try {
     return JSON.parse(process.env.FIREBASE_CONFIG).projectId;
@@ -212,6 +214,24 @@ test("non-POST routes return 405", async () => {
   });
   assert.equal(single.status, 405);
   assert.equal(batch.status, 405);
+});
+
+test("private activity journal routes map through hosting and fail closed", async () => {
+  const detailsWithoutAuth = await callHostingApi(journalDetailsPath, {
+    body: { calendarId: "calendar-private", lifeEventIds: ["event-private"] }
+  });
+  assert.equal(detailsWithoutAuth.status, 401);
+  assert.equal(detailsWithoutAuth.payload.code, "unauthenticated");
+
+  const mediaWithoutAuth = await callHostingApi(`${activityMediaPath}?calendarId=calendar-private&lifeEventId=event-private&mediaId=media-private`, {
+    method: "GET"
+  });
+  assert.equal(mediaWithoutAuth.status, 401);
+
+  const wrongDetailsMethod = await callHostingApi(journalDetailsPath, { method: "GET" });
+  const wrongMediaMethod = await callHostingApi(activityMediaPath, { method: "POST" });
+  assert.equal(wrongDetailsMethod.status, 405);
+  assert.equal(wrongMediaMethod.status, 405);
 });
 
 test("valid token is required and invalid token fails", async () => {

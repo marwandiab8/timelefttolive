@@ -144,7 +144,10 @@ export function getLocalDayBounds(dateId, timeZone = APP_TIMEZONE) {
 }
 
 export function getEventTime(event) {
-  return toJsDate(event?.startAt) || toJsDate(event?.occurredAt);
+  return toJsDate(event?._journal?.occurredAt)
+    || toJsDate(event?.displayAt)
+    || toJsDate(event?.startAt)
+    || toJsDate(event?.occurredAt);
 }
 
 export function getEventEndTime(event) {
@@ -156,7 +159,8 @@ export function getEventReceivedTime(event) {
 }
 
 export function getEventSentTime(event) {
-  return toJsDate(event?.sentAt)
+  return toJsDate(event?._journal?.sourceSentAt)
+    || toJsDate(event?.sentAt)
     || toJsDate(event?.metadata?.sentAt)
     || toJsDate(event?.metadata?.sentAtIso)
     || toJsDate(event?.metadata?.deliveryStartedAt);
@@ -270,7 +274,7 @@ export function getMeaningfulEventDetails(event) {
   const artist = firstMeaningfulString(metadata.artistName, metadata.artist, payload.artistName, payload.artist);
   const album = firstMeaningfulString(metadata.albumName, metadata.album, payload.albumName, payload.album);
   const playlist = firstMeaningfulString(metadata.playlistName, metadata.playlist, payload.playlistName, payload.playlist);
-  const note = firstMeaningfulString(metadata.note, metadata.notes, metadata.summary, metadata.text, metadata.message, event?.description);
+  const note = firstMeaningfulString(event?._journal?.note, metadata.note, metadata.notes, metadata.summary, metadata.text, metadata.message, event?.description);
   return { track, artist, album, playlist, note, location: getLocationLabel(event) };
 }
 
@@ -291,6 +295,7 @@ export function getEventDisplayTitle(event) {
     start_spotify: details.track ? `Played ${details.track}` : 'Started listening to Spotify'
   };
   if (exact[eventType]) return exact[eventType];
+  if (event?._journal?.title && !GENERIC_TITLES.test(event._journal.title)) return event._journal.title;
   const rawTitle = String(event?.title || '').trim();
   if (rawTitle && !GENERIC_TITLES.test(rawTitle) && !COORDINATE_VALUE.test(rawTitle)) return rawTitle;
   if (details.note) return details.note.slice(0, 160);
@@ -301,11 +306,135 @@ export function getEventDisplayTitle(event) {
 }
 
 function meaningfulPointEvent(event) {
+  if (event?.excludeFromActivity === true || event?._journal?.shortcutShadow === true) return false;
   const label = getPointCategoryLabel(event);
   if (HIDDEN_POINT_CATEGORIES.has(label)) return false;
   const raw = `${cleanToken(event?.eventType)} ${cleanToken(event?.activityFamily)} ${cleanToken(event?.title)}`;
   if (/coordinate|latitude|longitude|gps/.test(raw) || COORDINATE_VALUE.test(String(event?.title || ''))) return false;
   return Boolean(getEventTime(event));
+}
+
+export function enrichLifeEventsWithJournalDetails(events, details) {
+  const byId = new Map((Array.isArray(details) ? details : [])
+    .filter((detail) => detail?.lifeEventId)
+    .map((detail) => [detail.lifeEventId, detail]));
+  return (Array.isArray(events) ? events : []).map((event) => {
+    const detail = byId.get(event?.id);
+    if (!detail) return event;
+    if (detail.kind === 'media') {
+      return {
+        ...event,
+        displayAt: detail.occurredAt || event.displayAt,
+        _journal: detail
+      };
+    }
+    const note = String(detail.note || '').trim();
+    return {
+      ...event,
+      displayAt: detail.occurredAt || event.displayAt,
+      excludeFromActivity: detail.shortcutShadow === true,
+      metadata: {
+        ...(event.metadata || {}),
+        ...(note ? { note } : {})
+      },
+      _journal: detail
+    };
+  });
+}
+
+export function deriveJournalTitle(note, explicitTitle = '') {
+  const explicit = String(explicitTitle || '').replace(/\s+/g, ' ').trim();
+  if (explicit && !GENERIC_TITLES.test(explicit)) return explicit.slice(0, 160);
+  const firstLine = String(note || '').split(/\r?\n/).find((line) => line.trim()) || '';
+  const normalized = firstLine.replace(/\s+/g, ' ').trim();
+  return normalized ? normalized.slice(0, 160) : 'Journal entry';
+}
+
+export function buildJournalEntries(events, media = [], timeZone = APP_TIMEZONE) {
+  const mediaById = new Map((Array.isArray(media) ? media : []).map((item) => [item.id, item]));
+  const entries = new Map();
+  sortLifeEvents((Array.isArray(events) ? events : []).filter((event) => (
+    event?.excludeFromActivity !== true
+    && event?._journal?.shortcutShadow !== true
+    && getPointCategoryLabel(event) === 'Journal'
+  ))).forEach((event) => {
+    const detail = event._journal || {};
+    const stableId = String(event.sourceRecordId || event.sourceEventId || event.id || '');
+    if (!stableId) return;
+    const note = String(detail.note || getMeaningfulEventDetails(event).note || '').trim();
+    const occurredAt = toJsDate(detail.occurredAt);
+    const sourceSentAt = toJsDate(detail.sourceSentAt) || getEventSentTime(event);
+    const receivedAt = getEventReceivedTime(event);
+    const dateId = detail.dateId
+      || getDateIdInTimezone(occurredAt || toJsDate(event.occurredAt), timeZone);
+    const mediaIds = [...new Set(Array.isArray(detail.mediaIds) ? detail.mediaIds.filter(Boolean) : [])];
+    const current = entries.get(stableId);
+    const next = {
+      id: stableId,
+      lifeEventId: event.id,
+      title: deriveJournalTitle(note, detail.title || event.title),
+      note,
+      occurredAt,
+      sourceSentAt,
+      receivedAt,
+      dateId,
+      timeRecorded: Boolean(occurredAt),
+      location: detail.location || getLocationLabel(event),
+      projectId: detail.projectId || event.sourceProjectId || '',
+      sourceApp: event.sourceApp || '',
+      mediaIds,
+      media: mediaIds.map((id) => mediaById.get(id)).filter(Boolean),
+      event
+    };
+    if (!current) {
+      entries.set(stableId, next);
+      return;
+    }
+    const combinedIds = [...new Set([...current.mediaIds, ...next.mediaIds])];
+    entries.set(stableId, {
+      ...current,
+      title: current.title !== 'Journal entry' ? current.title : next.title,
+      note: current.note || next.note,
+      occurredAt: current.occurredAt || next.occurredAt,
+      sourceSentAt: current.sourceSentAt || next.sourceSentAt,
+      receivedAt: current.receivedAt || next.receivedAt,
+      location: current.location || next.location,
+      mediaIds: combinedIds,
+      media: combinedIds.map((id) => mediaById.get(id)).filter(Boolean)
+    });
+  });
+  return [...entries.values()].sort((left, right) => (
+    (right.occurredAt?.getTime() || 0) - (left.occurredAt?.getTime() || 0)
+  ));
+}
+
+export function buildJournalMetrics(entries, timeZone = APP_TIMEZONE) {
+  const safeEntries = Array.isArray(entries) ? entries : [];
+  const photos = new Set(safeEntries.flatMap((entry) => entry.mediaIds || []));
+  const reliableTimes = safeEntries.map((entry) => entry.occurredAt).filter(Boolean).sort((a, b) => a - b);
+  return {
+    entryCount: safeEntries.length,
+    entriesWithPhotos: safeEntries.filter((entry) => entry.mediaIds?.length).length,
+    photoCount: photos.size,
+    activeDays: new Set(safeEntries.map((entry) => entry.dateId || getDateIdInTimezone(entry.occurredAt, timeZone)).filter(Boolean)).size,
+    firstAt: reliableTimes[0] || null,
+    lastAt: reliableTimes.at(-1) || null
+  };
+}
+
+export function groupPhotosByDate(media, timeZone = APP_TIMEZONE) {
+  const groups = new Map();
+  (Array.isArray(media) ? media : []).forEach((item) => {
+    const date = toJsDate(item?.createdAt);
+    const dateId = date ? getDateIdInTimezone(date, timeZone) : '';
+    if (!dateId) return;
+    const group = groups.get(dateId) || [];
+    if (!group.some((candidate) => candidate.id === item.id)) group.push(item);
+    groups.set(dateId, group);
+  });
+  return [...groups.entries()]
+    .map(([dateId, photos]) => ({ dateId, photos }))
+    .sort((left, right) => right.dateId.localeCompare(left.dateId));
 }
 
 export function isPrimaryActivityCategory(label) {
@@ -563,6 +692,7 @@ function allocateIntervals(sessions) {
 export function groupMoments(events, timeZone = APP_TIMEZONE) {
   const groups = new Map();
   sortLifeEvents(events).forEach((event) => {
+    if (event?.excludeFromActivity === true || event?._journal?.shortcutShadow === true) return;
     const category = getTallyActivityLabel(event);
     const pointCategory = getPointCategoryLabel(event);
     const title = getEventDisplayTitle(event).slice(0, 160);

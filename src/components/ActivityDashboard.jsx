@@ -1,12 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useAllLifeEvents, useConnectedSources, useLifeEvents } from '../hooks/useCalendar.js';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useAllLifeEvents, useActivityJournalDetails, useConnectedSources, useLifeEvents } from '../hooks/useCalendar.js';
+import { loadAuthorizedActivityImage } from '../services/activityJournal.js';
 import {
   APP_TIMEZONE,
   buildActivityTallies,
   buildCategoryAnalysis,
   buildCategoryInsight,
+  buildJournalEntries,
+  buildJournalMetrics,
   buildPointCategoryAnalysis,
   buildPeriodAnalysis,
+  enrichLifeEventsWithJournalDetails,
   filterLifeEventsByRange,
   formatDuration,
   getActivityTallyRange,
@@ -18,6 +22,7 @@ import {
   getMeaningfulEventDetails,
   getLocalDateId,
   getPeriodBounds,
+  groupPhotosByDate,
   shiftPeriodDate,
   selectActivityPreviewEntries,
   toggleActivitySelection
@@ -109,11 +114,19 @@ export default function ActivityDashboard({ calendar, onBack }) {
   const historyState = useLifeEvents(calendar.id, historyQuery?.start, historyQuery?.end, mode === 'wheel' && Boolean(historyQuery));
   const allLifeEventState = useAllLifeEvents(calendar.id, mode === 'totals');
   const sourceState = useConnectedSources(calendar.id);
+  const journalState = useActivityJournalDetails(
+    calendar.id,
+    currentState.lifeEvents,
+    mode === 'wheel' && !currentState.loading
+  );
+  const enrichedLifeEvents = useMemo(() => (
+    enrichLifeEventsWithJournalDetails(currentState.lifeEvents, journalState.details)
+  ), [currentState.lifeEvents, journalState.details]);
 
-  const analysis = useMemo(() => buildPeriodAnalysis(currentState.lifeEvents, bounds, {
+  const analysis = useMemo(() => buildPeriodAnalysis(enrichedLifeEvents, bounds, {
     includeActive: true,
     now
-  }), [bounds, currentState.lifeEvents, now]);
+  }), [bounds, enrichedLifeEvents, now]);
   const recentHistory = useMemo(() => Array.from({ length: HISTORY_PERIOD_COUNTS[period] }, (_, index) => {
     const historyBounds = getPeriodBounds(period, shiftPeriodDate(dateId, period, -(index + 1)));
     return {
@@ -194,6 +207,8 @@ export default function ActivityDashboard({ calendar, onBack }) {
           bounds={bounds}
           categoryAnalysis={categoryAnalysis}
           dateId={dateId}
+          journalState={journalState}
+          calendarId={calendar.id}
           loading={currentState.loading}
           now={now}
           onDateChange={setDateId}
@@ -229,8 +244,10 @@ export default function ActivityDashboard({ calendar, onBack }) {
 function WheelView({
   analysis,
   bounds,
+  calendarId,
   categoryAnalysis,
   dateId,
+  journalState,
   loading,
   now,
   onDateChange,
@@ -296,6 +313,16 @@ function WheelView({
 
       <ActivityStream analysis={analysis} bounds={bounds} onSelect={onSelect} />
 
+      {period === 'day' && (
+        <PhotoGallery
+          calendarId={calendarId}
+          dateId={bounds.startDateId}
+          error={journalState.error}
+          loading={journalState.loading}
+          media={journalState.media}
+        />
+      )}
+
       {categoryAnalysis ? (
         <FocusedAnalysis
           analysis={categoryAnalysis}
@@ -304,6 +331,14 @@ function WheelView({
           periodAnalysis={analysis}
           previousAnalysis={previousAnalysis}
           recentHistory={recentHistory}
+        />
+      ) : pointAnalysis?.label === 'Journal' ? (
+        <JournalAnalysis
+          bounds={bounds}
+          calendarId={calendarId}
+          events={analysis.events}
+          journalState={journalState}
+          period={period}
         />
       ) : pointAnalysis ? (
         <FocusedPointAnalysis analysis={pointAnalysis} bounds={bounds} period={period} />
@@ -560,6 +595,222 @@ function ActivityStream({ analysis, bounds, onSelect }) {
       )}
       <p className="cycle-stream-note">Times are shown in {bounds.timezone.replace('_', ' ')}. Point activities stay outside the duration wheel unless their source supplies a reliable duration.</p>
     </section>
+  );
+}
+
+function JournalAnalysis({ bounds, calendarId, events, journalState, period }) {
+  const entries = useMemo(() => buildJournalEntries(events, journalState.media, bounds.timezone), [bounds.timezone, events, journalState.media]);
+  const metrics = useMemo(() => buildJournalMetrics(entries, bounds.timezone), [bounds.timezone, entries]);
+  const photoGroups = useMemo(() => groupPhotosByDate(journalState.media, bounds.timezone)
+    .filter((group) => group.dateId >= bounds.startDateId && group.dateId <= bounds.endDateId), [bounds, journalState.media]);
+  const photos = photoGroups.flatMap((group) => group.photos);
+  const groupedEntries = entries.reduce((groups, entry) => {
+    const dateId = entry.dateId || bounds.startDateId;
+    const group = groups.get(dateId) || [];
+    group.push(entry);
+    groups.set(dateId, group);
+    return groups;
+  }, new Map());
+
+  return (
+    <section className="cycle-focus-panel cycle-journal-focus">
+      <header>
+        <div><p className="cycle-eyebrow">Journal reflection</p><h2>{metrics.entryCount} {metrics.entryCount === 1 ? 'entry' : 'entries'} in this {period}</h2></div>
+        <p>Notes remain private to their authorized TimeLeft owner and source scope.</p>
+      </header>
+      <div className="cycle-focus-metrics cycle-journal-metrics">
+        <Metric label="Entries" value={metrics.entryCount} />
+        <Metric label="With photos" value={metrics.entriesWithPhotos} />
+        <Metric label="Photos" value={photos.length} />
+        {period !== 'day' && <Metric label="Journal days" value={metrics.activeDays} />}
+        {metrics.firstAt && <Metric label="First entry" value={clockFormatter.format(metrics.firstAt)} />}
+        {metrics.lastAt && <Metric label="Last entry" value={clockFormatter.format(metrics.lastAt)} />}
+      </div>
+      {period !== 'day' && photoGroups.length > 0 && (
+        <section className="cycle-period-photo-groups">
+          <header><div><p className="cycle-eyebrow">Photos in this period</p><h3>{photos.length} {photos.length === 1 ? 'photo' : 'photos'} across {photoGroups.length} {photoGroups.length === 1 ? 'day' : 'days'}</h3></div></header>
+          {photoGroups.map((group) => (
+            <details key={group.dateId}>
+              <summary><strong>{dateFormatter.format(getPeriodBounds('day', group.dateId).start)}</strong><span>{group.photos.length} {group.photos.length === 1 ? 'photo' : 'photos'} · View photos</span></summary>
+              <PhotoCollection calendarId={calendarId} compact photos={group.photos.slice(0, 12)} title={`Photos from ${group.dateId}`} />
+              {group.photos.length > 12 && <p className="cycle-data-note">Showing 12 photos. Choose this day to view the complete gallery.</p>}
+            </details>
+          ))}
+        </section>
+      )}
+      {journalState.loading ? <LoadingState label="Opening your journal…" /> : journalState.error ? (
+        <p className="activity-state" role="alert">Journal details are protected and could not be loaded. {journalState.error}</p>
+      ) : entries.length === 0 ? (
+        <p className="activity-state">No complete journal notes were recorded for this period.</p>
+      ) : (
+        <div className="cycle-journal-days">
+          {[...groupedEntries.entries()].sort(([left], [right]) => right.localeCompare(left)).map(([dateId, dayEntries]) => (
+            <section key={dateId}>
+              {period !== 'day' && <h3>{dateFormatter.format(getPeriodBounds('day', dateId).start)}</h3>}
+              <div className="cycle-journal-list">
+                {dayEntries.map((entry) => <JournalCard calendarId={calendarId} entry={entry} key={entry.id} />)}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+      {journalState.partial && <p className="cycle-data-note">This long period contains more journal records than the bounded detail view loads at once. Choose a shorter period to inspect every entry.</p>}
+    </section>
+  );
+}
+
+function JournalCard({ calendarId, entry }) {
+  const preview = entry.note.length > 260 ? `${entry.note.slice(0, 257).trimEnd()}…` : entry.note;
+  return (
+    <details className="cycle-journal-card">
+      <summary>
+        <div className="cycle-journal-icon" aria-hidden="true">✎</div>
+        <div>
+          <h3>{entry.title}</h3>
+          <p className="cycle-journal-time">
+            {entry.occurredAt ? clockFormatter.format(entry.occurredAt) : 'Time not recorded'}
+            {entry.location ? ` · ${entry.location}` : ''}
+          </p>
+          {preview ? <p className="cycle-journal-preview">{preview}</p> : <p className="cycle-journal-missing">Note text was not supplied.</p>}
+          <small>
+            {entry.media.length ? `${entry.media.length} ${entry.media.length === 1 ? 'photo' : 'photos'} · ` : ''}
+            {entry.sourceSentAt ? `Source sent ${clockFormatter.format(entry.sourceSentAt)}` : 'Source-sent time not supplied'}
+          </small>
+        </div>
+        <span>Open</span>
+      </summary>
+      <div className="cycle-journal-detail">
+        <dl>
+          <div><dt>Entry time</dt><dd>{entry.occurredAt ? `${shortDateFormatter.format(entry.occurredAt)} · ${clockFormatter.format(entry.occurredAt)}` : `${entry.dateId || 'Date unavailable'} · Time not recorded`}</dd></div>
+          <div><dt>Source sent</dt><dd>{entry.sourceSentAt ? `${shortDateFormatter.format(entry.sourceSentAt)} · ${clockFormatter.format(entry.sourceSentAt)}` : 'Not supplied'}</dd></div>
+          <div><dt>Received by Time Left</dt><dd>{entry.receivedAt ? `${shortDateFormatter.format(entry.receivedAt)} · ${clockFormatter.format(entry.receivedAt)}` : 'Not supplied'}</dd></div>
+          <div><dt>Location</dt><dd>{entry.location || 'Not supplied'}</dd></div>
+        </dl>
+        <div className="cycle-journal-body">{entry.note ? entry.note.split(/\r?\n/).map((paragraph, index) => <p key={`${entry.id}-paragraph-${index}`}>{paragraph || '\u00a0'}</p>) : <p>Note text was not supplied.</p>}</div>
+        {entry.media.length > 0 && <PhotoCollection calendarId={calendarId} compact photos={entry.media} title={`Photos attached to ${entry.title}`} />}
+        <details className="cycle-inline-technical">
+          <summary>Troubleshooting details</summary>
+          <p>Canonical Life event {entry.lifeEventId}. Source application {entry.sourceApp || 'not supplied'}. Authorized scope {entry.projectId || 'not supplied'}.</p>
+        </details>
+      </div>
+    </details>
+  );
+}
+
+function PhotoGallery({ calendarId, dateId, error, loading, media }) {
+  const photos = useMemo(() => groupPhotosByDate(media).find((group) => group.dateId === dateId)?.photos || [], [dateId, media]);
+  if (loading) return <section className="cycle-photo-gallery"><LoadingState label="Finding photos from this day…" /></section>;
+  if (error) return <section className="cycle-photo-gallery"><header><div><p className="cycle-eyebrow">Photos from this day</p><h2>Gallery unavailable</h2></div></header><p className="activity-state">Photos remain protected because the authorized resolver could not be reached.</p></section>;
+  if (!photos.length) return <section className="cycle-photo-gallery cycle-photo-empty"><header><div><p className="cycle-eyebrow">Photos from this day</p><h2>No photos recorded</h2></div></header><p>No authorized image was attached to this day.</p></section>;
+  return (
+    <section className="cycle-photo-gallery">
+      <header><div><p className="cycle-eyebrow">Photos from this day</p><h2>{photos.length} {photos.length === 1 ? 'photo' : 'photos'}</h2></div><span>Private gallery</span></header>
+      <PhotoCollection calendarId={calendarId} photos={photos} title="Photos from this day" />
+    </section>
+  );
+}
+
+function useAuthorizedPhoto(calendarId, media, enabled = true) {
+  const [state, setState] = useState({ status: enabled ? 'loading' : 'idle', url: '', message: '' });
+  useEffect(() => {
+    if (!enabled) {
+      setState({ status: 'idle', url: '', message: '' });
+      return undefined;
+    }
+    const controller = new AbortController();
+    let objectUrl = '';
+    setState({ status: 'loading', url: '', message: '' });
+    loadAuthorizedActivityImage(calendarId, media, controller.signal)
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        setState({ status: 'ready', url: objectUrl, message: '' });
+      })
+      .catch((error) => {
+        if (error.name === 'AbortError') return;
+        const message = error.status === 403
+          ? 'Permission denied'
+          : error.status === 404
+            ? 'Photo unavailable'
+            : 'Could not load photo';
+        setState({ status: 'error', url: '', message });
+      });
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [calendarId, enabled, media]);
+  return state;
+}
+
+function PhotoCollection({ calendarId, compact = false, photos, title }) {
+  const [selectedIndex, setSelectedIndex] = useState(null);
+  const selected = selectedIndex === null ? null : photos[selectedIndex];
+  useEffect(() => {
+    if (!selected) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setSelectedIndex(null);
+      if (event.key === 'ArrowLeft') setSelectedIndex((current) => (current + photos.length - 1) % photos.length);
+      if (event.key === 'ArrowRight') setSelectedIndex((current) => (current + 1) % photos.length);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [photos.length, selected]);
+  return (
+    <div className={`cycle-photo-collection ${compact ? 'compact' : ''}`}>
+      <div className="cycle-photo-grid" aria-label={title}>
+        {photos.map((photo, index) => <PhotoThumbnail calendarId={calendarId} key={photo.id} media={photo} onOpen={() => setSelectedIndex(index)} />)}
+      </div>
+      {selected && <PhotoLightbox calendarId={calendarId} index={selectedIndex} media={selected} onClose={() => setSelectedIndex(null)} onMove={(amount) => setSelectedIndex((selectedIndex + amount + photos.length) % photos.length)} total={photos.length} />}
+    </div>
+  );
+}
+
+function PhotoThumbnail({ calendarId, media, onOpen }) {
+  const containerRef = useRef(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') {
+      setVisible(true);
+      return undefined;
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setVisible(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: '160px' });
+    if (containerRef.current) observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+  const photo = useAuthorizedPhoto(calendarId, media, visible);
+  return (
+    <article className="cycle-photo-thumb" ref={containerRef}>
+      {photo.status === 'ready' ? (
+        <button type="button" onClick={onOpen} aria-label={`Open ${media.caption || media.title || 'photo'}`}>
+          <img alt={media.caption || media.title || 'Journal photo'} loading="lazy" src={photo.url} />
+        </button>
+      ) : <div className={`cycle-photo-placeholder ${photo.status}`} role={photo.status === 'error' ? 'alert' : 'status'}>{photo.status === 'error' ? photo.message : 'Loading photo…'}</div>}
+      <div><strong>{media.caption || media.title || 'Photo'}</strong><small>{media.createdAt ? `${shortDateFormatter.format(new Date(media.createdAt))} · ${clockFormatter.format(new Date(media.createdAt))}` : 'Time not recorded'}{media.location ? ` · ${media.location}` : ''}</small></div>
+    </article>
+  );
+}
+
+function PhotoLightbox({ calendarId, index, media, onClose, onMove, total }) {
+  const photo = useAuthorizedPhoto(calendarId, media, true);
+  const closeRef = useRef(null);
+  useEffect(() => {
+    closeRef.current?.focus();
+  }, []);
+  return (
+    <div className="cycle-photo-lightbox" role="dialog" aria-modal="true" aria-label="Photo preview">
+      <button className="cycle-lightbox-close" ref={closeRef} type="button" onClick={onClose} aria-label="Close photo preview">×</button>
+      {total > 1 && <button className="cycle-lightbox-previous" type="button" onClick={() => onMove(-1)} aria-label="Previous photo">‹</button>}
+      <div className="cycle-lightbox-content">
+        {photo.status === 'ready' ? <img alt={media.caption || media.title || 'Journal photo'} src={photo.url} /> : <div className="cycle-photo-placeholder">{photo.status === 'error' ? photo.message : 'Loading full-size photo…'}</div>}
+        <div><strong>{media.caption || media.title || 'Photo'}</strong><p>{media.associationTitle ? `Attached to ${media.associationTitle}` : 'Standalone photo'}</p><small>{media.createdAt ? `${shortDateFormatter.format(new Date(media.createdAt))} · ${clockFormatter.format(new Date(media.createdAt))}` : 'Time not recorded'}{media.location ? ` · ${media.location}` : ''} · {index + 1} of {total}</small></div>
+      </div>
+      {total > 1 && <button className="cycle-lightbox-next" type="button" onClick={() => onMove(1)} aria-label="Next photo">›</button>}
+    </div>
   );
 }
 

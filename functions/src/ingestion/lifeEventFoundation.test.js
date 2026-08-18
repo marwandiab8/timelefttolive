@@ -402,6 +402,45 @@ test("legacy date-only records stay on the intended Toronto day", () => {
   assert.equal(event.startAt.toISOString(), "2026-08-11T04:00:00.000Z");
 });
 
+test("legacy journal mapping preserves sanitized note and media metadata with the real source instant", () => {
+  const event = mapLegacyToLifeEvent({
+    sourceApp: "gridlineai",
+    sourceFirebaseProjectId: "gridlineai",
+    sourceProjectId: "home",
+    sourceDocumentPath: "logEntries/journal-1",
+    category: "journalEntry",
+    title: "Journal Entry",
+    summary: "Morning notes\nA second paragraph.",
+    description: "Morning notes\nA second paragraph.",
+    dateId: "2026-08-18",
+    originalCreatedAt: "2026-08-18T12:42:00.000Z",
+    timezone: "America/Toronto",
+    metadata: {
+      linkedMediaIds: ["projects/home/media/2026-08-18/message/photo.jpg"],
+      authorization: "must-not-be-stored"
+    }
+  }, {
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    timeLeftUserId: "owner-1",
+    connection: {
+      sourceApp: "gridlineai",
+      sourceFirebaseProjectId: "gridlineai",
+      sourceProjectIds: ["home"],
+      permissions: { eventClasses: ["project"] }
+    }
+  });
+  assert.equal(event.eventType, "journal");
+  assert.equal(event.categoryId, "journal");
+  assert.equal(event.title, "Morning notes");
+  assert.equal(event.occurredAt.toISOString(), "2026-08-18T12:42:00.000Z");
+  assert.equal(event.startAt, null);
+  assert.equal(event.metadata.journal.text, "Morning notes\nA second paragraph.");
+  assert.deepEqual(event.metadata.journal.linkedMediaIds, ["projects/home/media/2026-08-18/message/photo.jpg"]);
+  assert.equal(Object.hasOwn(event.metadata, "authorization"), false);
+});
+
 test("canonical normalization rejects an invalid supplied timezone", () => {
   assert.throws(() => normalizeLifeEventRecord({
     schemaVersion: 1,
