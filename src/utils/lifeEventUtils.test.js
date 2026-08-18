@@ -1,19 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import {
   APP_TIMEZONE,
+  buildCategoryAnalysis,
   buildActivitySessions,
+  buildActivityEntries,
   buildActivityTallies,
   buildComparison,
   buildPeriodAnalysis,
+  buildPointCategoryAnalysis,
+  buildWorkAttendance,
+  buildWorkoutRecords,
   filterLifeEventsByRange,
   formatDuration,
   getActivityTallyRange,
   getDateIdInTimezone,
+  getLocationLabel,
+  getMeaningfulEventDetails,
   getPeriodBounds,
   getTallyActivityLabel,
+  groupMoments,
   isPointEvent,
   shiftPeriodDate,
-  toJsDate
+  selectActivityPreviewEntries,
+  toJsDate,
+  toggleActivitySelection
 } from './lifeEventUtils.js';
 
 describe('activity analysis utilities', () => {
@@ -27,30 +37,77 @@ describe('activity analysis utilities', () => {
     expect(getPeriodBounds('day', '2026-01-15').start.toISOString()).toBe('2026-01-15T05:00:00.000Z');
     expect(getPeriodBounds('day', '2026-08-11').start.toISOString()).toBe('2026-08-11T04:00:00.000Z');
     expect(getPeriodBounds('day', '2026-03-08').start.toISOString()).toBe('2026-03-08T05:00:00.000Z');
+    expect(getPeriodBounds('day', '2026-03-08').end.toISOString()).toBe('2026-03-09T04:00:00.000Z');
     expect(getPeriodBounds('day', '2026-11-01').start.toISOString()).toBe('2026-11-01T04:00:00.000Z');
+    expect(getPeriodBounds('day', '2026-11-01').end.toISOString()).toBe('2026-11-02T05:00:00.000Z');
     expect(getDateIdInTimezone(new Date('2026-08-12T03:59:59Z'))).toBe('2026-08-11');
   });
 
-  it('creates Monday week, month, and year periods', () => {
-    const week = getPeriodBounds('week', '2026-08-12');
-    expect(week.startDateId).toBe('2026-08-10');
-    expect(week.endDateId).toBe('2026-08-16');
-    expect(getPeriodBounds('month', '2026-08-12').startDateId).toBe('2026-08-01');
-    expect(getPeriodBounds('year', '2026-08-12').startDateId).toBe('2026-01-01');
+  it('creates Day, Monday Week, Month, and Year periods and navigates each', () => {
+    expect(getPeriodBounds('day', '2026-08-12')).toMatchObject({ startDateId: '2026-08-12', endDateId: '2026-08-12' });
+    expect(getPeriodBounds('week', '2026-08-12')).toMatchObject({ startDateId: '2026-08-10', endDateId: '2026-08-16' });
+    expect(getPeriodBounds('month', '2026-08-12')).toMatchObject({ startDateId: '2026-08-01', endDateId: '2026-08-31' });
+    expect(getPeriodBounds('year', '2026-08-12')).toMatchObject({ startDateId: '2026-01-01', endDateId: '2026-12-31' });
+    expect(shiftPeriodDate('2026-08-12', 'day', -1)).toBe('2026-08-11');
     expect(shiftPeriodDate('2026-08-12', 'week', -1)).toBe('2026-08-03');
+    expect(shiftPeriodDate('2026-08-12', 'month', 1)).toBe('2026-09-01');
+    expect(shiftPeriodDate('2026-08-12', 'year', -1)).toBe('2025-01-01');
     expect(APP_TIMEZONE).toBe('America/Toronto');
   });
 
-  it('pairs boundaries by activity and location and preserves incomplete starts', () => {
+  it('pairs boundaries by activity and location and preserves unrelated starts', () => {
     const bounds = getPeriodBounds('day', '2026-08-11');
     const sessions = buildActivitySessions([
       { id: 'arrive', eventType: 'arrive_gym', activityFamily: 'gym', occurredAt: '2026-08-11T13:00:00Z', location: { label: 'Gym A' } },
       { id: 'unrelated', eventType: 'leave_gym', activityFamily: 'gym', occurredAt: '2026-08-11T13:30:00Z', location: { label: 'Gym B' } },
-      { id: 'leave', eventType: 'leave_gym', activityFamily: 'gym', occurredAt: '2026-08-11T14:30:00Z', location: { label: 'Gym A' } },
-      { id: 'active', eventType: 'start_work', activityFamily: 'work', occurredAt: '2026-08-11T15:00:00Z' }
+      { id: 'leave', eventType: 'leave_gym', activityFamily: 'gym', occurredAt: '2026-08-11T14:30:00Z', location: { label: 'Gym A' } }
     ], bounds);
     expect(sessions.some((session) => session.kind === 'paired' && session.durationSeconds === 5400)).toBe(true);
-    expect(sessions.some((session) => session.kind === 'active' && session.category === 'Work')).toBe(true);
+  });
+
+  it.each([
+    ['Work', 'start_work', 'work'],
+    ['Gym/Fitness', 'arrive_gym', 'gym'],
+    ['Home', 'arrive_home', 'home']
+  ])('includes an active %s session through the current Toronto time', (category, eventType, activityFamily) => {
+    const bounds = getPeriodBounds('day', '2026-08-17');
+    const analysis = buildPeriodAnalysis([
+      { id: `active-${activityFamily}`, eventType, activityFamily, occurredAt: '2026-08-17T10:57:00Z' }
+    ], bounds, { includeActive: true, now: new Date('2026-08-17T16:00:00Z') });
+    expect(analysis.activeCount).toBe(1);
+    expect(analysis.moments).toHaveLength(0);
+    expect(analysis.categories[0]).toMatchObject({ label: category, seconds: 18180 });
+    expect(analysis.timedSeconds).toBe(18180);
+    expect(analysis.sessions[0]).toMatchObject({ kind: 'active', active: true, durationSeconds: 18180 });
+  });
+
+  it('keeps a historical unmatched start incomplete without inventing duration', () => {
+    const bounds = getPeriodBounds('day', '2026-08-11');
+    const analysis = buildPeriodAnalysis([
+      { id: 'old-start', eventType: 'start_work', activityFamily: 'work', occurredAt: '2026-08-11T10:57:00Z' }
+    ], bounds, { includeActive: true, now: new Date('2026-08-17T16:00:00Z') });
+    expect(analysis.timedSeconds).toBe(0);
+    expect(analysis.activeCount).toBe(0);
+    expect(analysis.incompleteCount).toBe(1);
+    expect(analysis.sessions[0]).toMatchObject({ kind: 'incomplete', endAt: null, durationSeconds: null });
+  });
+
+  it('keeps only the latest valid unmatched boundary active and treats Spotify starts as moments', () => {
+    const bounds = getPeriodBounds('day', '2026-08-17');
+    const analysis = buildPeriodAnalysis([
+      { id: 'work-old', eventType: 'arrive_work', activityFamily: 'work', occurredAt: '2026-08-17T09:00:00Z' },
+      { id: 'work-current', eventType: 'arrive_work', activityFamily: 'work', occurredAt: '2026-08-17T10:57:00Z' },
+      { id: 'track-1', eventType: 'start_spotify', activityFamily: 'spotify', occurredAt: '2026-08-17T11:00:00Z' },
+      { id: 'track-2', eventType: 'start_spotify', activityFamily: 'spotify', occurredAt: '2026-08-17T11:04:00Z' }
+    ], bounds, { includeActive: true, now: new Date('2026-08-17T16:00:00Z') });
+    expect(analysis.activeCount).toBe(1);
+    expect(analysis.incompleteCount).toBe(1);
+    expect(analysis.categories).toHaveLength(1);
+    expect(analysis.categories[0]).toMatchObject({ label: 'Work', seconds: 18180 });
+    expect(analysis.moments).toHaveLength(2);
+    expect(analysis.momentGroups).toHaveLength(2);
+    expect(analysis.momentGroups.every((group) => group.category === 'Music' && group.count === 1)).toBe(true);
+    expect(analysis.pointCategories[0]).toMatchObject({ label: 'Spotify', count: 2, seconds: 0 });
   });
 
   it('clips sessions crossing midnight to the selected period', () => {
@@ -60,17 +117,17 @@ describe('activity analysis utilities', () => {
     expect(sessions[0].durationSeconds).toBe(10800);
   });
 
-  it('excludes moments and prevents nested gym/workout double counting', () => {
+  it('excludes point events and prevents nested gym/workout double counting', () => {
     const events = [
       { id: 'gym', activityFamily: 'gym', startAt: '2026-08-11T12:00:00Z', endAt: '2026-08-11T14:00:00Z' },
-      { id: 'workout', activityFamily: 'workout', startAt: '2026-08-11T12:30:00Z', endAt: '2026-08-11T13:30:00Z' },
+      { id: 'workout', activityFamily: 'workout', startAt: '2026-08-11T12:30:00Z', endAt: '2026-08-11T13:30:00Z', title: 'Chest workout' },
       { id: 'journal', eventType: 'journal', occurredAt: '2026-08-11T15:00:00Z' }
     ];
     expect(isPointEvent(events[2])).toBe(true);
     const analysis = buildPeriodAnalysis(events, getPeriodBounds('day', '2026-08-11'));
     expect(analysis.moments).toHaveLength(1);
     expect(analysis.timedSeconds).toBe(7200);
-    expect(analysis.categories[0].label).toBe('Gym');
+    expect(analysis.categories[0].label).toBe('Gym/Fitness');
     expect(analysis.categories[0].nestedSessions).toHaveLength(1);
   });
 
@@ -79,26 +136,243 @@ describe('activity analysis utilities', () => {
     expect(buildActivitySessions([event, event], getPeriodBounds('day', '2026-08-11'))).toHaveLength(1);
   });
 
-  it('normalizes tally categories while retaining future categories', () => {
-    expect(getTallyActivityLabel({ eventType: 'completed_workout' })).toBe('Gym');
-    expect(getTallyActivityLabel({ eventType: 'arrive_work' })).toBe('Work');
-    expect(getTallyActivityLabel({ activityFamily: 'spotify' })).toBe('Music');
-    expect(getTallyActivityLabel({ activityFamily: 'reading' })).toBe('Reading');
+  it.each([
+    ['Projectreport', 'Work Reports'],
+    ['Progressrecord', 'Work Reports'],
+    ['Darterrecord', 'Work Reports'],
+    ['Constructionreport', 'Work Reports'],
+    ['Image', 'Attachments'],
+    ['File', 'Attachments'],
+    ['DartsRecord', 'Achievements'],
+    ['journal_entry', 'Notes'],
+    ['43.7412,-79.7624', 'Places']
+  ])('normalizes raw %s records to %s', (raw, expected) => {
+    expect(getTallyActivityLabel({ activityFamily: raw })).toBe(expected);
   });
 
-  it('builds all-time tallies from the shared overlap-safe sessionization', () => {
+  it('normalizes aliases and case variants while retaining future meaningful categories', () => {
+    expect(getTallyActivityLabel({ eventType: 'COMPLETED_WORKOUT' })).toBe('Gym/Fitness');
+    expect(getTallyActivityLabel({ eventType: 'arrive_work' })).toBe('Work');
+    expect(getTallyActivityLabel({ activityFamily: 'SPOTIFY' })).toBe('Music');
+    expect(getTallyActivityLabel({ activityFamily: 'gym_visit', location: { label: 'GoodLife Fitness Orangeville' } })).toBe('Gym/Fitness');
+    expect(getTallyActivityLabel({ activityFamily: 'reading' })).toBe('Reading');
+    expect(getLocationLabel({ location: { label: '43.7412,-79.7624' } })).toBe('');
+    expect(getLocationLabel({ location: { label: 'work' } })).toBe('');
+  });
+
+  it('keeps coordinates, attachments, and reports out of primary all-time totals', () => {
     const tallies = buildActivityTallies([
-      { id: 'work', activityFamily: 'work', startAt: '2026-08-10T13:00:00Z', endAt: '2026-08-10T21:00:00Z', sourceApp: 'gridlineai' },
-      { id: 'gym', activityFamily: 'gym', startAt: '2026-08-11T12:00:00Z', endAt: '2026-08-11T14:00:00Z', sourceApp: 'gridlineai' },
-      { id: 'workout', activityFamily: 'workout', startAt: '2026-08-11T12:30:00Z', endAt: '2026-08-11T13:30:00Z', sourceApp: 'gym' },
-      { id: 'journal', eventType: 'journal', occurredAt: '2026-08-11T15:00:00Z', sourceApp: 'gridlineai' }
+      { id: 'work', activityFamily: 'work', startAt: '2026-08-10T13:00:00Z', endAt: '2026-08-10T21:00:00Z' },
+      { id: 'coordinate', activityFamily: '43.7412,-79.7624', occurredAt: '2026-08-10T14:00:00Z' },
+      { id: 'report', activityFamily: 'Projectreport', occurredAt: '2026-08-10T15:00:00Z' },
+      { id: 'image', activityFamily: 'Image', occurredAt: '2026-08-10T16:00:00Z' }
+    ]);
+    expect(tallies.map((tally) => tally.label)).toEqual(['Work']);
+    expect(tallies[0]).toMatchObject({ totalSeconds: 28800, dayCount: 1, sessionCount: 1 });
+  });
+
+  it('builds normalized all-time tallies from overlap-safe sessionization', () => {
+    const tallies = buildActivityTallies([
+      { id: 'work', activityFamily: 'work', startAt: '2026-08-10T13:00:00Z', endAt: '2026-08-10T21:00:00Z' },
+      { id: 'gym', activityFamily: 'gym', startAt: '2026-08-11T12:00:00Z', endAt: '2026-08-11T14:00:00Z' },
+      { id: 'workout', activityFamily: 'workout', startAt: '2026-08-11T12:30:00Z', endAt: '2026-08-11T13:30:00Z' },
+      { id: 'journal', eventType: 'journal', occurredAt: '2026-08-11T15:00:00Z' }
     ]);
     expect(tallies.find((tally) => tally.label === 'Work')).toMatchObject({ totalSeconds: 28800, dayCount: 1, sessionCount: 1 });
-    expect(tallies.find((tally) => tally.label === 'Gym')).toMatchObject({ totalSeconds: 7200, dayCount: 1, sessionCount: 1 });
-    expect(tallies.find((tally) => tally.label === 'Journal')).toMatchObject({ totalSeconds: 0, eventCount: 1 });
+    expect(tallies.find((tally) => tally.label === 'Gym/Fitness')).toMatchObject({ totalSeconds: 7200, dayCount: 1, sessionCount: 1 });
+    expect(tallies.some((tally) => tally.label === 'Notes')).toBe(false);
   });
 
-  it('filters seven-day, thirty-day, yearly, and all-time tally ranges', () => {
+  it('prefers one richer canonical workout over an overlapping generic boundary session', () => {
+    const bounds = getPeriodBounds('day', '2026-08-11');
+    const analysis = buildPeriodAnalysis([
+      { id: 'gym', activityFamily: 'gym', startAt: '2026-08-11T09:04:00Z', endAt: '2026-08-11T10:29:00Z' },
+      { id: 'start-workout', eventType: 'start_workout', activityFamily: 'workout', occurredAt: '2026-08-11T09:08:00Z', location: { label: 'Orangeville' } },
+      { id: 'finish-workout', eventType: 'finish_workout', activityFamily: 'workout', occurredAt: '2026-08-11T10:10:00Z', location: { label: 'Orangeville' } },
+      { id: 'chest', activityFamily: 'workout', title: 'Chest', startAt: '2026-08-11T09:10:00Z', endAt: '2026-08-11T10:09:00Z', metadata: { exerciseSummaries: [{ name: 'redacted' }] } }
+    ], bounds);
+    const category = analysis.categories.find((item) => item.label === 'Gym/Fitness');
+    const categoryAnalysis = buildCategoryAnalysis(category, analysis, buildPeriodAnalysis([], bounds), bounds);
+    expect(categoryAnalysis.workoutCount).toBe(1);
+    expect(categoryAnalysis.workouts[0].title).toBe('Chest Workout');
+    expect(categoryAnalysis.sessions.map((session) => session.title)).toEqual(['Gym visit at Orangeville']);
+    expect(categoryAnalysis.locations).toEqual([{ label: 'Orangeville', seconds: 5100, visits: 1 }]);
+  });
+
+  it('compares a category with the previous period and a recent active-period normal', () => {
+    const currentBounds = getPeriodBounds('week', '2026-08-17');
+    const previousBounds = getPeriodBounds('week', '2026-08-10');
+    const olderBounds = getPeriodBounds('week', '2026-08-03');
+    const event = (id, startAt, hours) => ({ id, activityFamily: 'work', startAt, endAt: new Date(new Date(startAt).getTime() + (hours * 3600 * 1000)).toISOString() });
+    const current = buildPeriodAnalysis([event('current', '2026-08-17T13:00:00Z', 8)], currentBounds);
+    const previous = buildPeriodAnalysis([event('previous', '2026-08-10T13:00:00Z', 7)], previousBounds);
+    const older = buildPeriodAnalysis([event('older', '2026-08-03T13:00:00Z', 9)], olderBounds);
+    const category = current.categories.find((item) => item.label === 'Work');
+    expect(buildCategoryAnalysis(category, current, previous, currentBounds, [previous, older])).toMatchObject({
+      totalSeconds: 28800,
+      previousSeconds: 25200,
+      deltaSeconds: 3600,
+      recentAverageSeconds: 28800,
+      recentPeriodCount: 2
+    });
+  });
+
+  it('groups only genuine duplicate journals and keeps distinct occurrences separate', () => {
+    const groups = groupMoments([
+      { id: 'journal-copy-a', sourceApp: 'gridlineai', sourceRecordId: 'same-journal', eventType: 'journal', title: 'Journal Entry', occurredAt: '2026-08-11T13:00:00Z' },
+      { id: 'journal-copy-b', sourceApp: 'gridlineai', sourceRecordId: 'same-journal', eventType: 'journal', title: 'Journal Entry', occurredAt: '2026-08-11T13:00:00Z' },
+      { id: 'journal-distinct', sourceApp: 'gridlineai', sourceRecordId: 'another-journal', eventType: 'journal', title: 'Journal Entry', occurredAt: '2026-08-11T13:10:00Z' }
+    ]);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toMatchObject({ category: 'Notes', pointCategory: 'Journal', title: 'Journal entry', count: 2 });
+    expect(groups[1]).toMatchObject({ count: 1 });
+  });
+
+  it('keeps Spotify visible and selectable without inventing listening time', () => {
+    const bounds = getPeriodBounds('day', '2026-08-17');
+    const analysis = buildPeriodAnalysis([
+      { id: 'spotify-1', sourceRecordId: 'play-1', eventType: 'start_spotify', activityFamily: 'spotify', title: 'Started listening to Spotify', occurredAt: '2026-08-17T08:04:00Z' },
+      { id: 'spotify-2', sourceRecordId: 'play-2', eventType: 'start_spotify', activityFamily: 'spotify', title: 'Started listening to Spotify', occurredAt: '2026-08-17T08:22:00Z' },
+      { id: 'spotify-3', sourceRecordId: 'play-3', eventType: 'start_spotify', activityFamily: 'spotify', title: 'Started listening to Spotify', occurredAt: '2026-08-17T10:33:00Z' }
+    ], bounds);
+    const spotify = analysis.pointCategories.find((category) => category.label === 'Spotify');
+    const focused = buildPointCategoryAnalysis(spotify);
+    expect(analysis.categories).toHaveLength(0);
+    expect(analysis.timedSeconds).toBe(0);
+    expect(analysis.activityEntries).toHaveLength(3);
+    expect(focused).toMatchObject({ count: 3, totalSeconds: 0, reliableDuration: false });
+    expect(focused.entries.map((entry) => entry.firstAt.toISOString())).toEqual([
+      '2026-08-17T10:33:00.000Z',
+      '2026-08-17T08:22:00.000Z',
+      '2026-08-17T08:04:00.000Z'
+    ]);
+  });
+
+  it('keeps every meaningful category represented in the concise activity preview', () => {
+    const entries = [
+      ...Array.from({ length: 9 }, (_, index) => ({ id: `journal-${index}`, pointCategory: 'Journal' })),
+      { id: 'spotify', pointCategory: 'Spotify' },
+      { id: 'spotify-2', pointCategory: 'Spotify' },
+      { id: 'work', pointCategory: 'Work' }
+    ];
+    const preview = selectActivityPreviewEntries(entries, 8);
+    expect(preview).toHaveLength(4);
+    expect(preview.map((entry) => entry.pointCategory)).toEqual(expect.arrayContaining(['Journal', 'Spotify', 'Work']));
+    expect(preview.filter((entry) => entry.pointCategory === 'Journal')).toHaveLength(1);
+    expect(preview.filter((entry) => entry.pointCategory === 'Spotify')).toHaveLength(2);
+  });
+
+  it('exposes real Spotify track, artist, album, playlist, and source-sent details when supplied', () => {
+    const event = {
+      id: 'spotify-rich',
+      sourceApp: 'music-source',
+      eventType: 'start_spotify',
+      activityFamily: 'spotify',
+      occurredAt: '2026-08-17T08:04:00Z',
+      metadata: {
+        trackName: 'A real track',
+        artistName: 'A real artist',
+        albumName: 'A real album',
+        playlistName: 'Morning mix',
+        sentAtIso: '2026-08-17T08:04:02Z'
+      }
+    };
+    expect(getMeaningfulEventDetails(event)).toMatchObject({
+      track: 'A real track', artist: 'A real artist', album: 'A real album', playlist: 'Morning mix'
+    });
+    const [entry] = buildActivityEntries([event]);
+    expect(entry.sentAt.toISOString()).toBe('2026-08-17T08:04:02.000Z');
+  });
+
+  it('correlates a rich Gym-K2 workout by workout ID and renders one detailed workout record', () => {
+    const bounds = getPeriodBounds('day', '2026-08-17');
+    const events = [
+      { id: 'gym-in', eventType: 'arrive_gym', activityFamily: 'gym', occurredAt: '2026-08-17T09:10:00Z', location: { label: 'GoodLife Fitness Orangeville' } },
+      { id: 'workout-in', eventType: 'start_workout', activityFamily: 'workout', occurredAt: '2026-08-17T09:19:00Z', location: { label: 'GoodLife Fitness Orangeville' }, metadata: { workoutId: 'workout-123' } },
+      { id: 'legs', sourceApp: 'GYM-K2', eventType: 'workout', eventClass: 'completed_activity', activityFamily: 'workout', title: 'legs', startAt: '2026-08-17T09:20:00Z', occurredAt: '2026-08-17T04:00:00Z', metadata: {
+        workoutId: 'workout-123', routineName: 'legs', exerciseCount: 1, allSetCount: 2,
+        exerciseSummaries: [{ exerciseId: 'squat', name: 'Hack Squats', sets: [{ weight: '180', reps: '10', rpe: '8' }, { weight: '200', reps: '8', rpe: '9' }] }]
+      } },
+      { id: 'workout-out', eventType: 'finish_workout', activityFamily: 'workout', occurredAt: '2026-08-17T10:28:00Z', location: { label: 'GoodLife Fitness Orangeville' }, metadata: { workoutId: 'workout-123' } },
+      { id: 'gym-out', eventType: 'leave_gym', activityFamily: 'gym', occurredAt: '2026-08-17T10:31:00Z', location: { label: 'GoodLife Fitness Orangeville' } }
+    ];
+    const analysis = buildPeriodAnalysis(events, bounds);
+    const workouts = buildWorkoutRecords(analysis.events, analysis.sessions, APP_TIMEZONE);
+    expect(workouts).toHaveLength(1);
+    expect(workouts[0]).toMatchObject({
+      identity: 'workout-123', title: 'Legs Workout', durationSeconds: 4140,
+      exerciseCount: 1, setCount: 2, location: 'GoodLife Fitness Orangeville'
+    });
+    expect(workouts[0].exercises[0]).toMatchObject({
+      name: 'Hack Squats',
+      sets: [
+        { number: 1, weight: '180', reps: '10', rpe: '8' },
+        { number: 2, weight: '200', reps: '8', rpe: '9' }
+      ]
+    });
+    const category = analysis.categories.find((item) => item.label === 'Gym/Fitness');
+    const focused = buildCategoryAnalysis(category, analysis, buildPeriodAnalysis([], bounds), bounds);
+    expect(focused).toMatchObject({ sessionCount: 1, workoutCount: 1, totalSeconds: 4860, totalWorkoutSeconds: 4140 });
+  });
+
+  it('builds explicit completed and active Work attendance from canonical boundaries', () => {
+    const completedBounds = getPeriodBounds('day', '2026-08-16');
+    const completed = buildPeriodAnalysis([
+      { id: 'arrive', eventType: 'arrive_work', activityFamily: 'work', occurredAt: '2026-08-16T11:02:00Z', location: { label: 'Docksteader' }, metadata: { sentAtIso: '2026-08-16T11:02:03Z' }, receivedAt: '2026-08-16T11:02:04Z' },
+      { id: 'leave', eventType: 'leave_work', activityFamily: 'work', occurredAt: '2026-08-16T20:18:00Z', location: { label: 'Docksteader' }, metadata: { sentAtIso: '2026-08-16T20:18:03Z' }, receivedAt: '2026-08-16T20:18:04Z' }
+    ], completedBounds);
+    const completedRows = buildWorkAttendance(completed.sessions);
+    expect(completedRows[0]).toMatchObject({ status: 'Completed', totalSeconds: 33360, location: 'Docksteader' });
+    expect(completedRows[0].arrivedAt.toISOString()).toBe('2026-08-16T11:02:00.000Z');
+    expect(completedRows[0].leftAt.toISOString()).toBe('2026-08-16T20:18:00.000Z');
+    expect(completedRows[0].arrivalSentAt.toISOString()).toBe('2026-08-16T11:02:03.000Z');
+
+    const activeBounds = getPeriodBounds('day', '2026-08-17');
+    const active = buildPeriodAnalysis([
+      { id: 'arrive-active', eventType: 'arrive_work', activityFamily: 'work', occurredAt: '2026-08-17T10:57:00Z' }
+    ], activeBounds, { includeActive: true, now: new Date('2026-08-17T18:28:00Z') });
+    expect(buildWorkAttendance(active.sessions)[0]).toMatchObject({ status: 'In progress', leftAt: null, totalSeconds: 27060 });
+  });
+
+  it('labels missing Work arrivals and departures without fabricating a boundary', () => {
+    const bounds = getPeriodBounds('day', '2026-08-11');
+    const missingDeparture = buildPeriodAnalysis([
+      { id: 'arrive-only', eventType: 'arrive_work', activityFamily: 'work', occurredAt: '2026-08-11T11:00:00Z' }
+    ], bounds, { includeActive: false });
+    expect(buildWorkAttendance(missingDeparture.sessions)[0]).toMatchObject({ status: 'Incomplete', missingBoundary: 'end', leftAt: null, totalSeconds: null });
+    const missingArrival = buildPeriodAnalysis([
+      { id: 'leave-only', eventType: 'leave_work', activityFamily: 'work', occurredAt: '2026-08-11T20:00:00Z' }
+    ], bounds, { includeActive: false });
+    expect(buildWorkAttendance(missingArrival.sessions)[0]).toMatchObject({ status: 'Incomplete', missingBoundary: 'start', arrivedAt: null, totalSeconds: null });
+    expect(buildWorkAttendance(missingArrival.sessions)[0].leftAt.toISOString()).toBe('2026-08-11T20:00:00.000Z');
+  });
+
+  it.each(['week', 'month', 'year'])('keeps Work attendance history available in %s analysis', (period) => {
+    const bounds = getPeriodBounds(period, '2026-08-17');
+    const analysis = buildPeriodAnalysis([
+      { id: `${period}-arrive-1`, eventType: 'arrive_work', activityFamily: 'work', occurredAt: '2026-08-17T11:00:00Z' },
+      { id: `${period}-leave-1`, eventType: 'leave_work', activityFamily: 'work', occurredAt: '2026-08-17T19:00:00Z' },
+      { id: `${period}-arrive-2`, eventType: 'arrive_work', activityFamily: 'work', occurredAt: '2026-08-18T11:15:00Z' },
+      { id: `${period}-leave-2`, eventType: 'leave_work', activityFamily: 'work', occurredAt: '2026-08-18T20:00:00Z' }
+    ], bounds);
+    const category = analysis.sessionCategories.find((item) => item.label === 'Work');
+    expect(buildCategoryAnalysis(category, analysis, buildPeriodAnalysis([], bounds), bounds).attendance).toHaveLength(2);
+  });
+
+  it('exposes timed and point categories together without putting moments into duration totals', () => {
+    const bounds = getPeriodBounds('day', '2026-08-17');
+    const analysis = buildPeriodAnalysis([
+      { id: 'work', activityFamily: 'work', startAt: '2026-08-17T11:00:00Z', endAt: '2026-08-17T19:00:00Z' },
+      { id: 'spotify', eventType: 'start_spotify', activityFamily: 'spotify', occurredAt: '2026-08-17T20:00:00Z' },
+      { id: 'journal', eventType: 'journal_entry', activityFamily: 'journal', occurredAt: '2026-08-17T21:00:00Z', metadata: { note: 'A useful reflection' } }
+    ], bounds);
+    expect(analysis.sessionCategories.map((category) => category.label)).toContain('Work');
+    expect(analysis.pointCategories.map((category) => category.label)).toEqual(expect.arrayContaining(['Spotify', 'Journal']));
+    expect(analysis.activityEntries.map((entry) => entry.pointCategory)).toEqual(expect.arrayContaining(['Spotify', 'Journal']));
+    expect(analysis.timedSeconds).toBe(28800);
+  });
+
+  it('filters seven-day, yearly, and all-time tally ranges', () => {
     const now = new Date('2026-08-17T16:00:00Z');
     const events = [
       { id: 'old', occurredAt: '2025-01-01T12:00:00Z' },
@@ -110,12 +384,18 @@ describe('activity analysis utilities', () => {
     expect(filterLifeEventsByRange(events, getActivityTallyRange('all', now))).toHaveLength(3);
   });
 
-  it('formats comparisons and safe empty states', () => {
+  it('builds comparisons and safe empty/partial states', () => {
     expect(formatDuration(2713)).toBe('45m');
     expect(buildComparison(
       { timedSeconds: 3600, events: [{}] },
       { timedSeconds: 1800, events: [{}] }
     )).toMatchObject({ deltaSeconds: 1800, hasPrevious: true });
-    expect(buildPeriodAnalysis([], getPeriodBounds('day', '2026-08-11')).timedSeconds).toBe(0);
+    expect(buildPeriodAnalysis([], getPeriodBounds('day', '2026-08-11'))).toMatchObject({ timedSeconds: 0, activeCount: 0, incompleteCount: 0 });
+  });
+
+  it('toggles and clears donut selection deterministically', () => {
+    expect(toggleActivitySelection(null, 'Work')).toBe('Work');
+    expect(toggleActivitySelection('Work', 'Gym/Fitness')).toBe('Gym/Fitness');
+    expect(toggleActivitySelection('Gym/Fitness', 'Gym/Fitness')).toBeNull();
   });
 });

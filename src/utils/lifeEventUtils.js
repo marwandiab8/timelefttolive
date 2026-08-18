@@ -1,9 +1,35 @@
-const ACTIVITY_COLORS = [
-  '#4f8cff', '#58c6a6', '#f2b84b', '#a979e8',
-  '#ef7d6c', '#50b8d8', '#db75a6', '#8cad55'
-];
-
 export const APP_TIMEZONE = 'America/Toronto';
+
+// Allocation hierarchy, highest first: Sleep, Work, Gym/Fitness,
+// Transportation, Meals, Reading, Home, Music, Places, then Other.
+// A parent gym visit therefore owns its minutes while nested workouts remain
+// available in the drill-down without increasing total tracked time.
+const CATEGORY_DEFINITIONS = {
+  Work: { color: '#4f8cff', icon: '💼', priority: 90 },
+  'Gym/Fitness': { color: '#f47c61', icon: '🏋', priority: 80 },
+  Sleep: { color: '#8178e8', icon: '☾', priority: 100 },
+  Home: { color: '#58c6a6', icon: '⌂', priority: 40 },
+  Transportation: { color: '#f2b84b', icon: '◉', priority: 70 },
+  Music: { color: '#db75a6', icon: '♫', priority: 30 },
+  Meals: { color: '#ef996c', icon: '◒', priority: 60 },
+  Places: { color: '#50b8d8', icon: '⌖', priority: 20 },
+  Reading: { color: '#8cad55', icon: '▤', priority: 50 },
+  Other: { color: '#8b98a1', icon: '•', priority: 10 }
+};
+
+const POINT_CATEGORY_DEFINITIONS = {
+  Spotify: { color: CATEGORY_DEFINITIONS.Music.color, icon: '♫' },
+  Journal: { color: '#9a88d4', icon: '✎' },
+  'Work Reports': { color: CATEGORY_DEFINITIONS.Work.color, icon: '▤' },
+  Achievements: { color: '#efb84e', icon: '★' },
+  Moments: { color: '#8b98a1', icon: '•' }
+};
+
+const MOMENT_CATEGORIES = new Set(['Notes', 'Work Reports', 'Attachments', 'Achievements', 'Moments']);
+const ACTIVE_SESSION_CATEGORIES = new Set(['Work', 'Gym/Fitness', 'Sleep', 'Home', 'Transportation', 'Meals', 'Reading']);
+const GENERIC_TITLES = /^(life event|journal entry|work session|home session|gym session|location session|activity|event|report|file|image)$/i;
+const COORDINATE_VALUE = /^\s*-?\d{1,3}(?:\.\d+)?\s*[,/]\s*-?\d{1,3}(?:\.\d+)?\s*$/;
+const HIDDEN_POINT_CATEGORIES = new Set(['Attachments']);
 
 export function toJsDate(value) {
   if (!value) return null;
@@ -93,7 +119,6 @@ export function getPeriodBounds(period = 'day', dateId = getLocalDateId(), timeZ
   else if (period === 'month') next.month += 1;
   else next.day += period === 'week' ? 7 : 1;
   const end = zonedDateTimeToDate(next, timeZone);
-
   return {
     period,
     timezone: timeZone,
@@ -155,22 +180,136 @@ export function getDeliveryLatencySeconds(event) {
   return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
 }
 
+function cleanToken(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+}
+
+function humanize(value) {
+  return String(value || '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+export function getLocationLabel(event) {
+  const candidates = [
+    event?.location?.label,
+    event?.metadata?.locationName,
+    event?.metadata?.placeName,
+    event?.metadata?.destinationName,
+    event?.metrics?.locationName
+  ];
+  const label = candidates.find((candidate) => (
+    typeof candidate === 'string'
+    && candidate.trim()
+    && !COORDINATE_VALUE.test(candidate)
+    && !/^(?:work|home|gym|fitness|location|place)$/i.test(candidate.trim())
+  ));
+  return label ? label.trim() : '';
+}
+
 export function getActivityLabel(event) {
   const raw = event?.activityFamily || event?.categoryId || event?.eventClass || event?.eventType || 'Other';
-  return String(raw).replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return humanize(raw);
 }
 
 export function getTallyActivityLabel(event) {
-  const eventType = String(event?.eventType || '').trim().toLowerCase();
-  const boundary = /^(?:arrive|leave|start|finish|stop)[_-](.+)$/.exec(eventType);
-  const token = String(boundary?.[1] || event?.activityFamily || event?.categoryId || getActivityLabel(event))
-    .trim().toLowerCase().replace(/[\s-]+/g, '_');
-  if (token.includes('workout') || token === 'gym' || eventType.includes('workout')) return 'Gym';
-  if (token === 'work' || token === 'workplace' || /(?:^|_)work(?:_|$)/.test(eventType)) return 'Work';
-  if (token === 'home' || /(?:^|_)home(?:_|$)/.test(eventType)) return 'Home';
-  if (token.includes('spotify') || token.includes('music') || token.includes('listening')) return 'Music';
-  if (token === 'location') return event?.location?.label || 'Location';
-  return token.replace(/_+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const eventType = cleanToken(event?.eventType);
+  const boundary = /^(?:arrive|leave|start|finish|stop)_(.+)$/.exec(eventType);
+  const raw = boundary?.[1] || event?.activityFamily || event?.categoryId || event?.eventClass || eventType;
+  const token = cleanToken(raw);
+  const titleToken = cleanToken(event?.title);
+  const locationToken = cleanToken(getLocationLabel(event));
+  const combined = `${token}_${eventType}_${titleToken}`;
+
+  if (/(project_?report|construction_?report|progress_?record|darter_?record|work_?report)/.test(combined)) return 'Work Reports';
+  if (/(journal|note|memo|reflection)/.test(combined)) return 'Notes';
+  if (/(image|file|attachment|media|photo|picture)/.test(combined)) return 'Attachments';
+  if (/(achievement|milestone|personal_?best|darts?_?record|darter_?record)/.test(combined)) return 'Achievements';
+  if (/(workout|gym|fitness)/.test(combined) || /(goodlife|fitness|gym)/.test(locationToken)) return 'Gym/Fitness';
+  if (/(sleep|bedtime|asleep|wake|wakeup)/.test(combined)) return 'Sleep';
+  if (/(drive|driving|transport|travel|commute|trip|vehicle|car)/.test(combined)) return 'Transportation';
+  if (/(spotify|music|listen|track|album|playlist)/.test(combined)) return 'Music';
+  if (/(meal|food|breakfast|lunch|dinner|snack)/.test(combined)) return 'Meals';
+  if (/(home|house)/.test(combined)) return 'Home';
+  if (/(work|office|workplace|job|shift)/.test(combined)) return 'Work';
+  if (/(read|book)/.test(combined)) return 'Reading';
+  if (COORDINATE_VALUE.test(String(raw || '')) || /(coordinate|latitude|longitude|gps|location|place)/.test(combined)) return 'Places';
+  if (!token || /(system|project|completed_?activity|activity_?boundary|other)/.test(token)) return 'Moments';
+  return humanize(token);
+}
+
+export function getCategoryDefinition(label) {
+  return CATEGORY_DEFINITIONS[label] || { ...CATEGORY_DEFINITIONS.Other, label };
+}
+
+export function getPointCategoryDefinition(label) {
+  return POINT_CATEGORY_DEFINITIONS[label] || { ...POINT_CATEGORY_DEFINITIONS.Moments, label };
+}
+
+function firstMeaningfulString(...values) {
+  return values.find((value) => (
+    typeof value === 'string'
+    && value.trim()
+    && !COORDINATE_VALUE.test(value)
+  ))?.trim() || '';
+}
+
+export function getPointCategoryLabel(event) {
+  const category = getTallyActivityLabel(event);
+  if (category === 'Music') return 'Spotify';
+  if (category === 'Notes') return 'Journal';
+  if (category === 'Work Reports') return 'Work Reports';
+  if (category === 'Achievements') return 'Achievements';
+  if (category === 'Attachments') return 'Attachments';
+  if (['Work', 'Gym/Fitness', 'Sleep', 'Home', 'Transportation', 'Meals', 'Places', 'Reading'].includes(category)) return category;
+  return 'Moments';
+}
+
+export function getMeaningfulEventDetails(event) {
+  const metadata = event?.metadata || {};
+  const payload = metadata.payload || event?.payload || {};
+  const track = firstMeaningfulString(metadata.trackName, metadata.track, metadata.songName, metadata.song, payload.trackName, payload.track);
+  const artist = firstMeaningfulString(metadata.artistName, metadata.artist, payload.artistName, payload.artist);
+  const album = firstMeaningfulString(metadata.albumName, metadata.album, payload.albumName, payload.album);
+  const playlist = firstMeaningfulString(metadata.playlistName, metadata.playlist, payload.playlistName, payload.playlist);
+  const note = firstMeaningfulString(metadata.note, metadata.notes, metadata.summary, metadata.text, metadata.message, event?.description);
+  return { track, artist, album, playlist, note, location: getLocationLabel(event) };
+}
+
+export function getEventDisplayTitle(event) {
+  const eventType = cleanToken(event?.eventType);
+  const location = getLocationLabel(event);
+  const details = getMeaningfulEventDetails(event);
+  const exact = {
+    arrive_work: 'Arrived at Work',
+    leave_work: 'Left Work',
+    arrive_gym: location ? `Arrived at ${location}` : 'Arrived at Gym',
+    leave_gym: location ? `Left ${location}` : 'Left Gym',
+    arrive_home: 'Arrived Home',
+    leave_home: 'Left Home',
+    start_workout: 'Started Workout',
+    finish_workout: 'Finished Workout',
+    stop_workout: 'Finished Workout',
+    start_spotify: details.track ? `Played ${details.track}` : 'Started listening to Spotify'
+  };
+  if (exact[eventType]) return exact[eventType];
+  const rawTitle = String(event?.title || '').trim();
+  if (rawTitle && !GENERIC_TITLES.test(rawTitle) && !COORDINATE_VALUE.test(rawTitle)) return rawTitle;
+  if (details.note) return details.note.slice(0, 160);
+  const category = getPointCategoryLabel(event);
+  if (category === 'Journal') return 'Journal entry';
+  if (category === 'Work Reports') return 'Work report';
+  return category === 'Moments' ? 'Life moment' : category;
+}
+
+function meaningfulPointEvent(event) {
+  const label = getPointCategoryLabel(event);
+  if (HIDDEN_POINT_CATEGORIES.has(label)) return false;
+  const raw = `${cleanToken(event?.eventType)} ${cleanToken(event?.activityFamily)} ${cleanToken(event?.title)}`;
+  if (/coordinate|latitude|longitude|gps/.test(raw) || COORDINATE_VALUE.test(String(event?.title || ''))) return false;
+  return Boolean(getEventTime(event));
+}
+
+export function isPrimaryActivityCategory(label) {
+  return Boolean(label) && !MOMENT_CATEGORIES.has(label);
 }
 
 export function sortLifeEvents(events) {
@@ -182,11 +321,15 @@ export function sortLifeEvents(events) {
 
 export function isPointEvent(event) {
   const duration = getEventDurationSeconds(event);
-  return !getEventEndTime(event) && !(Number.isFinite(duration) && duration > 0);
+  return !boundaryDescriptor(event) && !getEventEndTime(event) && !(Number.isFinite(duration) && duration > 0);
+}
+
+export function toggleActivitySelection(currentLabel, nextLabel) {
+  return currentLabel === nextLabel ? null : nextLabel;
 }
 
 function boundaryDescriptor(event) {
-  const eventType = String(event?.eventType || '').toLowerCase();
+  const eventType = cleanToken(event?.eventType);
   let phase = '';
   let activity = '';
   if (/^(arrive|start)_/.test(eventType)) {
@@ -197,59 +340,96 @@ function boundaryDescriptor(event) {
     activity = eventType.replace(/^(leave|finish|stop)_/, '');
   }
   if (!phase) return null;
-  const family = String(event?.activityFamily || activity).trim().toLowerCase();
-  const location = String(event?.location?.placeId || event?.location?.label || '').trim().toLowerCase();
-  const subject = String(event?.sourceUserId || event?.timeLeftUserId || '').trim().toLowerCase();
-  return { phase, key: `${subject}|${family}|${location}` };
+  const category = getTallyActivityLabel(event);
+  // Shortcut Spotify events describe track occurrences. Without a supplied
+  // duration they remain Moments rather than open-ended listening sessions.
+  if (category === 'Music') return null;
+  const location = cleanToken(getLocationLabel(event) || event?.location?.placeId);
+  const subject = cleanToken(event?.sourceUserId || event?.timeLeftUserId);
+  return { phase, category, key: `${subject}|${category}|${location}`, rawActivity: activity };
 }
 
-function intervalForEvent(event, bounds) {
+function clippedInterval(start, end, bounds) {
+  if (!start || !end || end <= start) return null;
+  if (!bounds) return { startAt: start, endAt: end, durationSeconds: (end - start) / 1000 };
+  const clippedStart = new Date(Math.max(start.getTime(), bounds.start.getTime()));
+  const clippedEnd = new Date(Math.min(end.getTime(), bounds.end.getTime()));
+  return clippedEnd > clippedStart
+    ? { startAt: clippedStart, endAt: clippedEnd, durationSeconds: (clippedEnd - clippedStart) / 1000 }
+    : null;
+}
+
+function reportedInterval(event, bounds) {
   const start = getEventTime(event);
-  if (!start) return null;
   const explicitEnd = getEventEndTime(event);
   const duration = getEventDurationSeconds(event);
-  const finish = explicitEnd || (Number.isFinite(duration) && duration > 0
+  const end = explicitEnd || (start && Number.isFinite(duration) && duration > 0
     ? new Date(start.getTime() + (duration * 1000))
     : null);
-  if (!finish || finish <= start) return null;
-  if (!bounds) {
-    return { startAt: start, endAt: finish, durationSeconds: (finish.getTime() - start.getTime()) / 1000 };
-  }
-  const clippedStart = new Date(Math.max(start.getTime(), bounds.start.getTime()));
-  const clippedEnd = new Date(Math.min(finish.getTime(), bounds.end.getTime()));
-  if (clippedEnd <= clippedStart) return null;
+  return clippedInterval(start, end, bounds);
+}
+
+function makeSession(event, interval, extra = {}) {
+  const category = getTallyActivityLabel(event);
   return {
-    startAt: clippedStart,
-    endAt: clippedEnd,
-    durationSeconds: (clippedEnd.getTime() - clippedStart.getTime()) / 1000
+    event,
+    sourceApp: event?.sourceApp || '',
+    timezone: event?.timezone || APP_TIMEZONE,
+    category,
+    rawCategory: getActivityLabel(event),
+    location: getLocationLabel(event),
+    ...interval,
+    ...extra
   };
 }
 
-export function buildActivitySessions(events, bounds = null) {
+export function getSessionDisplayName(session) {
+  const event = session?.event || {};
+  const location = session?.location || getLocationLabel(event);
+  const sourceTitle = String(event.title || '').trim();
+  const usefulTitle = sourceTitle && !GENERIC_TITLES.test(sourceTitle) && !COORDINATE_VALUE.test(sourceTitle)
+    ? sourceTitle
+    : '';
+  const raw = cleanToken(session?.rawCategory || event.activityFamily || event.eventType);
+  if (session?.category === 'Work') return location ? `Work at ${location}` : 'Work';
+  if (session?.category === 'Gym/Fitness') {
+    if (/workout/.test(raw) || /workout/.test(cleanToken(event.eventType))) return usefulTitle || 'Workout';
+    return location ? `Gym visit at ${location}` : 'Gym visit';
+  }
+  if (session?.category === 'Sleep') return location ? `Sleep at ${location}` : 'Sleep';
+  if (session?.category === 'Home') return location && !/^home$/i.test(location) ? `Home at ${location}` : 'Home';
+  if (session?.category === 'Transportation') {
+    const destination = event?.metadata?.destinationName || event?.metadata?.destination || '';
+    return destination ? `Drive to ${destination}` : usefulTitle || 'Travel';
+  }
+  if (session?.category === 'Music') return usefulTitle || 'Listening';
+  if (session?.category === 'Places') return location ? `Visit to ${location}` : 'Place visit';
+  return usefulTitle || session?.category || 'Activity';
+}
+
+export function buildActivitySessions(events, bounds = null, options = {}) {
   const safeEvents = sortLifeEvents(events);
   const sessions = [];
   const seen = new Set();
   const openBoundaries = new Map();
+  const unmatchedEnds = [];
+  const now = toJsDate(options.now) || new Date();
 
   safeEvents.forEach((event) => {
-    const interval = intervalForEvent(event, bounds);
+    const interval = reportedInterval(event, bounds);
     if (interval) {
       const identity = event.id || `${interval.startAt.toISOString()}|${interval.endAt.toISOString()}|${getTallyActivityLabel(event)}`;
       if (!seen.has(identity)) {
         seen.add(identity);
-        sessions.push({
+        const session = makeSession(event, interval, {
           id: `timed-${identity}`,
-          event,
-          title: event.title || getTallyActivityLabel(event),
-          sourceApp: event.sourceApp || '',
-          timezone: event.timezone || APP_TIMEZONE,
-          category: getTallyActivityLabel(event),
-          rawCategory: getActivityLabel(event),
-          activityLabel: getTallyActivityLabel(event),
-          ...interval,
           kind: 'reported',
-          active: false
+          active: false,
+          startEvent: event,
+          endEvent: getEventEndTime(event) ? event : null
         });
+        session.title = getSessionDisplayName(session);
+        sessions.push(session);
       }
     }
 
@@ -266,60 +446,98 @@ export function buildActivitySessions(events, bounds = null) {
     const starts = openBoundaries.get(descriptor.key) || [];
     const start = starts.pop();
     openBoundaries.set(descriptor.key, starts);
-    if (!start || eventTime <= start.eventTime) return;
+    if (!start || eventTime <= start.eventTime) {
+      unmatchedEnds.push({ event, eventTime, descriptor });
+      return;
+    }
     const identity = `${start.event.id || start.eventTime.getTime()}|${event.id || eventTime.getTime()}`;
     if (seen.has(identity)) return;
-    seen.add(identity);
-    const raw = {
-      id: `paired-${identity}`,
-      event: start.event,
-      title: `${getTallyActivityLabel(start.event)} session`,
-      sourceApp: start.event.sourceApp || event.sourceApp || '',
-      timezone: start.event.timezone || event.timezone || APP_TIMEZONE,
-      category: getTallyActivityLabel(start.event),
-      rawCategory: getActivityLabel(start.event),
-      activityLabel: getTallyActivityLabel(start.event),
-      startAt: start.eventTime,
-      endAt: eventTime,
-      kind: 'paired',
-      active: false
-    };
-    const clipped = intervalForEvent(raw, bounds);
-    if (!clipped) return;
+    const pairedInterval = clippedInterval(start.eventTime, eventTime, bounds);
+    if (!pairedInterval) return;
     const duplicate = sessions.some((session) => (
-      session.category === raw.category
-      && session.startAt.getTime() === clipped.startAt.getTime()
-      && session.endAt.getTime() === clipped.endAt.getTime()
+      session.category === descriptor.category
+      && session.startAt.getTime() === pairedInterval.startAt.getTime()
+      && session.endAt.getTime() === pairedInterval.endAt.getTime()
     ));
-    if (!duplicate) sessions.push({ ...raw, ...clipped });
+    if (duplicate) return;
+    seen.add(identity);
+    const session = makeSession(start.event, pairedInterval, {
+      id: `paired-${identity}`,
+      kind: 'paired',
+      active: false,
+      startEvent: start.event,
+      endEvent: event
+    });
+    session.title = getSessionDisplayName(session);
+    sessions.push(session);
   });
 
-  openBoundaries.forEach((starts) => starts.forEach(({ event, eventTime }) => {
-    if (bounds && (eventTime >= bounds.end || eventTime < new Date(bounds.start.getTime() - (36 * 3600 * 1000)))) return;
-    sessions.push({
-      id: `active-${event.id || eventTime.getTime()}`,
-      event,
-      title: event.title || `${getTallyActivityLabel(event)} in progress`,
-      sourceApp: event.sourceApp || '',
-      timezone: event.timezone || APP_TIMEZONE,
-      category: getTallyActivityLabel(event),
-      rawCategory: getActivityLabel(event),
-      activityLabel: getTallyActivityLabel(event),
+  const unresolvedStarts = [...openBoundaries.values()].flat();
+  const latestActiveByCategory = new Map();
+  unresolvedStarts.forEach((candidate) => {
+    const category = getTallyActivityLabel(candidate.event);
+    const eligible = options.includeActive === true
+      && ACTIVE_SESSION_CATEGORIES.has(category)
+      && candidate.eventTime < now
+      && (now.getTime() - candidate.eventTime.getTime()) <= (36 * 3600 * 1000)
+      && (!bounds || (now >= bounds.start && now < bounds.end));
+    if (!eligible) return;
+    const current = latestActiveByCategory.get(category);
+    if (!current || candidate.eventTime > current.eventTime) latestActiveByCategory.set(category, candidate);
+  });
+
+  unresolvedStarts.forEach(({ event, eventTime }) => {
+    const category = getTallyActivityLabel(event);
+    const live = latestActiveByCategory.get(category)?.event === event;
+    if (bounds && !live && (eventTime >= bounds.end || eventTime < bounds.start)) return;
+    const interval = live ? clippedInterval(eventTime, now, bounds) : null;
+    const session = makeSession(event, interval || {
       startAt: eventTime,
       endAt: null,
-      durationSeconds: null,
-      kind: 'active',
-      active: true
+      durationSeconds: null
+    }, {
+      id: `${live ? 'active' : 'incomplete'}-${event.id || eventTime.getTime()}`,
+      kind: live ? 'active' : 'incomplete',
+      active: live,
+      missingBoundary: live ? null : 'end',
+      startEvent: event,
+      endEvent: null
     });
-  }));
+    session.title = getSessionDisplayName(session);
+    sessions.push(session);
+  });
+
+  unmatchedEnds.forEach(({ event, eventTime }) => {
+    if (bounds && (eventTime < bounds.start || eventTime >= bounds.end)) return;
+    const session = makeSession(event, {
+      startAt: eventTime,
+      endAt: null,
+      durationSeconds: null
+    }, {
+      id: `incomplete-end-${event.id || eventTime.getTime()}`,
+      kind: 'incomplete',
+      active: false,
+      missingBoundary: 'start',
+      startEvent: null,
+      endEvent: event
+    });
+    session.title = getSessionDisplayName(session);
+    sessions.push(session);
+  });
 
   return sessions.sort((left, right) => left.startAt - right.startAt);
+}
+
+function allocationPriority(session) {
+  const category = getCategoryDefinition(session.category);
+  const duration = session.endAt ? session.endAt - session.startAt : 0;
+  return (category.priority * 1e12) + duration;
 }
 
 function allocateIntervals(sessions) {
   const complete = [...sessions]
     .filter((session) => session.endAt)
-    .sort((left, right) => left.startAt - right.startAt || right.endAt - left.endAt);
+    .sort((left, right) => allocationPriority(right) - allocationPriority(left) || left.startAt - right.startAt);
   const accepted = [];
   complete.forEach((session) => {
     let fragments = [{ start: session.startAt.getTime(), end: session.endAt.getTime() }];
@@ -339,12 +557,112 @@ function allocateIntervals(sessions) {
     const allocatedSeconds = fragments.reduce((sum, part) => sum + ((part.end - part.start) / 1000), 0);
     if (allocatedSeconds > 0) accepted.push({ ...session, allocatedSeconds, fragments });
   });
-  return accepted;
+  return accepted.sort((left, right) => left.startAt - right.startAt);
 }
 
-export function buildPeriodAnalysis(events, bounds = null) {
+export function groupMoments(events, timeZone = APP_TIMEZONE) {
+  const groups = new Map();
+  sortLifeEvents(events).forEach((event) => {
+    const category = getTallyActivityLabel(event);
+    const pointCategory = getPointCategoryLabel(event);
+    const title = getEventDisplayTitle(event).slice(0, 160);
+    const at = getEventTime(event);
+    const dateId = at ? getDateIdInTimezone(at, timeZone) : 'unknown';
+    const sourceIdentity = event?.sourceRecordId || event?.sourceEventId || event?.metadata?.sourceDocumentId;
+    // Only collapse records that share a stable upstream identity. When no
+    // identity is supplied, exact time remains part of the key so separate
+    // Spotify plays or journals are never merged just because titles match.
+    const identity = sourceIdentity
+      ? `${cleanToken(event?.sourceApp)}|${String(sourceIdentity)}`
+      : `${event?.id || ''}|${at?.toISOString() || 'unknown'}`;
+    const key = `${pointCategory}|${identity}|${cleanToken(title)}|${dateId}`;
+    const group = groups.get(key) || {
+      id: key,
+      category,
+      pointCategory,
+      title,
+      icon: getPointCategoryDefinition(pointCategory).icon,
+      count: 0,
+      events: [],
+      firstAt: at,
+      lastAt: at,
+      details: getMeaningfulEventDetails(event)
+    };
+    group.count += 1;
+    group.events.push(event);
+    if (at && (!group.firstAt || at < group.firstAt)) group.firstAt = at;
+    if (at && (!group.lastAt || at > group.lastAt)) group.lastAt = at;
+    groups.set(key, group);
+  });
+  return [...groups.values()].sort((left, right) => (left.firstAt?.getTime() || 0) - (right.firstAt?.getTime() || 0));
+}
+
+export function buildActivityEntries(events, timeZone = APP_TIMEZONE) {
+  return groupMoments((Array.isArray(events) ? events : []).filter(meaningfulPointEvent), timeZone)
+    .map((group) => ({
+      ...group,
+      event: group.events[0],
+      sentAt: getEventSentTime(group.events[0]),
+      receivedAt: getEventReceivedTime(group.events[0])
+    }))
+    .sort((left, right) => (right.firstAt?.getTime() || 0) - (left.firstAt?.getTime() || 0));
+}
+
+export function selectActivityPreviewEntries(entries, limit = 8) {
+  const safeEntries = Array.isArray(entries) ? entries : [];
+  if (safeEntries.length <= limit) return [...safeEntries];
+  const chosen = [];
+  const chosenIds = new Set();
+  const seenCategories = new Set();
+  const seenTitles = new Set();
+  const remember = (entry) => {
+    chosen.push(entry);
+    chosenIds.add(entry.id);
+    seenCategories.add(entry.pointCategory);
+    seenTitles.add(`${entry.pointCategory}|${cleanToken(entry.title)}`);
+  };
+  safeEntries.forEach((entry) => {
+    if (chosen.length >= limit || seenCategories.has(entry.pointCategory)) return;
+    remember(entry);
+  });
+  safeEntries.forEach((entry) => {
+    if (chosen.length >= limit || chosenIds.has(entry.id)) return;
+    const titleKey = `${entry.pointCategory}|${cleanToken(entry.title)}`;
+    if (entry.pointCategory !== 'Spotify' && seenTitles.has(titleKey)) return;
+    remember(entry);
+  });
+  const order = new Map(safeEntries.map((entry, index) => [entry.id, index]));
+  return chosen.sort((left, right) => (order.get(left.id) || 0) - (order.get(right.id) || 0));
+}
+
+function buildPointCategories(events, timeZone) {
+  const groups = new Map();
+  buildActivityEntries(events.filter(isPointEvent), timeZone).forEach((entry) => {
+    if (HIDDEN_POINT_CATEGORIES.has(entry.pointCategory)) return;
+    const definition = getPointCategoryDefinition(entry.pointCategory);
+    const group = groups.get(entry.pointCategory) || {
+      label: entry.pointCategory,
+      color: definition.color,
+      icon: definition.icon,
+      count: 0,
+      events: [],
+      entries: [],
+      seconds: 0,
+      point: true
+    };
+    group.count += entry.count;
+    group.events.push(...entry.events);
+    group.entries.push(entry);
+    const duration = getEventDurationSeconds(entry.event);
+    if (Number.isFinite(duration) && duration > 0) group.seconds += duration;
+    groups.set(entry.pointCategory, group);
+  });
+  return [...groups.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+}
+
+export function buildPeriodAnalysis(events, bounds = null, options = {}) {
   const source = Array.isArray(events) ? events : [];
-  const sessions = buildActivitySessions(source, bounds);
+  const sessions = buildActivitySessions(source, bounds, options);
   const allocatedSessions = allocateIntervals(sessions);
   const periodEvents = source.filter((event) => {
     if (!bounds) return true;
@@ -355,20 +673,37 @@ export function buildPeriodAnalysis(events, bounds = null) {
   const moments = periodEvents.filter(isPointEvent);
   const groups = new Map();
 
-  allocatedSessions.forEach((session) => {
-    const label = session.category;
-    const group = groups.get(label) || {
-      label,
+  sessions.filter((session) => isPrimaryActivityCategory(session.category)).forEach((session) => {
+    const definition = getCategoryDefinition(session.category);
+    const group = groups.get(session.category) || {
+      label: session.category,
+      color: definition.color,
+      icon: definition.icon,
       seconds: 0,
       sessions: [],
-      nestedSessions: [],
-      color: ACTIVITY_COLORS[groups.size % ACTIVITY_COLORS.length]
+      allSessions: [],
+      nestedSessions: []
+    };
+    if (!group.allSessions.some((candidate) => candidate.id === session.id)) group.allSessions.push(session);
+    groups.set(session.category, group);
+  });
+
+  allocatedSessions.forEach((session) => {
+    if (!isPrimaryActivityCategory(session.category)) return;
+    const definition = getCategoryDefinition(session.category);
+    const group = groups.get(session.category) || {
+      label: session.category,
+      color: definition.color,
+      icon: definition.icon,
+      seconds: 0,
+      sessions: [],
+      allSessions: [],
+      nestedSessions: []
     };
     group.seconds += session.allocatedSeconds;
     group.sessions.push(session);
-    groups.set(label, group);
+    groups.set(session.category, group);
   });
-
   sessions.filter((session) => session.endAt).forEach((nested) => {
     const parent = sessions.find((candidate) => (
       candidate !== nested
@@ -377,37 +712,370 @@ export function buildPeriodAnalysis(events, bounds = null) {
       && candidate.startAt <= nested.startAt
       && candidate.endAt >= nested.endAt
     ));
-    const parentGroup = parent && groups.get(parent.category);
-    if (parentGroup && !parentGroup.nestedSessions.some((session) => session.id === nested.id)) {
-      parentGroup.nestedSessions.push(nested);
-    }
+    const group = parent && groups.get(parent.category);
+    if (group && !group.nestedSessions.some((candidate) => candidate.id === nested.id)) group.nestedSessions.push(nested);
   });
 
-  const categories = [...groups.values()].sort((left, right) => (
-    right.seconds - left.seconds || left.label.localeCompare(right.label)
-  ));
+  const sessionCategories = [...groups.values()].sort((left, right) => right.seconds - left.seconds || left.label.localeCompare(right.label));
+  const categories = sessionCategories.filter((category) => category.seconds > 0);
   const timedSeconds = categories.reduce((sum, category) => sum + category.seconds, 0);
+  const timezone = bounds?.timezone || APP_TIMEZONE;
+  const pointCategories = buildPointCategories(moments, timezone);
   return {
     events: sortLifeEvents(periodEvents),
     sessions,
     allocatedSessions,
     moments: sortLifeEvents(moments),
+    momentGroups: groupMoments(moments, timezone),
+    activityEntries: buildActivityEntries(periodEvents, timezone),
     categories,
+    sessionCategories,
+    pointCategories,
     timedSeconds,
-    incompleteCount: sessions.filter((session) => session.kind === 'active').length,
+    activeCount: sessions.filter((session) => session.kind === 'active').length,
+    incompleteCount: sessions.filter((session) => session.kind === 'incomplete').length,
     coveredDays: new Set(allocatedSessions.map((session) => (
       getDateIdInTimezone(session.startAt, bounds?.timezone || session.timezone || APP_TIMEZONE)
     ))).size
   };
 }
 
+function workoutDetailScore(session) {
+  const title = cleanToken(session?.title);
+  const metadata = session?.event?.metadata || {};
+  let score = session?.kind === 'reported' ? 4 : 0;
+  if (title && !/^(?:workout|started_?workout|workout_?started)$/.test(title)) score += 8;
+  if (metadata.routineName || metadata.focus) score += 4;
+  if (Array.isArray(metadata.exerciseSummaries) && metadata.exerciseSummaries.length) score += 6;
+  return score;
+}
+
+function workoutsDescribeSameSession(left, right) {
+  if (!left.endAt || !right.endAt) return false;
+  const overlap = Math.max(0, Math.min(left.endAt, right.endAt) - Math.max(left.startAt, right.startAt));
+  const shorter = Math.min(left.endAt - left.startAt, right.endAt - right.startAt);
+  return shorter > 0 && (overlap / shorter) >= 0.8;
+}
+
+function deduplicateNestedWorkouts(workouts) {
+  const chosen = [];
+  [...workouts]
+    .sort((left, right) => workoutDetailScore(right) - workoutDetailScore(left) || left.startAt - right.startAt)
+    .forEach((workout) => {
+      if (!chosen.some((candidate) => workoutsDescribeSameSession(candidate, workout))) chosen.push(workout);
+    });
+  return chosen
+    .map((workout) => {
+      if (workout.location) return workout;
+      const related = workouts.find((candidate) => candidate.location && workoutsDescribeSameSession(candidate, workout));
+      return related ? { ...workout, location: related.location } : workout;
+    })
+    .sort((left, right) => left.startAt - right.startAt);
+}
+
+function isWorkoutEvent(event) {
+  return getTallyActivityLabel(event) === 'Gym/Fitness'
+    && /workout/.test(`${cleanToken(event?.activityFamily)} ${cleanToken(event?.eventType)} ${cleanToken(event?.title)} ${cleanToken(event?.metadata?.routineName)}`);
+}
+
+function workoutStableIdentity(event) {
+  const metadata = event?.metadata || {};
+  return firstMeaningfulString(
+    metadata.workoutId,
+    metadata.parentWorkoutId,
+    event?.sourceEventId,
+    event?.sourceRecordId,
+    metadata.sourceDocumentId
+  );
+}
+
+function normalizeWorkoutExercises(event) {
+  const metadata = event?.metadata || {};
+  const exercises = Array.isArray(metadata.exerciseSummaries) ? metadata.exerciseSummaries : [];
+  return exercises.map((exercise, exerciseIndex) => ({
+    id: exercise.exerciseId || `${event?.id || 'workout'}-exercise-${exerciseIndex}`,
+    name: firstMeaningfulString(exercise.name) || `Exercise ${exerciseIndex + 1}`,
+    bestWeight: exercise.bestWeight ?? exercise.maxWeight ?? null,
+    bestReps: exercise.bestReps ?? exercise.maxReps ?? null,
+    bestVolume: exercise.bestVolume ?? null,
+    sets: (Array.isArray(exercise.sets) ? exercise.sets : []).map((set, setIndex) => ({
+      number: setIndex + 1,
+      weight: set?.weight ?? null,
+      reps: set?.reps ?? null,
+      rpe: set?.rpe ?? null,
+      completed: set?.completed ?? null,
+      skipped: set?.skipped ?? null,
+      bodyweight: set?.bodyweight ?? null,
+      personalRecord: set?.personalRecord ?? set?.isPersonalRecord ?? null,
+      notes: firstMeaningfulString(set?.notes, set?.note)
+    }))
+  }));
+}
+
+function richWorkoutScore(event) {
+  const metadata = event?.metadata || {};
+  let score = 0;
+  if (workoutStableIdentity(event)) score += 4;
+  if (metadata.routineName || (event?.title && !/^started|finished/i.test(event.title))) score += 5;
+  if (Array.isArray(metadata.exerciseSummaries) && metadata.exerciseSummaries.length) score += 20;
+  if (event?.eventClass === 'completed_activity') score += 5;
+  if (/gym-k2/i.test(event?.sourceApp || '')) score += 5;
+  if (getEventEndTime(event)) score += 3;
+  return score;
+}
+
+function sameWorkoutInterval(session, event, timeZone) {
+  if (!session?.endAt) return false;
+  const start = getEventTime(event);
+  const end = getEventEndTime(event);
+  if (!start) return false;
+  if (start >= session.startAt && start <= session.endAt) return true;
+  if (end) {
+    const overlap = Math.max(0, Math.min(session.endAt, end) - Math.max(session.startAt, start));
+    const shorter = Math.min(session.endAt - session.startAt, end - start);
+    if (shorter > 0 && overlap / shorter >= 0.6) return true;
+  }
+  return getDateIdInTimezone(start, timeZone) === getDateIdInTimezone(session.startAt, timeZone)
+    && Math.abs(start - session.startAt) <= 2 * 3600 * 1000;
+}
+
+export function buildWorkoutRecords(events, sessions, timeZone = APP_TIMEZONE) {
+  const workoutEvents = sortLifeEvents(events).filter(isWorkoutEvent);
+  const workoutSessions = sessions.filter((session) => isWorkoutEvent(session.event) && session.endAt);
+  const richEvents = workoutEvents.filter((event) => richWorkoutScore(event) >= 9)
+    .sort((left, right) => richWorkoutScore(right) - richWorkoutScore(left));
+  const usedSessions = new Set();
+  const records = [];
+
+  richEvents.forEach((event) => {
+    const identity = workoutStableIdentity(event);
+    if (identity && records.some((record) => record.identity === identity)) return;
+    const direct = workoutSessions.find((session) => session.event === event || session.event?.id === event.id);
+    const stable = identity && workoutSessions.find((session) => workoutStableIdentity(session.event) === identity);
+    const correlated = workoutSessions.find((session) => !usedSessions.has(session.id) && sameWorkoutInterval(session, event, timeZone));
+    const boundary = direct || stable || correlated || null;
+    const contextualBoundary = [stable, correlated].find((session) => session && session !== direct) || boundary;
+    workoutSessions
+      .filter((session) => session === boundary || sameWorkoutInterval(session, event, timeZone))
+      .forEach((session) => usedSessions.add(session.id));
+    const explicitEnd = getEventEndTime(event);
+    const explicitDuration = getEventDurationSeconds(event);
+    const hasReliableRichInterval = Boolean(explicitEnd) || (Number.isFinite(explicitDuration) && explicitDuration > 0);
+    const startAt = hasReliableRichInterval ? getEventTime(event) : (contextualBoundary?.startAt || boundary?.startAt || getEventTime(event));
+    const endAt = hasReliableRichInterval ? (explicitEnd || new Date(startAt.getTime() + (explicitDuration * 1000))) : (contextualBoundary?.endAt || boundary?.endAt || null);
+    const durationSeconds = startAt && endAt && endAt > startAt ? (endAt - startAt) / 1000 : getEventDurationSeconds(event);
+    const metadata = event.metadata || {};
+    const exercises = normalizeWorkoutExercises(event);
+    const recordedSetCount = exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0);
+    const routineName = firstMeaningfulString(metadata.routineName, event.title, metadata.focus?.[0]) || 'Workout';
+    records.push({
+      id: `workout-${identity || event.id || startAt?.getTime()}`,
+      identity: identity || '',
+      title: /workout$/i.test(routineName) ? routineName : `${humanize(routineName)} Workout`,
+      event,
+      startEvent: contextualBoundary?.startEvent || boundary?.startEvent || (boundary?.kind === 'reported' ? event : null),
+      endEvent: contextualBoundary?.endEvent || boundary?.endEvent || (getEventEndTime(event) ? event : null),
+      startAt,
+      endAt,
+      durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : null,
+      location: getLocationLabel(event) || contextualBoundary?.location || boundary?.location || '',
+      exercises,
+      exerciseCount: Number(metadata.exerciseCount) || exercises.length,
+      setCount: Number(metadata.allSetCount) || recordedSetCount,
+      notes: firstMeaningfulString(metadata.notes, metadata.note),
+      sourceSentAt: getEventSentTime(event),
+      receivedAt: getEventReceivedTime(event),
+      completed: event.eventClass === 'completed_activity' || Boolean(getEventEndTime(event) || boundary?.endAt),
+      hasExplicitSetStatus: exercises.some((exercise) => exercise.sets.some((set) => set.completed !== null || set.skipped !== null)),
+      hasPersonalRecordFlags: exercises.some((exercise) => exercise.sets.some((set) => set.personalRecord !== null))
+    });
+  });
+
+  deduplicateNestedWorkouts(workoutSessions.filter((session) => !usedSessions.has(session.id))).forEach((session) => {
+    records.push({
+      id: `workout-${session.id}`,
+      identity: workoutStableIdentity(session.event),
+      title: /workout$/i.test(session.title || '') ? session.title : `${session.title || 'Workout'} Workout`,
+      event: session.event,
+      startEvent: session.startEvent,
+      endEvent: session.endEvent,
+      startAt: session.startAt,
+      endAt: session.endAt,
+      durationSeconds: session.durationSeconds,
+      location: session.location,
+      exercises: [],
+      exerciseCount: 0,
+      setCount: 0,
+      notes: '',
+      sourceSentAt: getEventSentTime(session.event),
+      receivedAt: getEventReceivedTime(session.event),
+      completed: Boolean(session.endAt),
+      hasExplicitSetStatus: false,
+      hasPersonalRecordFlags: false
+    });
+  });
+
+  return records.sort((left, right) => (left.startAt?.getTime() || 0) - (right.startAt?.getTime() || 0));
+}
+
+export function buildWorkAttendance(sessions, timeZone = APP_TIMEZONE) {
+  const seen = new Set();
+  return sessions
+    .filter((session) => session.category === 'Work')
+    .map((session) => {
+      const arrivalEvent = session.startEvent || (session.missingBoundary === 'start' ? null : session.event);
+      const departureEvent = session.endEvent || null;
+      const arrivedAt = arrivalEvent ? getEventTime(arrivalEvent) : null;
+      const leftAt = departureEvent ? (getEventTime(departureEvent) || getEventEndTime(departureEvent)) : null;
+      const location = session.location || getLocationLabel(arrivalEvent) || getLocationLabel(departureEvent);
+      const status = session.active ? 'In progress' : session.missingBoundary ? 'Incomplete' : session.endAt ? 'Completed' : 'Incomplete';
+      const notes = [arrivalEvent, departureEvent]
+        .map((event) => getMeaningfulEventDetails(event).note)
+        .filter(Boolean);
+      return {
+        id: `attendance-${session.id}`,
+        session,
+        dateId: getDateIdInTimezone(arrivedAt || leftAt || session.startAt, timeZone),
+        title: location ? `Workday at ${location}` : 'Workday',
+        location,
+        arrivedAt,
+        leftAt,
+        totalSeconds: Number.isFinite(session.durationSeconds) ? session.durationSeconds : null,
+        status,
+        missingBoundary: session.missingBoundary || null,
+        arrivalEvent,
+        departureEvent,
+        arrivalSentAt: getEventSentTime(arrivalEvent),
+        departureSentAt: getEventSentTime(departureEvent),
+        arrivalReceivedAt: getEventReceivedTime(arrivalEvent),
+        departureReceivedAt: getEventReceivedTime(departureEvent),
+        notes
+      };
+    })
+    .filter((row) => {
+      const key = `${row.arrivedAt?.toISOString() || 'missing'}|${row.leftAt?.toISOString() || 'missing'}|${row.location}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => (right.arrivedAt || right.leftAt || 0) - (left.arrivedAt || left.leftAt || 0));
+}
+
+export function buildPointCategoryAnalysis(category) {
+  if (!category) return null;
+  return {
+    ...category,
+    totalSeconds: category.seconds,
+    reliableDuration: category.seconds > 0,
+    entries: [...category.entries].sort((left, right) => (right.firstAt?.getTime() || 0) - (left.firstAt?.getTime() || 0))
+  };
+}
+
+export function buildCategoryAnalysis(category, analysis, previousAnalysis, bounds, recentAnalyses = []) {
+  if (!category) return null;
+  const completeSessions = category.allSessions.filter((session) => session.endAt || session.active);
+  const workouts = category.label === 'Gym/Fitness'
+    ? buildWorkoutRecords(analysis.events, analysis.sessions, bounds?.timezone || APP_TIMEZONE)
+    : [];
+  const gymVisits = category.label === 'Gym/Fitness'
+    ? completeSessions.filter((session) => !isWorkoutEvent(session.event))
+      .map((session) => {
+        if (session.location) return session;
+        const nested = workouts.find((workout) => (
+          workout.location
+          && workout.startAt
+          && workout.endAt
+          && workout.startAt >= session.startAt
+          && workout.endAt <= session.endAt
+        ));
+        if (!nested) return session;
+        const enriched = { ...session, location: nested.location };
+        return { ...enriched, title: getSessionDisplayName(enriched) };
+      })
+    : [];
+  const primarySessions = category.label === 'Gym/Fitness' && gymVisits.length ? gymVisits : completeSessions;
+  const sessions = category.label === 'Work'
+    ? [...category.allSessions].sort((left, right) => left.startAt - right.startAt)
+    : primarySessions.sort((left, right) => left.startAt - right.startAt);
+  const attendance = category.label === 'Work'
+    ? buildWorkAttendance(category.allSessions, bounds?.timezone || APP_TIMEZONE)
+    : [];
+  const activeDays = new Set(
+    (category.label === 'Work' ? attendance : primarySessions)
+      .map((item) => item.dateId || getDateIdInTimezone(item.startAt, bounds?.timezone || APP_TIMEZONE))
+      .filter(Boolean)
+  ).size;
+  const durations = primarySessions.map((session) => session.durationSeconds).filter((value) => Number.isFinite(value) && value > 0);
+  const previous = previousAnalysis?.categories?.find((candidate) => candidate.label === category.label);
+  const recentSeconds = recentAnalyses
+    .map((recent) => recent?.categories?.find((candidate) => candidate.label === category.label)?.seconds)
+    .filter((seconds) => Number.isFinite(seconds) && seconds > 0);
+  const locations = new Map();
+  primarySessions.forEach((session) => {
+    if (!session.location) return;
+    const current = locations.get(session.location) || { label: session.location, seconds: 0, visits: 0 };
+    current.seconds += session.durationSeconds || 0;
+    current.visits += 1;
+    locations.set(session.location, current);
+  });
+  const totalWorkoutSeconds = workouts.reduce((sum, workout) => sum + (workout.durationSeconds || 0), 0);
+  const sessionCount = primarySessions.length;
+  return {
+    label: category.label,
+    color: category.color,
+    icon: category.icon,
+    totalSeconds: category.seconds,
+    sessionCount,
+    activeDays,
+    averageSessionSeconds: sessionCount ? category.seconds / sessionCount : 0,
+    averageActiveDaySeconds: activeDays ? category.seconds / activeDays : 0,
+    longestSeconds: durations.length ? Math.max(...durations) : 0,
+    shortestSeconds: durations.length ? Math.min(...durations) : 0,
+    firstStart: sessions[0]?.startAt || null,
+    lastEnd: sessions.at(-1)?.endAt || null,
+    activeSession: sessions.find((session) => session.active) || null,
+    previousSeconds: previous?.seconds || 0,
+    hasPrevious: Boolean(previous),
+    deltaSeconds: category.seconds - (previous?.seconds || 0),
+    recentAverageSeconds: recentSeconds.length >= 2
+      ? recentSeconds.reduce((sum, seconds) => sum + seconds, 0) / recentSeconds.length
+      : 0,
+    recentPeriodCount: recentSeconds.length,
+    locations: [...locations.values()].sort((left, right) => right.seconds - left.seconds),
+    workouts,
+    workoutCount: workouts.filter((workout) => workout.completed).length,
+    totalWorkoutSeconds,
+    attendance,
+    sessions
+  };
+}
+
+export function buildCategoryInsight(categoryAnalysis) {
+  if (!categoryAnalysis) return '';
+  const { label, totalSeconds, sessionCount, activeDays, averageSessionSeconds, hasPrevious, deltaSeconds, workoutCount, recentAverageSeconds, recentPeriodCount } = categoryAnalysis;
+  const normalDelta = recentPeriodCount >= 2 ? totalSeconds - recentAverageSeconds : 0;
+  const normalComparison = Math.abs(normalDelta) >= 60
+    ? `, ${formatDuration(Math.abs(normalDelta))} ${normalDelta > 0 ? 'more' : 'less'} than your recent average`
+    : '';
+  if (label === 'Gym/Fitness') {
+    return `You spent ${formatDuration(totalSeconds)} at the gym across ${sessionCount} ${sessionCount === 1 ? 'visit' : 'visits'}, averaging ${formatDuration(averageSessionSeconds)}${workoutCount ? `, with ${workoutCount} recorded ${workoutCount === 1 ? 'workout' : 'workouts'}` : ''}${normalComparison}.`;
+  }
+  if (label === 'Sleep') {
+    return `You recorded ${formatDuration(totalSeconds)} of sleep across ${activeDays} ${activeDays === 1 ? 'night' : 'nights'}, averaging ${formatDuration(activeDays ? totalSeconds / activeDays : 0)}${normalComparison}.`;
+  }
+  if (label === 'Work') {
+    const comparison = hasPrevious && deltaSeconds !== 0
+      ? `, ${formatDuration(Math.abs(deltaSeconds))} ${deltaSeconds > 0 ? 'more' : 'less'} than the previous period`
+      : '';
+    return `You worked ${formatDuration(totalSeconds)} across ${activeDays} ${activeDays === 1 ? 'day' : 'days'}${comparison || normalComparison}.`;
+  }
+  return `${label} accounted for ${formatDuration(totalSeconds)} across ${sessionCount} ${sessionCount === 1 ? 'session' : 'sessions'}.`;
+}
+
 export function getActivityTallyRange(rangeId, now = new Date(), timeZone = APP_TIMEZONE) {
   const today = getLocalDateId(now, timeZone);
   const end = getPeriodBounds('day', shiftPeriodDate(today, 'day', 1, timeZone), timeZone).start;
-  if (rangeId === 'year') {
-    const start = getPeriodBounds('year', today, timeZone).start;
-    return { id: 'year', label: String(zonedParts(now, timeZone).year), start, end };
-  }
+  if (rangeId === 'year') return { id: 'year', label: String(zonedParts(now, timeZone).year), start: getPeriodBounds('year', today, timeZone).start, end };
   if (rangeId === '30d' || rangeId === '7d') {
     const days = rangeId === '30d' ? 30 : 7;
     const startDateId = shiftPeriodDate(today, 'day', -(days - 1), timeZone);
@@ -427,61 +1095,46 @@ export function filterLifeEventsByRange(events, range) {
   });
 }
 
-export function buildActivityTallies(events) {
+export function buildActivityTallies(events, options = {}) {
   const safeEvents = sortLifeEvents(events);
-  const analysis = buildPeriodAnalysis(safeEvents);
-  const groups = new Map();
-  function groupFor(label) {
-    if (!groups.has(label)) {
-      groups.set(label, { label, eventCount: 0, sessions: [], seconds: 0, days: new Set(), sources: new Set() });
-    }
-    return groups.get(label);
-  }
+  const analysis = buildPeriodAnalysis(safeEvents, null, options);
+  const firstAndLast = new Map();
   safeEvents.forEach((event) => {
-    const group = groupFor(getTallyActivityLabel(event));
-    group.eventCount += 1;
-    if (event.sourceApp) group.sources.add(event.sourceApp);
-    const time = getEventTime(event);
-    if (time) group.days.add(getDateIdInTimezone(time, event.timezone || APP_TIMEZONE));
+    const label = getTallyActivityLabel(event);
+    if (!isPrimaryActivityCategory(label)) return;
+    const at = getEventTime(event);
+    if (!at) return;
+    const values = firstAndLast.get(label) || { firstAt: at, lastAt: at };
+    if (at < values.firstAt) values.firstAt = at;
+    if (at > values.lastAt) values.lastAt = at;
+    firstAndLast.set(label, values);
   });
-  analysis.allocatedSessions.forEach((session) => {
-    const group = groupFor(session.category);
-    group.sessions.push(session);
-    group.seconds += session.allocatedSeconds;
-    group.days.add(getDateIdInTimezone(session.startAt, session.timezone || APP_TIMEZONE));
-    if (session.sourceApp) group.sources.add(session.sourceApp);
-  });
-  return [...groups.values()]
-    .map((group, index) => ({
-      label: group.label,
-      eventCount: group.eventCount,
-      sessionCount: group.sessions.length,
-      totalSeconds: group.seconds,
-      averageSeconds: group.sessions.length ? group.seconds / group.sessions.length : 0,
-      dayCount: group.days.size,
-      sourceCount: group.sources.size,
-      sessions: group.sessions,
-      color: ACTIVITY_COLORS[index % ACTIVITY_COLORS.length]
-    }))
-    .sort((left, right) => (
-      right.totalSeconds - left.totalSeconds
-      || right.dayCount - left.dayCount
-      || right.eventCount - left.eventCount
-      || left.label.localeCompare(right.label)
-    ));
+  return analysis.categories
+    .filter((category) => category.seconds > 0)
+    .map((category) => {
+      const days = new Set(category.sessions.map((session) => getDateIdInTimezone(session.startAt, session.timezone)));
+      const dates = firstAndLast.get(category.label) || {};
+      return {
+        label: category.label,
+        totalSeconds: category.seconds,
+        sessionCount: category.sessions.length,
+        dayCount: days.size,
+        averageSeconds: category.sessions.length ? category.seconds / category.sessions.length : 0,
+        firstAt: dates.firstAt || category.sessions[0]?.startAt || null,
+        lastAt: dates.lastAt || category.sessions.at(-1)?.endAt || null,
+        sessions: category.sessions,
+        color: category.color,
+        icon: category.icon
+      };
+    });
 }
 
 export function filterLifeEvents(events, selection) {
   const safeEvents = Array.isArray(events) ? events : [];
   if (!selection) return safeEvents;
   if (selection.kind === 'event') return safeEvents.filter((event) => event.id === selection.value);
-  if (selection.kind === 'source') {
-    return safeEvents.filter((event) => String(event.sourceApp || '').toLowerCase() === String(selection.value || '').toLowerCase());
-  }
-  if (selection.kind === 'category') {
-    const category = String(selection.value || '').toLowerCase();
-    return safeEvents.filter((event) => getTallyActivityLabel(event).toLowerCase() === category);
-  }
+  if (selection.kind === 'source') return safeEvents.filter((event) => String(event.sourceApp || '').toLowerCase() === String(selection.value || '').toLowerCase());
+  if (selection.kind === 'category') return safeEvents.filter((event) => getTallyActivityLabel(event).toLowerCase() === String(selection.value || '').toLowerCase());
   return safeEvents;
 }
 
@@ -497,12 +1150,7 @@ export function getDailySummary(events) {
 }
 
 export function buildActivityBreakdown(events) {
-  return buildPeriodAnalysis(events).categories.map((category) => ({
-    ...category,
-    value: category.seconds,
-    usesDuration: true,
-    count: category.sessions.length
-  }));
+  return buildPeriodAnalysis(events).categories.map((category) => ({ ...category, value: category.seconds, usesDuration: true, count: category.sessions.length }));
 }
 
 export function getDonutBackground(breakdown) {
@@ -527,49 +1175,31 @@ export function formatDuration(seconds) {
 export function buildComparison(current, previous) {
   const currentSeconds = current?.timedSeconds || 0;
   const previousSeconds = previous?.timedSeconds || 0;
-  return {
-    currentSeconds,
-    previousSeconds,
-    deltaSeconds: currentSeconds - previousSeconds,
-    hasPrevious: Boolean(previous && (previous.events?.length || previous.timedSeconds))
-  };
+  return { currentSeconds, previousSeconds, deltaSeconds: currentSeconds - previousSeconds, hasPrevious: Boolean(previous && (previous.events?.length || previous.timedSeconds)) };
 }
 
-export function buildDailyInsight(events, bounds = null) {
-  const analysis = buildPeriodAnalysis(events, bounds);
-  if (!analysis.events.length) {
-    return 'No activities were recorded for this period. That may mean a quiet period or incomplete source coverage.';
-  }
-  if (!analysis.timedSeconds) {
-    return `${analysis.moments.length} ${analysis.moments.length === 1 ? 'moment was' : 'moments were'} recorded, but no complete timed sessions are available yet.`;
-  }
+export function buildDailyInsight(events, bounds = null, options = {}) {
+  const analysis = buildPeriodAnalysis(events, bounds, options);
+  if (!analysis.events.length) return 'No activities were recorded for this period. That may mean a quiet period or incomplete source coverage.';
+  if (!analysis.timedSeconds) return `${analysis.momentGroups.length} ${analysis.momentGroups.length === 1 ? 'moment was' : 'moments were'} recorded, but no complete timed sessions are available yet.`;
   const leading = analysis.categories[0];
-  const coverage = bounds?.period === 'day'
-    ? ` ${formatDuration(analysis.timedSeconds)} of the day is classified.`
-    : '';
-  const incomplete = analysis.incompleteCount
-    ? ` ${analysis.incompleteCount} session${analysis.incompleteCount === 1 ? ' is' : 's are'} still in progress or incomplete.`
-    : '';
-  return `${leading.label} was your largest time category at ${formatDuration(leading.seconds)}.${coverage}${incomplete}`;
+  return `${leading.label} was your largest time category at ${formatDuration(leading.seconds)}.${analysis.incompleteCount ? ` ${analysis.incompleteCount} incomplete session${analysis.incompleteCount === 1 ? '' : 's'} may affect the picture.` : ''}`;
 }
 
-export function buildActivityAnalysis(events, bounds = null) {
-  const analysis = buildPeriodAnalysis(events, bounds);
-  const sources = new Set(analysis.events.map((event) => event.sourceApp).filter(Boolean));
+export function buildActivityAnalysis(events, bounds = null, options = {}) {
+  const analysis = buildPeriodAnalysis(events, bounds, options);
   const firstAt = analysis.sessions[0]?.startAt || getEventTime(analysis.events[0]);
   const lastAt = analysis.sessions.at(-1)?.endAt || getEventTime(analysis.events.at(-1));
   return {
     eventCount: analysis.events.length,
-    sourceCount: sources.size,
+    sourceCount: new Set(analysis.events.map((event) => event.sourceApp).filter(Boolean)).size,
     sessionCount: analysis.allocatedSessions.length,
     activityDayCount: analysis.coveredDays,
     trackedSeconds: analysis.timedSeconds,
-    averageSessionSeconds: analysis.allocatedSessions.length
-      ? analysis.timedSeconds / analysis.allocatedSessions.length
-      : 0,
+    averageSessionSeconds: analysis.allocatedSessions.length ? analysis.timedSeconds / analysis.allocatedSessions.length : 0,
     firstAt,
     lastAt,
-    spanSeconds: firstAt && lastAt ? Math.max(0, (lastAt.getTime() - firstAt.getTime()) / 1000) : 0,
+    spanSeconds: firstAt && lastAt ? Math.max(0, (lastAt - firstAt) / 1000) : 0,
     averageDeliverySeconds: null,
     deliveredCount: 0,
     eventTypes: [],
@@ -578,4 +1208,4 @@ export function buildActivityAnalysis(events, bounds = null) {
   };
 }
 
-export { ACTIVITY_COLORS };
+export const ACTIVITY_COLORS = Object.values(CATEGORY_DEFINITIONS).map((definition) => definition.color);
