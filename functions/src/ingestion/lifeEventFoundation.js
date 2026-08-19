@@ -298,6 +298,15 @@ function normalizeLifeEventRecord(raw, context) {
 
   const eventClass = inferEventClass(raw);
   const privacyLevel = raw.privacyLevel === "viewers" ? "viewers" : "ownerOnly";
+  const location = normalizeLocation(raw.location, "location");
+
+  // CarPlay's generic destination prompt is optional. A cancelled/blank prompt
+  // is not an activity and must never create a canonical LifeEvent. Specific
+  // boundaries remain valid without a label because their event type supplies
+  // the activity identity.
+  if (["arrive_location", "leave_location"].includes(eventType) && !toTrimmedString(location?.label)) {
+    throw payloadError(`${eventType} requires a non-empty location.label.`);
+  }
 
   const eventPayload = {
     schemaVersion,
@@ -321,7 +330,7 @@ function normalizeLifeEventRecord(raw, context) {
     endAt,
     durationSeconds,
     timezone,
-    location: normalizeLocation(raw.location, "location"),
+    location,
     metrics: normalizeObject(raw.metrics, "metrics"),
     metadata: normalizeObject(raw.metadata, "metadata"),
     privacyLevel

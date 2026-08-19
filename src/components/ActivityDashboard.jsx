@@ -19,6 +19,7 @@ import {
   getEventReceivedTime,
   getEventTime,
   getEventSentTime,
+  getIncompleteSessionMessage,
   getMeaningfulEventDetails,
   getLocalDateId,
   getPeriodBounds,
@@ -826,7 +827,13 @@ function FocusedPointAnalysis({ analysis, bounds, period }) {
         <Metric label="Occurrences" value={analysis.count} />
         <Metric label="Reliable duration" value={analysis.reliableDuration ? formatDuration(analysis.totalSeconds) : 'Not supplied'} />
       </div>
-      {!analysis.reliableDuration && <p className="cycle-data-note">No listening duration was supplied, so these events are visible here without changing the time wheel.</p>}
+      {!analysis.reliableDuration && (
+        <p className="cycle-data-note">
+          {analysis.id === 'Spotify'
+            ? 'No listening duration was supplied, so these events are visible here without changing the time wheel.'
+            : 'No reliable duration was supplied, so these moments remain visible without changing the time wheel.'}
+        </p>
+      )}
       <ol className="cycle-point-history">
         {entries.map((entry) => <PointHistoryEntry entry={entry} key={entry.id} />)}
       </ol>
@@ -965,6 +972,7 @@ function WorkAttendance({ attendance }) {
                 <div><dt>{row.status === 'In progress' ? 'Time at work' : 'Total'}</dt><dd>{row.totalSeconds !== null ? formatDuration(row.totalSeconds) : 'Incomplete'}</dd></div>
                 <div><dt>Status</dt><dd>{row.status}</dd></div>
               </dl>
+              {row.statusDetail && <p className="cycle-boundary-note">{row.statusDetail}</p>}
             </summary>
             <div className="cycle-attendance-detail">
               <h4>Actual boundary events</h4>
@@ -1040,7 +1048,8 @@ function SessionHistory({ sessions }) {
       <p className="cycle-eyebrow">History</p><h3>Sessions in this period</h3>
       <ol>{[...sessions].sort((left, right) => right.startAt - left.startAt).map((session) => {
         const sentAt = getEventSentTime(session.event);
-        return <li key={session.id}><time>{shortDateFormatter.format(session.startAt)}</time><div><strong>{session.title}</strong><p>{formatSessionRange(session)}{session.location ? ` · ${session.location}` : ''}</p>{sentAt && <small>Source sent {clockFormatter.format(sentAt)}</small>}</div><b>{session.active ? 'In progress' : formatDuration(session.durationSeconds)}</b></li>;
+        const incompleteMessage = getIncompleteSessionMessage(session);
+        return <li key={session.id}><time>{shortDateFormatter.format(session.startAt)}</time><div><strong>{session.title}</strong><p>{formatSessionRange(session)}{session.location ? ` · ${session.location}` : ''}</p>{incompleteMessage && <small className="cycle-boundary-note">{incompleteMessage}</small>}{sentAt && <small>Source sent {clockFormatter.format(sentAt)}</small>}</div><b>{session.active ? 'In progress' : Number.isFinite(session.durationSeconds) ? formatDuration(session.durationSeconds) : 'Incomplete'}</b></li>;
       })}</ol>
     </section>
   );
@@ -1079,7 +1088,7 @@ function Metric({ label, value, detail }) {
 
 function formatSessionRange(session) {
   if (session.missingBoundary === 'start') return `Arrival not recorded – ${clockFormatter.format(session.startAt)}`;
-  return `${clockFormatter.format(session.startAt)} – ${session.active ? 'In progress' : session.endAt ? clockFormatter.format(session.endAt) : 'Finish missing'}`;
+  return `${clockFormatter.format(session.startAt)} – ${session.active ? 'In progress' : session.endAt ? clockFormatter.format(session.endAt) : 'Departure not recorded'}`;
 }
 
 function formatWorkoutRange(workout) {

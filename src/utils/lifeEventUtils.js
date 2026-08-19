@@ -30,6 +30,9 @@ const ACTIVE_SESSION_CATEGORIES = new Set(['Work', 'Gym/Fitness', 'Sleep', 'Home
 const GENERIC_TITLES = /^(life event|journal entry|work session|home session|gym session|location session|activity|event|report|file|image)$/i;
 const COORDINATE_VALUE = /^\s*-?\d{1,3}(?:\.\d+)?\s*[,/]\s*-?\d{1,3}(?:\.\d+)?\s*$/;
 const HIDDEN_POINT_CATEGORIES = new Set(['Attachments']);
+const GENERIC_LOCATION_EVENT_TYPES = new Set(['arrive_location', 'leave_location']);
+const MUTUALLY_EXCLUSIVE_LOCATION_CATEGORIES = new Set(['Work', 'Gym/Fitness', 'Home', 'Sleep', 'Transportation', 'Places']);
+export const GENERIC_LOCATION_DEDUP_WINDOW_MS = 10 * 60 * 1000;
 
 export function toJsDate(value) {
   if (!value) return null;
@@ -192,7 +195,7 @@ function humanize(value) {
   return String(value || '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-export function getLocationLabel(event) {
+function getRawLocationLabel(event) {
   const candidates = [
     event?.location?.label,
     event?.metadata?.locationName,
@@ -204,9 +207,13 @@ export function getLocationLabel(event) {
     typeof candidate === 'string'
     && candidate.trim()
     && !COORDINATE_VALUE.test(candidate)
-    && !/^(?:work|home|gym|fitness|location|place)$/i.test(candidate.trim())
   ));
   return label ? label.trim() : '';
+}
+
+export function getLocationLabel(event) {
+  const label = getRawLocationLabel(event);
+  return label && !/^(?:work|home|gym|fitness|location|place)$/i.test(label) ? label : '';
 }
 
 export function getActivityLabel(event) {
@@ -275,13 +282,17 @@ export function getMeaningfulEventDetails(event) {
   const album = firstMeaningfulString(metadata.albumName, metadata.album, payload.albumName, payload.album);
   const playlist = firstMeaningfulString(metadata.playlistName, metadata.playlist, payload.playlistName, payload.playlist);
   const note = firstMeaningfulString(event?._journal?.note, metadata.note, metadata.notes, metadata.summary, metadata.text, metadata.message, event?.description);
-  return { track, artist, album, playlist, note, location: getLocationLabel(event) };
+  const eventType = cleanToken(event?.eventType);
+  const location = GENERIC_LOCATION_EVENT_TYPES.has(eventType)
+    ? getRawLocationLabel(event)
+    : getLocationLabel(event) || event?._activityPrecedence?.associatedLocation || '';
+  return { track, artist, album, playlist, note, location };
 }
 
 export function getEventDisplayTitle(event) {
   const eventType = cleanToken(event?.eventType);
-  const location = getLocationLabel(event);
   const details = getMeaningfulEventDetails(event);
+  const location = details.location;
   const exact = {
     arrive_work: 'Arrived at Work',
     leave_work: 'Left Work',
@@ -292,7 +303,9 @@ export function getEventDisplayTitle(event) {
     start_workout: 'Started Workout',
     finish_workout: 'Finished Workout',
     stop_workout: 'Finished Workout',
-    start_spotify: details.track ? `Played ${details.track}` : 'Started listening to Spotify'
+    start_spotify: details.track ? `Played ${details.track}` : 'Started listening to Spotify',
+    arrive_location: details.location ? `Arrived at ${details.location}` : 'Arrived at a place',
+    leave_location: details.location ? `Left ${details.location}` : 'Left a place'
   };
   if (exact[eventType]) return exact[eventType];
   if (event?._journal?.title && !GENERIC_TITLES.test(event._journal.title)) return event._journal.title;
@@ -307,6 +320,8 @@ export function getEventDisplayTitle(event) {
 
 function meaningfulPointEvent(event) {
   if (event?.excludeFromActivity === true || event?._journal?.shortcutShadow === true) return false;
+  const eventType = cleanToken(event?.eventType);
+  if (GENERIC_LOCATION_EVENT_TYPES.has(eventType) && !getRawLocationLabel(event)) return false;
   const label = getPointCategoryLabel(event);
   if (HIDDEN_POINT_CATEGORIES.has(label)) return false;
   const raw = `${cleanToken(event?.eventType)} ${cleanToken(event?.activityFamily)} ${cleanToken(event?.title)}`;
@@ -457,8 +472,127 @@ export function toggleActivitySelection(currentLabel, nextLabel) {
   return currentLabel === nextLabel ? null : nextLabel;
 }
 
+function genericDestinationCategory(label) {
+  const token = cleanToken(label);
+  if (/(?:^|_)(?:gym|fitness)(?:_|$)/.test(token) || /goodlife/.test(token)) return 'Gym/Fitness';
+  if (/(?:^|_)(?:home|house)(?:_|$)/.test(token)) return 'Home';
+  if (/(?:^|_)(?:work|office|workplace)(?:_|$)/.test(token)) return 'Work';
+  if (/(?:^|_)(?:drive|driving|transport|travel|trip)(?:_|$)/.test(token)) return 'Transportation';
+  return 'Places';
+}
+
+function isCategoryAlias(label, category) {
+  const token = cleanToken(label);
+  if (category === 'Work') return /^(?:work|office|workplace)$/.test(token);
+  if (category === 'Gym/Fitness') return /^(?:gym|fitness|goodlife_fitness)$/.test(token);
+  if (category === 'Home') return /^(?:home|house)$/.test(token);
+  return false;
+}
+
+function arrivalEvidence(event) {
+  const eventType = cleanToken(event?.eventType);
+  const generic = eventType === 'arrive_location';
+  if (!generic && !/^arrive_/.test(eventType)) return null;
+  const at = getEventTime(event);
+  if (!at) return null;
+  const rawLocation = getRawLocationLabel(event);
+  if (generic && !rawLocation) return null;
+  const category = generic ? genericDestinationCategory(rawLocation) : getTallyActivityLabel(event);
+  return {
+    event,
+    at,
+    category,
+    generic,
+    locationKey: cleanToken(rawLocation),
+    location: rawLocation || category
+  };
+}
+
+function genericMatchesSpecific(generic, specific) {
+  if (!generic?.generic || specific?.generic) return false;
+  if (generic.locationKey && specific.locationKey && generic.locationKey === specific.locationKey) return true;
+  if (generic.category !== specific.category) return false;
+  return !specific.locationKey || isCategoryAlias(generic.location, specific.category);
+}
+
+function sameArrivalPlace(left, right) {
+  if (!left || !right) return false;
+  if (left.locationKey && right.locationKey && left.locationKey === right.locationKey) return true;
+  if (left.category !== right.category) return false;
+  if (left.generic && !right.generic) return genericMatchesSpecific(left, right);
+  if (right.generic && !left.generic) return genericMatchesSpecific(right, left);
+  // Two specific arrivals in the same category with a missing location do not
+  // prove that the person changed places.
+  return !left.locationKey || !right.locationKey;
+}
+
+// Event-confidence model, highest first:
+// 1. Explicit reported intervals retain their supplied start/end/duration.
+// 2. Specific canonical boundaries (Gym/Home/Work/etc.) own session state.
+// 3. Generic CarPlay arrive_location records are location Moments and can only
+//    provide later-place evidence. Near an equivalent specific arrival, the
+//    generic record is associated with it and hidden as a duplicate.
+export function applyActivityEventPrecedence(events, options = {}) {
+  const windowMs = Number.isFinite(options.dedupeWindowMs)
+    ? Math.max(0, options.dedupeWindowMs)
+    : GENERIC_LOCATION_DEDUP_WINDOW_MS;
+  const ordered = sortLifeEvents(events);
+  const suppressed = new Map();
+  const associations = new Map();
+  const arrivals = ordered.map(arrivalEvidence).filter(Boolean);
+  const specificArrivals = arrivals.filter((evidence) => !evidence.generic);
+
+  arrivals.filter((evidence) => evidence.generic).forEach((generic) => {
+    const match = specificArrivals
+      .filter((specific) => (
+        Math.abs(specific.at.getTime() - generic.at.getTime()) <= windowMs
+        && genericMatchesSpecific(generic, specific)
+      ))
+      .sort((left, right) => (
+        Math.abs(left.at - generic.at) - Math.abs(right.at - generic.at)
+      ))[0];
+    if (!match) return;
+    suppressed.set(generic.event, { reason: 'associated_with_specific_arrival', authoritativeEvent: match.event });
+    const related = associations.get(match.event) || [];
+    related.push(generic.event);
+    associations.set(match.event, related);
+  });
+
+  ordered.forEach((event) => {
+    const eventType = cleanToken(event?.eventType);
+    if (GENERIC_LOCATION_EVENT_TYPES.has(eventType) && !getRawLocationLabel(event)) {
+      suppressed.set(event, { reason: 'empty_generic_location' });
+    }
+  });
+
+  const effectiveEvents = ordered
+    .filter((event) => !suppressed.has(event))
+    .map((event) => {
+      const related = associations.get(event);
+      if (!related?.length) return event;
+      const genericLocation = related.map(getRawLocationLabel).find(Boolean);
+      return {
+        ...event,
+        _activityPrecedence: {
+          confidence: 'specific_boundary',
+          // Display enrichment only: keeping this out of event.location ensures
+          // a generic observation cannot alter the specific boundary-pair key.
+          associatedLocation: getRawLocationLabel(event) ? '' : genericLocation,
+          associatedGenericEventIds: related.map((candidate) => candidate.id).filter(Boolean)
+        }
+      };
+    });
+
+  return {
+    events: effectiveEvents,
+    suppressed: [...suppressed.entries()].map(([event, resolution]) => ({ event, ...resolution }))
+  };
+}
+
 function boundaryDescriptor(event) {
   const eventType = cleanToken(event?.eventType);
+  // Generic location records are observations, never duration boundaries.
+  if (GENERIC_LOCATION_EVENT_TYPES.has(eventType)) return null;
   let phase = '';
   let activity = '';
   if (/^(arrive|start)_/.test(eventType)) {
@@ -506,7 +640,7 @@ function makeSession(event, interval, extra = {}) {
     timezone: event?.timezone || APP_TIMEZONE,
     category,
     rawCategory: getActivityLabel(event),
-    location: getLocationLabel(event),
+    location: getLocationLabel(event) || event?._activityPrecedence?.associatedLocation || '',
     ...interval,
     ...extra
   };
@@ -536,8 +670,43 @@ export function getSessionDisplayName(session) {
   return usefulTitle || session?.category || 'Activity';
 }
 
+function findSupersedingArrival(candidate, events, now) {
+  const descriptor = boundaryDescriptor(candidate.event);
+  if (!descriptor || descriptor.phase !== 'start' || !MUTUALLY_EXCLUSIVE_LOCATION_CATEGORIES.has(descriptor.category)) return null;
+  const startEvidence = {
+    event: candidate.event,
+    at: candidate.eventTime,
+    category: descriptor.category,
+    generic: false,
+    locationKey: cleanToken(getRawLocationLabel(candidate.event)),
+    location: getRawLocationLabel(candidate.event) || descriptor.category
+  };
+  return events
+    .map(arrivalEvidence)
+    .filter((evidence) => (
+      evidence
+      && evidence.event !== candidate.event
+      && evidence.at > candidate.eventTime
+      && evidence.at <= now
+      && !sameArrivalPlace(startEvidence, evidence)
+    ))[0] || null;
+}
+
+export function getIncompleteSessionMessage(session) {
+  if (session?.incompleteReason === 'superseded_by_arrival') {
+    const location = session.supersededByLocation || 'another location';
+    return `Departure was not recorded. A later arrival at ${location} confirms this visit ended.`;
+  }
+  if (session?.missingBoundary === 'start') return 'Arrival was not recorded, so duration cannot be calculated.';
+  if (session?.missingBoundary === 'end') return 'Departure was not recorded, so duration cannot be calculated.';
+  return '';
+}
+
 export function buildActivitySessions(events, bounds = null, options = {}) {
-  const safeEvents = sortLifeEvents(events);
+  const resolution = options.precedenceResolved
+    ? { events: sortLifeEvents(events), suppressed: [] }
+    : applyActivityEventPrecedence(events, options);
+  const safeEvents = resolution.events;
   const sessions = [];
   const seen = new Set();
   const openBoundaries = new Map();
@@ -603,13 +772,17 @@ export function buildActivitySessions(events, bounds = null, options = {}) {
 
   const unresolvedStarts = [...openBoundaries.values()].flat();
   const latestActiveByCategory = new Map();
+  const supersededStarts = new Map();
   unresolvedStarts.forEach((candidate) => {
     const category = getTallyActivityLabel(candidate.event);
+    const superseding = findSupersedingArrival(candidate, safeEvents, now);
+    if (superseding) supersededStarts.set(candidate.event, superseding);
     const eligible = options.includeActive === true
       && ACTIVE_SESSION_CATEGORIES.has(category)
       && candidate.eventTime < now
       && (now.getTime() - candidate.eventTime.getTime()) <= (36 * 3600 * 1000)
-      && (!bounds || (now >= bounds.start && now < bounds.end));
+      && (!bounds || (now >= bounds.start && now < bounds.end))
+      && !superseding;
     if (!eligible) return;
     const current = latestActiveByCategory.get(category);
     if (!current || candidate.eventTime > current.eventTime) latestActiveByCategory.set(category, candidate);
@@ -618,6 +791,7 @@ export function buildActivitySessions(events, bounds = null, options = {}) {
   unresolvedStarts.forEach(({ event, eventTime }) => {
     const category = getTallyActivityLabel(event);
     const live = latestActiveByCategory.get(category)?.event === event;
+    const superseding = supersededStarts.get(event) || null;
     if (bounds && !live && (eventTime >= bounds.end || eventTime < bounds.start)) return;
     const interval = live ? clippedInterval(eventTime, now, bounds) : null;
     const session = makeSession(event, interval || {
@@ -629,6 +803,10 @@ export function buildActivitySessions(events, bounds = null, options = {}) {
       kind: live ? 'active' : 'incomplete',
       active: live,
       missingBoundary: live ? null : 'end',
+      incompleteReason: superseding ? 'superseded_by_arrival' : null,
+      supersededByEvent: superseding?.event || null,
+      supersededAt: superseding?.at || null,
+      supersededByLocation: superseding?.location || null,
       startEvent: event,
       endEvent: null
     });
@@ -791,8 +969,10 @@ function buildPointCategories(events, timeZone) {
 }
 
 export function buildPeriodAnalysis(events, bounds = null, options = {}) {
-  const source = Array.isArray(events) ? events : [];
-  const sessions = buildActivitySessions(source, bounds, options);
+  const rawSource = Array.isArray(events) ? events : [];
+  const precedence = applyActivityEventPrecedence(rawSource, options);
+  const source = precedence.events;
+  const sessions = buildActivitySessions(source, bounds, { ...options, precedenceResolved: true });
   const allocatedSessions = allocateIntervals(sessions);
   const periodEvents = source.filter((event) => {
     if (!bounds) return true;
@@ -852,6 +1032,8 @@ export function buildPeriodAnalysis(events, bounds = null, options = {}) {
   const timezone = bounds?.timezone || APP_TIMEZONE;
   const pointCategories = buildPointCategories(moments, timezone);
   return {
+    sourceEvents: sortLifeEvents(rawSource),
+    suppressedEvents: precedence.suppressed,
     events: sortLifeEvents(periodEvents),
     sessions,
     allocatedSessions,
@@ -1058,7 +1240,15 @@ export function buildWorkAttendance(sessions, timeZone = APP_TIMEZONE) {
       const arrivedAt = arrivalEvent ? getEventTime(arrivalEvent) : null;
       const leftAt = departureEvent ? (getEventTime(departureEvent) || getEventEndTime(departureEvent)) : null;
       const location = session.location || getLocationLabel(arrivalEvent) || getLocationLabel(departureEvent);
-      const status = session.active ? 'In progress' : session.missingBoundary ? 'Incomplete' : session.endAt ? 'Completed' : 'Incomplete';
+      const status = session.active
+        ? 'In progress'
+        : session.incompleteReason === 'superseded_by_arrival'
+          ? 'Ended elsewhere'
+          : session.missingBoundary
+            ? 'Incomplete'
+            : session.endAt
+              ? 'Completed'
+              : 'Incomplete';
       const notes = [arrivalEvent, departureEvent]
         .map((event) => getMeaningfulEventDetails(event).note)
         .filter(Boolean);
@@ -1072,7 +1262,9 @@ export function buildWorkAttendance(sessions, timeZone = APP_TIMEZONE) {
         leftAt,
         totalSeconds: Number.isFinite(session.durationSeconds) ? session.durationSeconds : null,
         status,
+        statusDetail: getIncompleteSessionMessage(session),
         missingBoundary: session.missingBoundary || null,
+        supersededByLocation: session.supersededByLocation || '',
         arrivalEvent,
         departureEvent,
         arrivalSentAt: getEventSentTime(arrivalEvent),
@@ -1124,9 +1316,12 @@ export function buildCategoryAnalysis(category, analysis, previousAnalysis, boun
       })
     : [];
   const primarySessions = category.label === 'Gym/Fitness' && gymVisits.length ? gymVisits : completeSessions;
-  const sessions = category.label === 'Work'
-    ? [...category.allSessions].sort((left, right) => left.startAt - right.startAt)
-    : primarySessions.sort((left, right) => left.startAt - right.startAt);
+  const historySessions = category.label === 'Gym/Fitness'
+    ? category.allSessions
+      .filter((session) => !isWorkoutEvent(session.event))
+      .map((session) => gymVisits.find((visit) => visit.id === session.id) || session)
+    : category.allSessions;
+  const sessions = [...historySessions].sort((left, right) => left.startAt - right.startAt);
   const attendance = category.label === 'Work'
     ? buildWorkAttendance(category.allSessions, bounds?.timezone || APP_TIMEZONE)
     : [];
@@ -1149,20 +1344,22 @@ export function buildCategoryAnalysis(category, analysis, previousAnalysis, boun
     locations.set(session.location, current);
   });
   const totalWorkoutSeconds = workouts.reduce((sum, workout) => sum + (workout.durationSeconds || 0), 0);
-  const sessionCount = primarySessions.length;
+  const reliableSessionCount = primarySessions.length;
+  const sessionCount = historySessions.filter((session) => session.missingBoundary !== 'start').length;
   return {
     label: category.label,
     color: category.color,
     icon: category.icon,
     totalSeconds: category.seconds,
     sessionCount,
+    reliableSessionCount,
     activeDays,
-    averageSessionSeconds: sessionCount ? category.seconds / sessionCount : 0,
+    averageSessionSeconds: reliableSessionCount ? category.seconds / reliableSessionCount : 0,
     averageActiveDaySeconds: activeDays ? category.seconds / activeDays : 0,
     longestSeconds: durations.length ? Math.max(...durations) : 0,
     shortestSeconds: durations.length ? Math.min(...durations) : 0,
-    firstStart: sessions[0]?.startAt || null,
-    lastEnd: sessions.at(-1)?.endAt || null,
+    firstStart: primarySessions[0]?.startAt || null,
+    lastEnd: primarySessions.at(-1)?.endAt || null,
     activeSession: sessions.find((session) => session.active) || null,
     previousSeconds: previous?.seconds || 0,
     hasPrevious: Boolean(previous),
@@ -1182,7 +1379,10 @@ export function buildCategoryAnalysis(category, analysis, previousAnalysis, boun
 
 export function buildCategoryInsight(categoryAnalysis) {
   if (!categoryAnalysis) return '';
-  const { label, totalSeconds, sessionCount, activeDays, averageSessionSeconds, hasPrevious, deltaSeconds, workoutCount, recentAverageSeconds, recentPeriodCount } = categoryAnalysis;
+  const { label, totalSeconds, sessionCount, reliableSessionCount, activeDays, averageSessionSeconds, hasPrevious, deltaSeconds, workoutCount, recentAverageSeconds, recentPeriodCount } = categoryAnalysis;
+  if (sessionCount > 0 && reliableSessionCount === 0) {
+    return `${sessionCount} ${label === 'Gym/Fitness' ? (sessionCount === 1 ? 'visit was' : 'visits were') : (sessionCount === 1 ? 'session was' : 'sessions were')} recorded, but missing boundaries keep uncertain time out of your totals.`;
+  }
   const normalDelta = recentPeriodCount >= 2 ? totalSeconds - recentAverageSeconds : 0;
   const normalComparison = Math.abs(normalDelta) >= 60
     ? `, ${formatDuration(Math.abs(normalDelta))} ${normalDelta > 0 ? 'more' : 'less'} than your recent average`

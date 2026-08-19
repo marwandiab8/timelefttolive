@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   APP_TIMEZONE,
+  applyActivityEventPrecedence,
   buildCategoryAnalysis,
   buildActivitySessions,
   buildActivityEntries,
@@ -19,6 +20,7 @@ import {
   getActivityTallyRange,
   getDateIdInTimezone,
   getLocationLabel,
+  getIncompleteSessionMessage,
   getMeaningfulEventDetails,
   getPeriodBounds,
   getTallyActivityLabel,
@@ -113,6 +115,119 @@ describe('activity analysis utilities', () => {
     expect(analysis.momentGroups).toHaveLength(2);
     expect(analysis.momentGroups.every((group) => group.category === 'Music' && group.count === 1)).toBe(true);
     expect(analysis.pointCategories[0]).toMatchObject({ label: 'Spotify', count: 2, seconds: 0 });
+  });
+
+  it('treats a generic CarPlay destination as a point moment that supersedes an unmatched Gym start', () => {
+    const bounds = getPeriodBounds('day', '2026-08-19');
+    const analysis = buildPeriodAnalysis([
+      { id: 'gym-in', eventType: 'arrive_gym', eventClass: 'activity_boundary', activityFamily: 'gym', occurredAt: '2026-08-19T09:00:00Z' },
+      { id: 'coffee', eventType: 'arrive_location', eventClass: 'location', activityFamily: 'location', occurredAt: '2026-08-19T10:00:00Z', location: { label: 'Coffee shop' } }
+    ], bounds, { includeActive: true, now: new Date('2026-08-19T12:00:00Z') });
+
+    const gym = analysis.sessions.find((session) => session.category === 'Gym/Fitness');
+    expect(analysis.activeCount).toBe(0);
+    expect(analysis.timedSeconds).toBe(0);
+    expect(gym).toMatchObject({
+      kind: 'incomplete', active: false, endAt: null, durationSeconds: null,
+      incompleteReason: 'superseded_by_arrival', supersededByLocation: 'Coffee shop'
+    });
+    expect(getIncompleteSessionMessage(gym)).toBe('Departure was not recorded. A later arrival at Coffee shop confirms this visit ended.');
+    expect(analysis.pointCategories.find((category) => category.label === 'Places')).toMatchObject({ count: 1, seconds: 0 });
+    expect(analysis.activityEntries.some((entry) => entry.title === 'Arrived at Coffee shop')).toBe(true);
+  });
+
+  it('associates a near matching CarPlay Gym arrival with the authoritative specific boundary', () => {
+    const bounds = getPeriodBounds('day', '2026-08-19');
+    const analysis = buildPeriodAnalysis([
+      { id: 'gym-specific', eventType: 'arrive_gym', eventClass: 'activity_boundary', activityFamily: 'gym', occurredAt: '2026-08-19T09:00:00Z' },
+      { id: 'gym-carplay', eventType: 'arrive_location', eventClass: 'location', activityFamily: 'location', occurredAt: '2026-08-19T09:04:00Z', location: { label: 'GoodLife Fitness' } }
+    ], bounds, { includeActive: true, now: new Date('2026-08-19T11:00:00Z') });
+
+    expect(analysis.suppressedEvents).toHaveLength(1);
+    expect(analysis.suppressedEvents[0].reason).toBe('associated_with_specific_arrival');
+    expect(analysis.sessions).toHaveLength(1);
+    expect(analysis.sessions[0]).toMatchObject({ category: 'Gym/Fitness', active: true, location: 'GoodLife Fitness' });
+    expect(analysis.activityEntries).toHaveLength(1);
+    expect(analysis.activityEntries[0].title).toBe('Arrived at GoodLife Fitness');
+    expect(analysis.pointCategories.some((category) => category.label === 'Places')).toBe(false);
+  });
+
+  it('deduplicates a specific Home arrival and a near generic Home destination', () => {
+    const resolution = applyActivityEventPrecedence([
+      { id: 'home-specific', eventType: 'arrive_home', activityFamily: 'home', occurredAt: '2026-08-19T21:00:00Z' },
+      { id: 'home-carplay', eventType: 'arrive_location', activityFamily: 'location', occurredAt: '2026-08-19T21:02:00Z', location: { label: ' Home ' } }
+    ]);
+    expect(resolution.events).toHaveLength(1);
+    expect(resolution.events[0]).toMatchObject({
+      id: 'home-specific',
+      eventType: 'arrive_home',
+      _activityPrecedence: { associatedLocation: 'Home' }
+    });
+    expect(resolution.suppressed[0].reason).toBe('associated_with_specific_arrival');
+  });
+
+  it('keeps a valid specific Gym departure paired after associating a duplicate CarPlay arrival', () => {
+    const bounds = getPeriodBounds('day', '2026-08-19');
+    const analysis = buildPeriodAnalysis([
+      { id: 'gym-specific', eventType: 'arrive_gym', activityFamily: 'gym', occurredAt: '2026-08-19T09:00:00Z' },
+      { id: 'gym-carplay', eventType: 'arrive_location', activityFamily: 'location', occurredAt: '2026-08-19T09:04:00Z', location: { label: 'GoodLife Fitness' } },
+      { id: 'gym-out', eventType: 'leave_gym', activityFamily: 'gym', occurredAt: '2026-08-19T10:00:00Z' }
+    ], bounds, { includeActive: true, now: new Date('2026-08-19T12:00:00Z') });
+
+    expect(analysis.suppressedEvents).toHaveLength(1);
+    expect(analysis.sessions).toHaveLength(1);
+    expect(analysis.sessions[0]).toMatchObject({
+      kind: 'paired', active: false, durationSeconds: 3600, location: 'GoodLife Fitness'
+    });
+    expect(analysis.activityEntries.filter((entry) => entry.title.startsWith('Arrived'))).toHaveLength(1);
+    expect(analysis.pointCategories.some((category) => category.label === 'Places')).toBe(false);
+  });
+
+  it('marks Gym incomplete when a later specific Work arrival proves the visit ended', () => {
+    const bounds = getPeriodBounds('day', '2026-08-19');
+    const analysis = buildPeriodAnalysis([
+      { id: 'gym-in', eventType: 'arrive_gym', activityFamily: 'gym', occurredAt: '2026-08-19T09:00:00Z' },
+      { id: 'work-in', eventType: 'arrive_work', activityFamily: 'work', occurredAt: '2026-08-19T11:00:00Z', location: { label: 'Docksteader' } }
+    ], bounds, { includeActive: true, now: new Date('2026-08-19T13:00:00Z') });
+    const gym = analysis.sessions.find((session) => session.category === 'Gym/Fitness');
+    const work = analysis.sessions.find((session) => session.category === 'Work');
+    expect(gym).toMatchObject({ active: false, durationSeconds: null, supersededByLocation: 'Docksteader' });
+    expect(work).toMatchObject({ active: true, durationSeconds: 7200 });
+    expect(analysis.timedSeconds).toBe(7200);
+  });
+
+  it('keeps an explicit Left Gym boundary authoritative even when a generic arrival occurs first', () => {
+    const bounds = getPeriodBounds('day', '2026-08-19');
+    const analysis = buildPeriodAnalysis([
+      { id: 'gym-in', eventType: 'arrive_gym', activityFamily: 'gym', occurredAt: '2026-08-19T09:00:00Z' },
+      { id: 'coffee', eventType: 'arrive_location', activityFamily: 'location', occurredAt: '2026-08-19T09:30:00Z', location: { label: 'Coffee shop' } },
+      { id: 'gym-out', eventType: 'leave_gym', activityFamily: 'gym', occurredAt: '2026-08-19T10:00:00Z' }
+    ], bounds, { includeActive: true, now: new Date('2026-08-19T12:00:00Z') });
+    expect(analysis.sessions.find((session) => session.category === 'Gym/Fitness')).toMatchObject({
+      kind: 'paired', active: false, durationSeconds: 3600
+    });
+    expect(analysis.timedSeconds).toBe(3600);
+    expect(analysis.activityEntries.some((entry) => entry.title === 'Arrived at Coffee shop')).toBe(true);
+  });
+
+  it('keeps unknown CarPlay destinations visible without adding duration', () => {
+    const bounds = getPeriodBounds('day', '2026-08-19');
+    const analysis = buildPeriodAnalysis([
+      { id: 'unknown-place', eventType: 'arrive_location', eventClass: 'location', activityFamily: 'location', occurredAt: '2026-08-19T14:30:00Z', location: { label: 'Community garden' } }
+    ], bounds, { includeActive: true, now: new Date('2026-08-19T15:00:00Z') });
+    expect(analysis.sessions).toHaveLength(0);
+    expect(analysis.timedSeconds).toBe(0);
+    expect(analysis.activityEntries[0]).toMatchObject({ pointCategory: 'Places', title: 'Arrived at Community garden' });
+  });
+
+  it('suppresses historical empty generic destinations and never promotes them to sessions', () => {
+    const analysis = buildPeriodAnalysis([
+      { id: 'empty-place', eventType: 'arrive_location', eventClass: 'location', occurredAt: '2026-08-19T14:30:00Z', location: { label: '   ' } }
+    ], getPeriodBounds('day', '2026-08-19'), { includeActive: true, now: new Date('2026-08-19T15:00:00Z') });
+    expect(analysis.events).toHaveLength(0);
+    expect(analysis.sessions).toHaveLength(0);
+    expect(analysis.activityEntries).toHaveLength(0);
+    expect(analysis.suppressedEvents[0].reason).toBe('empty_generic_location');
   });
 
   it('clips sessions crossing midnight to the selected period', () => {
@@ -436,6 +551,20 @@ describe('activity analysis utilities', () => {
     ], bounds, { includeActive: false });
     expect(buildWorkAttendance(missingArrival.sessions)[0]).toMatchObject({ status: 'Incomplete', missingBoundary: 'start', arrivedAt: null, totalSeconds: null });
     expect(buildWorkAttendance(missingArrival.sessions)[0].leftAt.toISOString()).toBe('2026-08-11T20:00:00.000Z');
+  });
+
+  it('shows Work as ended elsewhere without inventing a departure or duration', () => {
+    const bounds = getPeriodBounds('day', '2026-08-19');
+    const analysis = buildPeriodAnalysis([
+      { id: 'work-in', eventType: 'arrive_work', activityFamily: 'work', occurredAt: '2026-08-19T11:00:00Z', location: { label: 'Docksteader' } },
+      { id: 'elsewhere', eventType: 'arrive_location', eventClass: 'location', activityFamily: 'location', occurredAt: '2026-08-19T19:00:00Z', location: { label: 'Coffee shop' } }
+    ], bounds, { includeActive: true, now: new Date('2026-08-19T20:00:00Z') });
+    const attendance = buildWorkAttendance(analysis.sessions);
+    expect(attendance[0]).toMatchObject({
+      status: 'Ended elsewhere', leftAt: null, totalSeconds: null,
+      supersededByLocation: 'Coffee shop',
+      statusDetail: 'Departure was not recorded. A later arrival at Coffee shop confirms this visit ended.'
+    });
   });
 
   it.each(['week', 'month', 'year'])('keeps Work attendance history available in %s analysis', (period) => {

@@ -349,6 +349,62 @@ test("normalizeLifeEventRecord is deterministic for idempotency", async () => {
   assert.equal(first.idempotencyKey, second.idempotencyKey);
 });
 
+test("canonical normalization rejects an empty generic CarPlay destination", () => {
+  const context = {
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "int-1",
+    timeLeftUserId: "owner-1",
+    connection: {
+      sourceApp: "gridlineai",
+      sourceProjectIds: ["project-a"],
+      permissions: { eventClasses: ["location"] }
+    }
+  };
+  assert.throws(() => normalizeLifeEventRecord({
+    schemaVersion: 1,
+    sourceApp: "gridlineai",
+    sourceProjectId: "project-a",
+    sourceRecordId: "cancelled-carplay",
+    eventType: "arrive_location",
+    eventClass: "location",
+    activityFamily: "location",
+    occurredAt: "2026-08-19T14:30:00Z",
+    timezone: "America/Toronto",
+    location: { label: "   " }
+  }, context), /requires a non-empty location\.label/);
+});
+
+test("canonical normalization keeps a named generic CarPlay destination as a location point", () => {
+  const normalized = normalizeLifeEventRecord({
+    schemaVersion: 1,
+    sourceApp: "gridlineai",
+    sourceProjectId: "project-a",
+    sourceRecordId: "named-carplay",
+    eventType: "arrive_location",
+    eventClass: "location",
+    activityFamily: "location",
+    categoryId: "other_location",
+    occurredAt: "2026-08-19T14:30:00Z",
+    timezone: "America/Toronto",
+    location: { label: "Community garden" }
+  }, {
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "int-1",
+    timeLeftUserId: "owner-1",
+    connection: {
+      sourceApp: "gridlineai",
+      sourceProjectIds: ["project-a"],
+      permissions: { eventClasses: ["location"] }
+    }
+  });
+  assert.equal(normalized.location.label, "Community garden");
+  assert.equal(normalized.startAt, null);
+  assert.equal(normalized.endAt, null);
+  assert.equal(normalized.durationSeconds, null);
+});
+
 test("canonical date-only values use Toronto midnight and replay exactly", async () => {
   const db = new FakeFirestore();
   const token = "t-date-only-toronto";

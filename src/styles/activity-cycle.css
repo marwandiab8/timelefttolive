@@ -1049,6 +1049,14 @@
   font-weight: 800;
 }
 
+.cycle-boundary-note {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  color: #f2b84b !important;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .cycle-attendance-detail,
 .cycle-workout-detail {
   padding: 0 18px 18px;
