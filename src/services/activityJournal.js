@@ -8,6 +8,9 @@ function cleanToken(value) {
 }
 
 export function isJournalOrMediaLifeEvent(event) {
+  if (event?.sourceApp !== 'gridlineai') return false;
+  if (event?.sourceFirebaseProjectId && event.sourceFirebaseProjectId !== 'gridlineai') return false;
+  if (/^1:\d+:(?:web|ios|android):/i.test(String(event?.sourceProjectId || ''))) return false;
   const combined = [event?.eventType, event?.activityFamily, event?.categoryId, event?.title]
     .map(cleanToken)
     .join('_');
