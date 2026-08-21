@@ -13,6 +13,7 @@ import { acceptViewerInvite, useEvents, useOwnedCalendar, useSharedCalendar, use
 import { logOut } from '../services/firebase.js';
 import { getLifeStats } from '../utils/dateUtils.js';
 import { getCustodyStats } from '../utils/custodyUtils.js';
+import { readCalendarTheme, toggleCalendarTheme, writeCalendarTheme } from '../utils/theme.js';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -37,12 +38,22 @@ export default function Dashboard() {
   const [calendarView, setCalendarView] = useState({ view: 'life' });
   const [zoom, setZoom] = useState(() => Number(localStorage.getItem('lifeHeatmapZoom') || 1));
   const [fitMode, setFitMode] = useState(() => localStorage.getItem('lifeHeatmapFitMode') || 'width');
+  const [calendarTheme, setCalendarTheme] = useState(readCalendarTheme);
   const heatmapRef = useRef(null);
   const stats = useMemo(() => calendar ? getLifeStats(calendar.birthDate, calendar.targetAge) : null, [calendar]);
   const custodyStats = useMemo(() => calendar ? getCustodyStats(calendar) : null, [calendar]);
   const dataError = owned.error || inviteState.error || shared.error || eventState.error || viewerState.error;
   const pendingInvite = invites.find((invite) => invite.status === 'pending');
   const breadcrumbs = getBreadcrumbs(calendarView, setCalendarView);
+
+  useEffect(() => {
+    if (primaryView === 'calendar') {
+      document.documentElement.dataset.calendarTheme = calendarTheme;
+    } else {
+      delete document.documentElement.dataset.calendarTheme;
+    }
+    return () => delete document.documentElement.dataset.calendarTheme;
+  }, [calendarTheme, primaryView]);
 
   function updateZoom(value) {
     const nextZoom = Math.min(2.5, Math.max(0.45, value));
@@ -55,6 +66,10 @@ export default function Dashboard() {
     localStorage.setItem('lifeHeatmapFitMode', value);
     if (value === 'whole') updateZoom(0.55);
     if (value === 'width') updateZoom(1);
+  }
+
+  function toggleCalendarBackground() {
+    setCalendarTheme((current) => writeCalendarTheme(toggleCalendarTheme(current)));
   }
 
   useEffect(() => {
@@ -73,7 +88,7 @@ export default function Dashboard() {
 
   if (!calendar || editingProfile) {
     return (
-      <main className="app-shell">
+      <main className="app-shell" data-calendar-theme={calendarTheme}>
         <header className="topbar">
           <div>
             <p className="eyebrow">Time Left To Live</p>
@@ -99,7 +114,7 @@ export default function Dashboard() {
   }
 
   return (
-    <main className="app-shell">
+    <main className="app-shell" data-calendar-theme={calendarTheme}>
       <header className="topbar">
         <div>
           <p className="eyebrow">{role === 'owner' ? 'Owner dashboard' : 'Read-only viewer'}</p>
@@ -108,6 +123,9 @@ export default function Dashboard() {
         <div className="actions">
           {pendingInvite && <button className="secondary" type="button" onClick={() => acceptViewerInvite(pendingInvite.calendarId, pendingInvite.id, user.uid)}>Accept invite</button>}
           <button className="secondary" type="button" onClick={() => heatmapRef.current?.scrollToCurrentWeek()}>Today</button>
+          <button className="secondary theme-toggle" type="button" aria-pressed={calendarTheme === 'light'} onClick={toggleCalendarBackground}>
+            {calendarTheme === 'dark' ? 'Light background' : 'Dark background'}
+          </button>
           {role === 'owner' && <button className="secondary" type="button" onClick={() => setPrimaryView('activity')}>Activity dashboard</button>}
           {role === 'owner' && <button className="secondary" type="button" onClick={() => setShowEvents(true)}>Add event</button>}
           {role === 'owner' && <button className="secondary" type="button" onClick={() => setShowSources(true)}>External sources</button>}
