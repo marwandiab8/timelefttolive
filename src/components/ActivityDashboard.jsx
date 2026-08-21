@@ -662,8 +662,9 @@ function TimelineEntry({ entry, onSelect }) {
         </button>
         {entry.type === 'session' && (
           <div className="cycle-timeline-boundaries">
-            {entry.startEvent && <span><b>{getEventDisplayTitle(entry.startEvent)}</b> {clockFormatter.format(entry.at)}{entry.startSentAt && <small> · sent {clockFormatter.format(entry.startSentAt)}</small>}</span>}
-            {entry.endEvent && <span><b>{getEventDisplayTitle(entry.endEvent)}</b> {clockFormatter.format(entry.endAt)}{entry.endSentAt && <small> · sent {clockFormatter.format(entry.endSentAt)}</small>}</span>}
+            {entry.startedBeforeVisibleRange && <span><b>Continued into this period</b> The chart begins at the selected period boundary; the actual arrival is shown below.</span>}
+            {entry.startEvent && <span><b>{getEventDisplayTitle(entry.startEvent)}</b> {timelineBoundaryLabel(entry.boundaryStartAt, entry.dateId)}{entry.startSentAt && <small> · sent {clockFormatter.format(entry.startSentAt)}</small>}</span>}
+            {entry.endEvent && <span><b>{getEventDisplayTitle(entry.endEvent)}</b> {timelineBoundaryLabel(entry.boundaryEndAt, entry.dateId)}{entry.endSentAt && <small> · sent {clockFormatter.format(entry.endSentAt)}</small>}</span>}
             {entry.active && <span><b>Status</b> In progress</span>}
             {entry.statusDetail && <span className="incomplete"><b>Status</b> {entry.statusDetail}</span>}
           </div>
@@ -673,11 +674,23 @@ function TimelineEntry({ entry, onSelect }) {
   );
 }
 
+function timelineBoundaryLabel(value, visibleDateId) {
+  if (!value) return 'Time not recorded';
+  const time = clockFormatter.format(value);
+  return getDateIdInTimezone(value) === visibleDateId
+    ? time
+    : `${shortDateFormatter.format(value)} at ${time}`;
+}
+
 function timelineSessionRange(entry) {
-  if (entry.active) return `${clockFormatter.format(entry.at)} – In progress · ${formatDuration(entry.durationSeconds)}`;
-  if (entry.endAt) return `${clockFormatter.format(entry.at)} – ${clockFormatter.format(entry.endAt)} · ${formatDuration(entry.durationSeconds)}`;
+  const visibleStart = entry.startedBeforeVisibleRange
+    ? `Continued from ${timelineBoundaryLabel(entry.boundaryStartAt, entry.dateId)}`
+    : clockFormatter.format(entry.at);
+  const visibleDuration = `${formatDuration(entry.durationSeconds)}${entry.startedBeforeVisibleRange ? ' shown in this period' : ''}`;
+  if (entry.active) return `${visibleStart} – In progress · ${visibleDuration}`;
+  if (entry.endAt) return `${visibleStart} – ${timelineBoundaryLabel(entry.boundaryEndAt || entry.endAt, entry.dateId)} · ${visibleDuration}`;
   if (entry.session?.missingBoundary === 'start') return `Finish recorded at ${clockFormatter.format(entry.at)} · Arrival not recorded`;
-  return `${clockFormatter.format(entry.at)} · Departure not recorded`;
+  return `${visibleStart} · Departure not recorded`;
 }
 
 function DayActivityOverview({ chart, onSelect }) {

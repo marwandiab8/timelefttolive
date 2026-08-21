@@ -535,7 +535,10 @@ export function toggleActivitySelection(currentLabel, nextLabel) {
 function genericDestinationCategory(label) {
   const token = cleanToken(label);
   if (/(?:^|_)(?:gym|fitness)(?:_|$)/.test(token) || /goodlife/.test(token)) return 'Gym/Fitness';
-  if (/(?:^|_)(?:home|house)(?:_|$)/.test(token)) return 'Home';
+  // Only an explicit Home/House alias represents the owner's canonical Home.
+  // Named places such as "Ethan's Home" or "Home Depot" are distinct Places
+  // and must never enrich or deduplicate an arrive_home boundary.
+  if (isCategoryAlias(label, 'Home')) return 'Home';
   if (/(?:^|_)(?:work|office|workplace)(?:_|$)/.test(token)) return 'Work';
   if (/(?:^|_)(?:drive|driving|transport|travel|trip)(?:_|$)/.test(token)) return 'Transportation';
   return 'Places';
@@ -1170,6 +1173,15 @@ export function buildChronologicalActivityTimeline(analysis, timeZone = APP_TIME
   const sessionEntries = sessions.map((session) => {
     const parent = findTimelineParent(session, sessions);
     const definition = getCategoryDefinition(session.category);
+    const boundaryStartAt = getEventTime(session.startEvent) || getEventTime(session.event) || session.startAt;
+    const boundaryEndAt = session.endEvent
+      ? (getEventEndTime(session.endEvent) || getEventTime(session.endEvent))
+      : null;
+    const startedBeforeVisibleRange = Boolean(
+      boundaryStartAt
+      && session.startAt
+      && boundaryStartAt.getTime() < session.startAt.getTime()
+    );
     const stableIdentity = stableEventIdentity(session.startEvent)
       || stableEventIdentity(session.endEvent)
       || String(session.id);
@@ -1189,6 +1201,9 @@ export function buildChronologicalActivityTimeline(analysis, timeZone = APP_TIME
       title: session.title || getSessionDisplayName(session),
       at: session.startAt,
       endAt: session.endAt,
+      boundaryStartAt,
+      boundaryEndAt,
+      startedBeforeVisibleRange,
       dateId: getDateIdInTimezone(session.startAt, timeZone),
       timeRecorded: true,
       durationSeconds: session.durationSeconds,

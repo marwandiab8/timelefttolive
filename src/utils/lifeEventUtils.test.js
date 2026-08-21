@@ -270,6 +270,42 @@ describe('activity analysis utilities', () => {
     expect(resolution.suppressed[0].reason).toBe('associated_with_specific_arrival');
   });
 
+  it('keeps a named home as a distinct Place instead of enriching the owner Home boundary', () => {
+    const bounds = getPeriodBounds('day', '2026-08-21');
+    const analysis = buildPeriodAnalysis([
+      { id: 'ethans-home', eventType: 'arrive_location', activityFamily: 'location', occurredAt: '2026-08-21T09:20:00Z', location: { label: 'Ethan’s Home' } },
+      { id: 'home-specific', eventType: 'arrive_home', activityFamily: 'home', occurredAt: '2026-08-21T09:27:00Z' },
+      { id: 'home-out', eventType: 'leave_home', activityFamily: 'home', occurredAt: '2026-08-21T10:30:00Z' }
+    ], bounds);
+
+    expect(analysis.suppressedEvents).toHaveLength(0);
+    expect(analysis.activityEntries.some((entry) => entry.title === 'Arrived at Ethan’s Home')).toBe(true);
+    expect(analysis.pointCategories.find((category) => category.label === 'Places')).toMatchObject({ count: 1, seconds: 0 });
+    expect(analysis.sessions.find((session) => session.category === 'Home')).toMatchObject({
+      title: 'Home', location: '', durationSeconds: 3780
+    });
+  });
+
+  it('keeps the true Home arrival boundary when a cross-midnight session is clipped to the selected day', () => {
+    const bounds = getPeriodBounds('day', '2026-08-21');
+    const analysis = buildPeriodAnalysis([
+      { id: 'home-specific', eventType: 'arrive_home', activityFamily: 'home', occurredAt: '2026-08-20T21:27:51.793Z' },
+      { id: 'home-out', eventType: 'leave_home', activityFamily: 'home', occurredAt: '2026-08-21T08:29:35.766Z' }
+    ], bounds);
+    const [entry] = buildChronologicalActivityTimeline(analysis, APP_TIMEZONE).entries;
+
+    expect(entry).toMatchObject({
+      title: 'Home',
+      at: new Date('2026-08-21T04:00:00.000Z'),
+      boundaryStartAt: new Date('2026-08-20T21:27:51.793Z'),
+      boundaryEndAt: new Date('2026-08-21T08:29:35.766Z'),
+      startedBeforeVisibleRange: true,
+      durationSeconds: 16175.766
+    });
+    expect(entry.startEvent.id).toBe('home-specific');
+    expect(entry.endEvent.id).toBe('home-out');
+  });
+
   it('keeps a valid specific Gym departure paired after associating a duplicate CarPlay arrival', () => {
     const bounds = getPeriodBounds('day', '2026-08-19');
     const analysis = buildPeriodAnalysis([
