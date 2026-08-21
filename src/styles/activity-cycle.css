@@ -1597,6 +1597,40 @@
   line-height: 1.5;
 }
 
+.cycle-total-controls {
+  display: grid;
+  gap: 12px;
+  justify-items: end;
+}
+
+.cycle-total-context {
+  display: grid;
+  justify-items: end;
+  color: var(--cycle-muted);
+  line-height: 1.25;
+}
+
+.cycle-total-context span {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cycle-total-context strong {
+  color: var(--cycle-text);
+  font-size: 1.25rem;
+}
+
+.cycle-total-context small {
+  margin-top: 3px;
+}
+
+.cycle-total-ranges {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .cycle-total-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
@@ -1626,12 +1660,20 @@
   display: block;
   margin-top: 7px;
   font-size: 2rem;
+  overflow-wrap: anywhere;
+}
+
+.cycle-total-grid h3 + strong + small,
+.cycle-total-grid h3 + strong + small + small {
+  display: block;
+  margin-top: 5px;
+  color: var(--cycle-muted);
 }
 
 .cycle-total-grid dl {
   display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
   gap: 8px;
   margin: 4px 0 0;
   padding-top: 14px;
@@ -1651,6 +1693,30 @@
 .cycle-total-grid dd {
   margin-top: 4px;
   font-weight: 800;
+}
+
+.cycle-total-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--cycle-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.cycle-total-detail {
+  grid-column: 1 / -1;
+  justify-self: start;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid color-mix(in srgb, var(--total-color) 56%, var(--cycle-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--total-color) 12%, transparent);
+  color: var(--cycle-text);
+  font-weight: 800;
+}
+
+.cycle-total-detail:hover {
+  background: color-mix(in srgb, var(--total-color) 22%, transparent);
 }
 
 .cycle-empty-wheel {
@@ -1853,6 +1919,12 @@
   .cycle-moments > header,
   .cycle-totals-view > header {
     display: grid;
+  }
+
+  .cycle-total-controls,
+  .cycle-total-context {
+    justify-items: start;
+    width: 100%;
   }
 
   .cycle-focus-panel > header h2,
@@ -2073,7 +2145,7 @@
   }
 
   .cycle-total-grid dl {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

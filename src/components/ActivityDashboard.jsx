@@ -14,7 +14,6 @@ import {
   buildPointCategoryAnalysis,
   buildPeriodAnalysis,
   enrichLifeEventsWithJournalDetails,
-  filterLifeEventsByRange,
   formatDuration,
   getActivityTallyRange,
   getDateIdInTimezone,
@@ -47,6 +46,10 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
 const shortDateFormatter = new Intl.DateTimeFormat(undefined, {
   timeZone: APP_TIMEZONE,
   month: 'short', day: 'numeric'
+});
+const tallyDateFormatter = new Intl.DateTimeFormat(undefined, {
+  timeZone: APP_TIMEZONE,
+  month: 'short', day: 'numeric', year: 'numeric'
 });
 const monthFormatter = new Intl.DateTimeFormat(undefined, {
   timeZone: APP_TIMEZONE,
@@ -150,13 +153,13 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
   const pointAnalysis = useMemo(() => buildPointCategoryAnalysis(selectedPointCategory), [selectedPointCategory]);
 
   const tallyRange = useMemo(() => getActivityTallyRange(tallyRangeId, now), [now, tallyRangeId]);
-  const tallyEvents = useMemo(() => (
-    filterLifeEventsByRange(allLifeEventState.lifeEvents, tallyRange)
-  ), [allLifeEventState.lifeEvents, tallyRange]);
-  const tallies = useMemo(() => buildActivityTallies(tallyEvents, {
+  const tallies = useMemo(() => buildActivityTallies(allLifeEventState.lifeEvents, {
+    calendarId: calendar.id,
     includeActive: true,
-    now
-  }), [now, tallyEvents]);
+    now,
+    ownerUid: calendar.ownerUid,
+    range: tallyRange
+  }), [allLifeEventState.lifeEvents, calendar.id, calendar.ownerUid, now, tallyRange]);
 
   const error = currentState.error || historyState.error || allLifeEventState.error || sourceState.error;
   const title = titleForPeriod(period, dateId, bounds, now);
@@ -185,6 +188,13 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
     setTheme(nextTheme);
     localStorage.setItem('activityDashboardTheme', nextTheme);
+  }
+
+  function inspectTally(tally) {
+    setPeriod('day');
+    setDateId(tally.latestDateId || getLocalDateId(now));
+    setSelectedLabel(tally.detailLabel || tally.label);
+    setMode('wheel');
   }
 
   return (
@@ -231,6 +241,7 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
       ) : (
         <TotalsView
           loading={allLifeEventState.loading}
+          onInspect={inspectTally}
           onRangeChange={setTallyRangeId}
           range={tallyRange}
           rangeId={tallyRangeId}
@@ -1224,11 +1235,51 @@ function DefaultReflection({ analysis, bounds }) {
   );
 }
 
-function TotalsView({ tallies, loading, range, rangeId, onRangeChange }) {
+function formatTallyDate(dateId, fallback) {
+  if (dateId) return tallyDateFormatter.format(getPeriodBounds('day', dateId).start);
+  return fallback ? tallyDateFormatter.format(fallback) : '—';
+}
+
+function tallyRangeDetail(range) {
+  if (!range.start || !range.end) return 'Your complete authorized activity history';
+  return `${tallyDateFormatter.format(range.start)} – ${tallyDateFormatter.format(new Date(range.end.getTime() - 1))}`;
+}
+
+export function TotalsView({ tallies, loading, range, rangeId, onRangeChange, onInspect }) {
   return (
     <section className="cycle-totals-view">
-      <header><div><p className="cycle-eyebrow">A longer view</p><h2>My Totals</h2><p>Only meaningful timed activities appear here. Notes, reports, coordinates, and attachments stay with Moments.</p></div><div className="cycle-total-ranges">{TALLY_RANGES.map((option) => <button className={rangeId === option.id ? 'selected' : ''} key={option.id} type="button" onClick={() => onRangeChange(option.id)}>{option.label}</button>)}</div></header>
-      {loading ? <LoadingState label="Calculating your totals…" /> : tallies.length === 0 ? <p className="activity-state">No complete timed sessions were recorded for {range.label.toLowerCase()}.</p> : <div className="cycle-total-grid">{tallies.map((tally) => <article key={tally.label} style={{ '--total-color': tally.color }}><span>{tally.icon}</span><div><h3>{tally.label}</h3><strong>{formatDuration(tally.totalSeconds)}</strong></div><dl><div><dt>Days</dt><dd>{tally.dayCount}</dd></div><div><dt>Sessions</dt><dd>{tally.sessionCount}</dd></div><div><dt>Average</dt><dd>{formatDuration(tally.averageSeconds)}</dd></div><div><dt>First</dt><dd>{tally.firstAt ? shortDateFormatter.format(tally.firstAt) : '—'}</dd></div><div><dt>Latest</dt><dd>{tally.lastAt ? shortDateFormatter.format(tally.lastAt) : '—'}</dd></div></dl></article>)}</div>}
+      <header>
+        <div><p className="cycle-eyebrow">A longer view</p><h2>My Totals</h2><p>Valid time, active days, sessions, and zero-duration Moments are derived from your canonical activity history.</p></div>
+        <div className="cycle-total-controls">
+          <div className="cycle-total-context" aria-live="polite"><span>Summarizing</span><strong>{range.label}</strong><small>{tallyRangeDetail(range)}</small></div>
+          <div className="cycle-total-ranges" aria-label="Totals range">{TALLY_RANGES.map((option) => <button aria-pressed={rangeId === option.id} className={rangeId === option.id ? 'selected' : ''} key={option.id} type="button" onClick={() => onRangeChange(option.id)}>{option.label}</button>)}</div>
+        </div>
+      </header>
+      {loading ? <LoadingState label="Calculating your totals…" /> : tallies.length === 0 ? <p className="activity-state">No qualifying activities or Moments were recorded for {range.label.toLowerCase()}.</p> : (
+        <div className="cycle-total-grid">
+          {tallies.map((tally) => (
+            <article key={tally.label} style={{ '--total-color': tally.color }}>
+              <span aria-hidden="true">{tally.icon}</span>
+              <div>
+                <h3>{tally.label}</h3>
+                <strong>{tally.timed ? (tally.totalSeconds > 0 ? formatDuration(tally.totalSeconds) : 'No valid time') : `${tally.entryCount} ${tally.entryCount === 1 ? 'entry' : 'entries'}`}</strong>
+                {!tally.timed && <small>Recorded as Moments · no duration added</small>}
+                {tally.activeCount > 0 && <small>{tally.activeCount} in progress</small>}
+              </div>
+              <dl>
+                <div><dt>Active days</dt><dd>{tally.dayCount}</dd></div>
+                {tally.timed && <div><dt>{tally.label === 'Gym/Fitness' ? 'Valid visits' : 'Valid sessions'}</dt><dd>{tally.sessionCount}</dd></div>}
+                {tally.timed && tally.entryCount > 0 && <div><dt>Entries</dt><dd>{tally.entryCount}</dd></div>}
+                {tally.totalSeconds > 0 && <div><dt>Avg. valid session</dt><dd>{formatDuration(tally.averageSeconds)}</dd></div>}
+                <div><dt>First</dt><dd>{formatTallyDate(tally.firstDateId, tally.firstAt)}</dd></div>
+                <div><dt>Latest</dt><dd>{formatTallyDate(tally.latestDateId, tally.lastAt)}</dd></div>
+              </dl>
+              {tally.incompleteCount > 0 && <p className="cycle-total-note">{tally.incompleteCount} incomplete {tally.incompleteCount === 1 ? 'session is' : 'sessions are'} listed without uncertain duration.</p>}
+              {tally.latestDateId && <button className="cycle-total-detail" type="button" onClick={() => onInspect(tally)}>View latest details</button>}
+            </article>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

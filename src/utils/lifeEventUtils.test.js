@@ -420,15 +420,16 @@ describe('activity analysis utilities', () => {
     expect(getLocationLabel({ location: { label: 'work' } })).toBe('');
   });
 
-  it('keeps coordinates, attachments, and reports out of primary all-time totals', () => {
+  it('keeps coordinates and attachments out of totals while counting reports as zero-duration entries', () => {
     const tallies = buildActivityTallies([
       { id: 'work', activityFamily: 'work', startAt: '2026-08-10T13:00:00Z', endAt: '2026-08-10T21:00:00Z' },
       { id: 'coordinate', activityFamily: '43.7412,-79.7624', occurredAt: '2026-08-10T14:00:00Z' },
       { id: 'report', activityFamily: 'Projectreport', occurredAt: '2026-08-10T15:00:00Z' },
       { id: 'image', activityFamily: 'Image', occurredAt: '2026-08-10T16:00:00Z' }
     ]);
-    expect(tallies.map((tally) => tally.label)).toEqual(['Work']);
+    expect(tallies.map((tally) => tally.label)).toEqual(['Work', 'Work Reports']);
     expect(tallies[0]).toMatchObject({ totalSeconds: 28800, dayCount: 1, sessionCount: 1 });
+    expect(tallies[1]).toMatchObject({ totalSeconds: 0, dayCount: 1, entryCount: 1, timed: false });
   });
 
   it('builds normalized all-time tallies from overlap-safe sessionization', () => {
@@ -441,6 +442,118 @@ describe('activity analysis utilities', () => {
     expect(tallies.find((tally) => tally.label === 'Work')).toMatchObject({ totalSeconds: 28800, dayCount: 1, sessionCount: 1 });
     expect(tallies.find((tally) => tally.label === 'Gym/Fitness')).toMatchObject({ totalSeconds: 7200, dayCount: 1, sessionCount: 1 });
     expect(tallies.some((tally) => tally.label === 'Notes')).toBe(false);
+  });
+
+  it('totals Work and Gym/Fitness duration across distinct Toronto days', () => {
+    const tallies = buildActivityTallies([
+      { id: 'work-1', activityFamily: 'work', startAt: '2026-08-10T13:00:00Z', endAt: '2026-08-10T21:00:00Z' },
+      { id: 'work-2', activityFamily: 'work', startAt: '2026-08-11T13:00:00Z', endAt: '2026-08-11T21:30:00Z' },
+      { id: 'gym-1', activityFamily: 'gym', startAt: '2026-08-10T22:00:00Z', endAt: '2026-08-10T23:30:00Z' },
+      { id: 'gym-2', activityFamily: 'fitness', startAt: '2026-08-12T12:00:00Z', endAt: '2026-08-12T14:00:00Z' }
+    ]);
+    expect(tallies.find((tally) => tally.label === 'Work')).toMatchObject({
+      totalSeconds: 59400, dayCount: 2, sessionCount: 2
+    });
+    expect(tallies.find((tally) => tally.label === 'Gym/Fitness')).toMatchObject({
+      totalSeconds: 12600, dayCount: 2, sessionCount: 2
+    });
+  });
+
+  it('builds a dynamic tally for another timed canonical category', () => {
+    const [reading] = buildActivityTallies([
+      { id: 'read-1', activityFamily: 'reading', startAt: '2026-08-10T23:00:00Z', endAt: '2026-08-11T00:15:00Z' },
+      { id: 'read-2', categoryId: 'Reading', startAt: '2026-08-12T01:00:00Z', endAt: '2026-08-12T01:45:00Z' }
+    ]);
+    expect(reading).toMatchObject({ label: 'Reading', totalSeconds: 7200, dayCount: 2, sessionCount: 2, timed: true });
+  });
+
+  it('counts zero-duration Moments by entry and Toronto day without fabricating time', () => {
+    const tallies = buildActivityTallies([
+      { id: 'play-1', sourceEventId: 'play-1', eventType: 'start_spotify', activityFamily: 'spotify', occurredAt: '2026-08-10T13:00:00Z' },
+      { id: 'play-2', sourceEventId: 'play-2', eventType: 'start_spotify', activityFamily: 'spotify', occurredAt: '2026-08-10T15:00:00Z' },
+      { id: 'play-3', sourceEventId: 'play-3', eventType: 'start_spotify', activityFamily: 'spotify', occurredAt: '2026-08-11T15:00:00Z' }
+    ]);
+    expect(tallies).toHaveLength(1);
+    expect(tallies[0]).toMatchObject({
+      label: 'Spotify', totalSeconds: 0, dayCount: 2, entryCount: 3, sessionCount: 0, timed: false
+    });
+  });
+
+  it('counts multiple sessions on one Toronto day as one active day', () => {
+    const [work] = buildActivityTallies([
+      { id: 'morning', activityFamily: 'work', startAt: '2026-08-10T12:00:00Z', endAt: '2026-08-10T16:00:00Z' },
+      { id: 'evening', activityFamily: 'work', startAt: '2026-08-10T17:00:00Z', endAt: '2026-08-10T21:00:00Z' }
+    ]);
+    expect(work).toMatchObject({ totalSeconds: 28800, dayCount: 1, sessionCount: 2 });
+  });
+
+  it('counts both Toronto days all time and clips a cross-midnight boundary session in a bounded range', () => {
+    const events = [
+      { id: 'work-in', sourceEventId: 'work-in', eventType: 'arrive_work', activityFamily: 'work', occurredAt: '2026-08-11T02:00:00Z' },
+      { id: 'work-out', sourceEventId: 'work-out', eventType: 'leave_work', activityFamily: 'work', occurredAt: '2026-08-11T10:00:00Z' }
+    ];
+    expect(buildActivityTallies(events)[0]).toMatchObject({ totalSeconds: 28800, dayCount: 2, sessionCount: 1 });
+    expect(buildActivityTallies(events, { range: getPeriodBounds('day', '2026-08-11') })[0]).toMatchObject({
+      totalSeconds: 21600, dayCount: 1, sessionCount: 1, firstDateId: '2026-08-11', latestDateId: '2026-08-11'
+    });
+  });
+
+  it('deduplicates canonical source identity and excludes explicit Shortcut shadows and invalid records', () => {
+    const tallies = buildActivityTallies([
+      { id: 'work-a', integrationId: 'ios', sourceEventId: 'same-work', activityFamily: 'work', startAt: '2026-08-10T13:00:00Z', endAt: '2026-08-10T21:00:00Z' },
+      { id: 'work-b', integrationId: 'ios', sourceEventId: 'same-work', activityFamily: 'work', startAt: '2026-08-10T13:00:00Z', endAt: '2026-08-10T21:00:00Z' },
+      { id: 'shadow', sourceEventId: 'shadow', eventType: 'journal', occurredAt: '2026-08-10T22:00:00Z', metadata: { activityVisibility: 'shortcut_shadow' } },
+      { id: 'real-note', sourceEventId: 'real-note', eventType: 'journal', occurredAt: '2026-08-10T23:00:00Z' },
+      { id: 'paused', sourceEventId: 'paused', activityFamily: 'reading', status: 'paused', startAt: '2026-08-10T14:00:00Z', endAt: '2026-08-10T15:00:00Z' },
+      { id: 'invalid', sourceEventId: 'invalid', activityFamily: 'sleep', ingestionStatus: 'invalid', startAt: '2026-08-10T04:00:00Z', endAt: '2026-08-10T12:00:00Z' }
+    ]);
+    expect(tallies.find((tally) => tally.label === 'Work')).toMatchObject({ totalSeconds: 28800, sessionCount: 1 });
+    expect(tallies.find((tally) => tally.label === 'Journal')).toMatchObject({ entryCount: 1, dayCount: 1 });
+    expect(tallies.some((tally) => ['Reading', 'Sleep'].includes(tally.label))).toBe(false);
+  });
+
+  it('normalizes category aliases into one tally row', () => {
+    const tallies = buildActivityTallies([
+      { id: 'office', activityFamily: 'office', startAt: '2026-08-10T13:00:00Z', endAt: '2026-08-10T17:00:00Z' },
+      { id: 'workplace', categoryId: 'workplace', startAt: '2026-08-11T13:00:00Z', endAt: '2026-08-11T17:00:00Z' }
+    ]);
+    expect(tallies).toHaveLength(1);
+    expect(tallies[0]).toMatchObject({ label: 'Work', totalSeconds: 28800, dayCount: 2, sessionCount: 2 });
+  });
+
+  it('counts a safe active session and lists an incomplete session without uncertain duration', () => {
+    const now = new Date('2026-08-11T17:00:00Z');
+    const tallies = buildActivityTallies([
+      { id: 'active-work', eventType: 'arrive_work', activityFamily: 'work', occurredAt: '2026-08-11T13:00:00Z' },
+      { id: 'incomplete-gym', eventType: 'arrive_gym', activityFamily: 'gym', occurredAt: '2026-08-09T13:00:00Z' }
+    ], { includeActive: true, now });
+    expect(tallies.find((tally) => tally.label === 'Work')).toMatchObject({
+      totalSeconds: 14400, dayCount: 1, sessionCount: 1, activeCount: 1, incompleteCount: 0
+    });
+    expect(tallies.find((tally) => tally.label === 'Gym/Fitness')).toMatchObject({
+      totalSeconds: 0, dayCount: 1, sessionCount: 0, incompleteCount: 1
+    });
+  });
+
+  it('does not count a correlated interval twice when canonical records use different source identities', () => {
+    const [work] = buildActivityTallies([
+      { id: 'shortcut-work', integrationId: 'shortcuts', sourceEventId: 'work-session-1', activityFamily: 'work', startAt: '2026-08-10T13:00:00Z', endAt: '2026-08-10T21:00:00Z' },
+      { id: 'calendar-work', integrationId: 'calendar', sourceEventId: 'work-session-copy', activityFamily: 'work', startAt: '2026-08-10T13:00:00Z', endAt: '2026-08-10T21:00:00Z' }
+    ]);
+    expect(work).toMatchObject({ totalSeconds: 28800, dayCount: 1, sessionCount: 1 });
+  });
+
+  it('returns an empty tally safely', () => {
+    expect(buildActivityTallies([])).toEqual([]);
+  });
+
+  it('defensively excludes events from another owner or calendar reporting scope', () => {
+    const [work] = buildActivityTallies([
+      { id: 'mine', calendarId: 'calendar-a', timeLeftUserId: 'owner-a', privacyLevel: 'ownerOnly', activityFamily: 'work', startAt: '2026-08-10T13:00:00Z', endAt: '2026-08-10T14:00:00Z' },
+      { id: 'other-owner', calendarId: 'calendar-a', timeLeftUserId: 'owner-b', activityFamily: 'work', startAt: '2026-08-10T13:00:00Z', endAt: '2026-08-10T18:00:00Z' },
+      { id: 'other-calendar', calendarId: 'calendar-b', timeLeftUserId: 'owner-a', activityFamily: 'work', startAt: '2026-08-10T13:00:00Z', endAt: '2026-08-10T19:00:00Z' }
+    ], { calendarId: 'calendar-a', ownerUid: 'owner-a' });
+    expect(work).toMatchObject({ totalSeconds: 3600, dayCount: 1, sessionCount: 1 });
   });
 
   it('prefers one richer canonical workout over an overlapping generic boundary session', () => {

@@ -374,7 +374,9 @@ function meaningfulPointEvent(event) {
   const label = getPointCategoryLabel(event);
   if (HIDDEN_POINT_CATEGORIES.has(label)) return false;
   const raw = `${cleanToken(event?.eventType)} ${cleanToken(event?.activityFamily)} ${cleanToken(event?.title)}`;
-  if (/coordinate|latitude|longitude|gps/.test(raw) || COORDINATE_VALUE.test(String(event?.title || ''))) return false;
+  const coordinateOnly = [event?.title, event?.activityFamily, event?.categoryId, event?.location?.label]
+    .some((value) => COORDINATE_VALUE.test(String(value || '')));
+  if (/coordinate|latitude|longitude|gps/.test(raw) || coordinateOnly) return false;
   return Boolean(getEventTime(event));
 }
 
@@ -1663,13 +1665,13 @@ export function buildCategoryInsight(categoryAnalysis) {
 export function getActivityTallyRange(rangeId, now = new Date(), timeZone = APP_TIMEZONE) {
   const today = getLocalDateId(now, timeZone);
   const end = getPeriodBounds('day', shiftPeriodDate(today, 'day', 1, timeZone), timeZone).start;
-  if (rangeId === 'year') return { id: 'year', label: String(zonedParts(now, timeZone).year), start: getPeriodBounds('year', today, timeZone).start, end };
+  if (rangeId === 'year') return { id: 'year', label: String(zonedParts(now, timeZone).year), start: getPeriodBounds('year', today, timeZone).start, end, timezone: timeZone };
   if (rangeId === '30d' || rangeId === '7d') {
     const days = rangeId === '30d' ? 30 : 7;
     const startDateId = shiftPeriodDate(today, 'day', -(days - 1), timeZone);
-    return { id: rangeId, label: `Last ${days} days`, start: getPeriodBounds('day', startDateId, timeZone).start, end };
+    return { id: rangeId, label: `Last ${days} days`, start: getPeriodBounds('day', startDateId, timeZone).start, end, timezone: timeZone };
   }
-  return { id: 'all', label: 'All time', start: null, end: null };
+  return { id: 'all', label: 'All Time', start: null, end: null, timezone: timeZone };
 }
 
 export function filterLifeEventsByRange(events, range) {
@@ -1678,43 +1680,214 @@ export function filterLifeEventsByRange(events, range) {
   const start = range?.start?.getTime?.() ?? Number.NEGATIVE_INFINITY;
   const end = range?.end?.getTime?.() ?? Number.POSITIVE_INFINITY;
   return safeEvents.filter((event) => {
-    const eventTime = getEventTime(event)?.getTime();
-    return Number.isFinite(eventTime) && eventTime >= start && eventTime < end;
+    const eventStart = getEventTime(event)?.getTime();
+    if (!Number.isFinite(eventStart)) return false;
+    const explicitEnd = getEventEndTime(event)?.getTime();
+    const duration = getEventDurationSeconds(event);
+    const eventEnd = Number.isFinite(explicitEnd)
+      ? explicitEnd
+      : Number.isFinite(duration) && duration > 0
+        ? eventStart + (duration * 1000)
+        : eventStart;
+    if (eventEnd === eventStart) return eventStart >= start && eventStart < end;
+    return eventEnd > start && eventStart < end;
   });
 }
 
-export function buildActivityTallies(events, options = {}) {
-  const safeEvents = sortLifeEvents(events);
-  const analysis = buildPeriodAnalysis(safeEvents, null, options);
-  const firstAndLast = new Map();
-  safeEvents.forEach((event) => {
-    const label = getTallyActivityLabel(event);
-    if (!isPrimaryActivityCategory(label)) return;
-    const at = getEventTime(event);
-    if (!at) return;
-    const values = firstAndLast.get(label) || { firstAt: at, lastAt: at };
-    if (at < values.firstAt) values.firstAt = at;
-    if (at > values.lastAt) values.lastAt = at;
-    firstAndLast.set(label, values);
+const EXCLUDED_TALLY_STATUSES = new Set([
+  'cancelled', 'deleted', 'discarded', 'failed', 'invalid', 'invalidated',
+  'needs_date_review', 'paused', 'rejected', 'replaced', 'superseded'
+]);
+
+function isQualifyingTallyEvent(event, options) {
+  if (!event || event.excludeFromActivity === true || event._journal?.shortcutShadow === true) return false;
+  if (cleanToken(event.metadata?.activityVisibility) === 'shortcut_shadow') return false;
+  if (event.invalid === true || event.invalidated === true || event.isValid === false) return false;
+  if (event.replacedBy || event.supersededBy || event.invalidatedAt) return false;
+  const statuses = [
+    event.ingestionStatus,
+    event.activityStatus,
+    event.sessionStatus,
+    event.status,
+    event.metadata?.activityStatus
+  ].map(cleanToken).filter(Boolean);
+  if (statuses.some((status) => EXCLUDED_TALLY_STATUSES.has(status))) return false;
+  if (options.calendarId && event.calendarId && event.calendarId !== options.calendarId) return false;
+  const eventOwner = event.timeLeftUserId || event.ownerUid;
+  if (options.ownerUid && eventOwner && eventOwner !== options.ownerUid) return false;
+  return true;
+}
+
+function tallyEventIdentity(event) {
+  const scope = cleanToken(event.integrationId || event.connectionId || event.sourceApp || event.sourceFirebaseProjectId);
+  if (event.sourceEventId) return `source-event|${scope}|${String(event.sourceEventId)}`;
+  if (event.sourceRecordId) {
+    return `source-record|${scope}|${String(event.sourceRecordId)}|${cleanToken(event.eventType)}|${getEventTime(event)?.toISOString() || ''}`;
+  }
+  if (event.id) return `canonical|${String(event.id)}`;
+  return '';
+}
+
+function deduplicateTallyEvents(events) {
+  const seen = new Set();
+  return sortLifeEvents(events).filter((event) => {
+    const identity = tallyEventIdentity(event);
+    if (!identity || !seen.has(identity)) {
+      if (identity) seen.add(identity);
+      return true;
+    }
+    return false;
   });
-  return analysis.categories
-    .filter((category) => category.seconds > 0)
-    .map((category) => {
-      const days = new Set(category.sessions.map((session) => getDateIdInTimezone(session.startAt, session.timezone)));
-      const dates = firstAndLast.get(category.label) || {};
-      return {
-        label: category.label,
-        totalSeconds: category.seconds,
-        sessionCount: category.sessions.length,
-        dayCount: days.size,
-        averageSeconds: category.sessions.length ? category.seconds / category.sessions.length : 0,
-        firstAt: dates.firstAt || category.sessions[0]?.startAt || null,
-        lastAt: dates.lastAt || category.sessions.at(-1)?.endAt || null,
-        sessions: category.sessions,
-        color: category.color,
-        icon: category.icon
-      };
+}
+
+function addIntervalDateIds(dateIds, start, end, timeZone) {
+  const startAt = toJsDate(start);
+  const endAt = toJsDate(end);
+  if (!startAt || !endAt || endAt <= startAt) return;
+  let dateId = getDateIdInTimezone(startAt, timeZone);
+  const lastDateId = getDateIdInTimezone(new Date(endAt.getTime() - 1), timeZone);
+  for (let index = 0; dateId && index < 50000; index += 1) {
+    dateIds.add(dateId);
+    if (dateId === lastDateId) break;
+    dateId = shiftPeriodDate(dateId, 'day', 1, timeZone);
+  }
+}
+
+function addSessionDateIds(dateIds, session, timeZone) {
+  const fragments = Array.isArray(session?.fragments) ? session.fragments : [];
+  if (fragments.length) {
+    fragments.forEach((fragment) => addIntervalDateIds(dateIds, fragment.start, fragment.end, timeZone));
+    return;
+  }
+  if (session?.endAt) {
+    addIntervalDateIds(dateIds, session.startAt, session.endAt, timeZone);
+    return;
+  }
+  const dateId = getDateIdInTimezone(session?.startAt, timeZone);
+  if (dateId) dateIds.add(dateId);
+}
+
+function usefulTallySessions(category) {
+  const sessions = Array.isArray(category?.allSessions) ? category.allSessions : [];
+  if (category?.label !== 'Gym/Fitness') return sessions;
+  const visits = sessions.filter((session) => !isWorkoutTimelineSession(session));
+  return visits.length ? visits : sessions;
+}
+
+function reliableTallySessions(category) {
+  const sessions = Array.isArray(category?.sessions) ? category.sessions : [];
+  if (category?.label !== 'Gym/Fitness') return sessions;
+  const visits = sessions.filter((session) => !isWorkoutTimelineSession(session));
+  return visits.length ? visits : sessions;
+}
+
+function tallyDateBounds(dateIds) {
+  const ordered = [...dateIds].sort();
+  return {
+    firstDateId: ordered[0] || null,
+    latestDateId: ordered.at(-1) || null
+  };
+}
+
+export function buildActivityTallies(events, options = {}) {
+  const timeZone = options.timeZone || options.range?.timezone || APP_TIMEZONE;
+  const safeEvents = deduplicateTallyEvents(
+    (Array.isArray(events) ? events : []).filter((event) => isQualifyingTallyEvent(event, options))
+  );
+  const bounds = options.range?.start || options.range?.end ? options.range : null;
+  // Keep the complete canonical event set until after session pairing. This is
+  // what lets a boundary before a selected range pair with its later departure
+  // and then clip cleanly at the Toronto range boundary.
+  const analysis = buildPeriodAnalysis(safeEvents, bounds, options);
+  const tallies = new Map();
+
+  analysis.sessionCategories.forEach((category) => {
+    const sessions = usefulTallySessions(category);
+    const reliableSessions = reliableTallySessions(category);
+    const unresolvedSessions = sessions.filter((session) => !session.endAt);
+    const tallySessions = [...reliableSessions, ...unresolvedSessions]
+      .sort((left, right) => left.startAt - right.startAt);
+    if (!tallySessions.length) return;
+    const dateIds = new Set();
+    tallySessions.forEach((session) => addSessionDateIds(dateIds, session, timeZone));
+    const reliableSessionCount = reliableSessions.length;
+    const { firstDateId, latestDateId } = tallyDateBounds(dateIds);
+    tallies.set(category.label, {
+      label: category.label,
+      detailLabel: category.label,
+      totalSeconds: category.seconds,
+      sessionCount: reliableSessionCount,
+      reliableSessionCount,
+      entryCount: 0,
+      dayCount: dateIds.size,
+      averageSeconds: reliableSessionCount ? category.seconds / reliableSessionCount : 0,
+      incompleteCount: sessions.filter((session) => session.kind === 'incomplete').length,
+      activeCount: sessions.filter((session) => session.active).length,
+      firstAt: tallySessions[0]?.startAt || null,
+      lastAt: tallySessions.at(-1)?.endAt || tallySessions.at(-1)?.startAt || null,
+      firstDateId,
+      latestDateId,
+      sessions: tallySessions,
+      color: category.color,
+      icon: category.icon,
+      timed: true,
+      point: false
     });
+  });
+
+  analysis.pointCategories.forEach((category) => {
+    const existing = tallies.get(category.label);
+    const dateIds = new Set(category.entries.map((entry) => entry.dateId).filter(Boolean));
+    const entryTimes = category.entries.flatMap((entry) => [entry.firstAt, entry.lastAt]).filter(Boolean);
+    const { firstDateId, latestDateId } = tallyDateBounds(dateIds);
+    if (existing) {
+      const combinedDates = new Set([
+        ...dateIds,
+        ...existing.sessions.flatMap((session) => {
+          const sessionDates = new Set();
+          addSessionDateIds(sessionDates, session, timeZone);
+          return [...sessionDates];
+        })
+      ]);
+      const combinedBounds = tallyDateBounds(combinedDates);
+      existing.entryCount += category.count;
+      existing.dayCount = combinedDates.size;
+      existing.firstAt = [existing.firstAt, ...entryTimes].filter(Boolean).sort((left, right) => left - right)[0] || null;
+      existing.lastAt = [existing.lastAt, ...entryTimes].filter(Boolean).sort((left, right) => right - left)[0] || null;
+      existing.firstDateId = combinedBounds.firstDateId;
+      existing.latestDateId = combinedBounds.latestDateId;
+      existing.point = true;
+      return;
+    }
+    tallies.set(category.label, {
+      label: category.label,
+      detailLabel: category.label,
+      totalSeconds: 0,
+      sessionCount: 0,
+      reliableSessionCount: 0,
+      entryCount: category.count,
+      dayCount: dateIds.size,
+      averageSeconds: 0,
+      incompleteCount: 0,
+      activeCount: 0,
+      firstAt: entryTimes.sort((left, right) => left - right)[0] || null,
+      lastAt: entryTimes.sort((left, right) => right - left)[0] || null,
+      firstDateId,
+      latestDateId,
+      sessions: [],
+      color: category.color,
+      icon: category.icon,
+      timed: false,
+      point: true
+    });
+  });
+
+  return [...tallies.values()].sort((left, right) => (
+    right.totalSeconds - left.totalSeconds
+    || right.entryCount - left.entryCount
+    || right.sessionCount - left.sessionCount
+    || left.label.localeCompare(right.label)
+  ));
 }
 
 export function filterLifeEvents(events, selection) {
