@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ActivityDashboard from '../components/ActivityDashboard.jsx';
 import CalendarBreadcrumbs from '../components/CalendarBreadcrumbs.jsx';
 import { DayDrilldownView, MonthDetailView, WeekDetailView, YearDetailView } from '../components/CalendarDrilldown.jsx';
 import EventManager from '../components/EventManager.jsx';
 import ExternalSourcesManager from '../components/ExternalSourcesManager.jsx';
 import LifeHeatmap from '../components/LifeHeatmap.jsx';
+import PrimaryViewSwitcher from '../components/PrimaryViewSwitcher.jsx';
 import ProfileForm from '../components/ProfileForm.jsx';
 import ViewerManager from '../components/ViewerManager.jsx';
 import WeekDetailPanel from '../components/WeekDetailPanel.jsx';
@@ -13,7 +14,21 @@ import { acceptViewerInvite, useEvents, useOwnedCalendar, useSharedCalendar, use
 import { logOut } from '../services/firebase.js';
 import { getLifeStats } from '../utils/dateUtils.js';
 import { getCustodyStats } from '../utils/custodyUtils.js';
+import { clampHeatmapZoom } from '../utils/heatmapViewport.js';
 import { readCalendarTheme, toggleCalendarTheme, writeCalendarTheme } from '../utils/theme.js';
+
+function readStoredZoom() {
+  return clampHeatmapZoom(localStorage.getItem('lifeHeatmapZoom') || 1);
+}
+
+function readStoredFitMode() {
+  const stored = localStorage.getItem('lifeHeatmapFitMode');
+  return stored === 'manual' ? 'manual' : 'fit';
+}
+
+function viewFromLocation() {
+  return window.location.hash === '#activity' ? 'activity' : 'calendar';
+}
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -33,13 +48,15 @@ export default function Dashboard() {
   const [showEvents, setShowEvents] = useState(false);
   const [showSources, setShowSources] = useState(false);
   const [showViewers, setShowViewers] = useState(false);
-  const [primaryView, setPrimaryView] = useState('calendar');
+  const [primaryView, setPrimaryView] = useState(viewFromLocation);
+  const [activityMounted, setActivityMounted] = useState(() => viewFromLocation() === 'activity');
   const [selectedWeek, setSelectedWeek] = useState(null);
   const [calendarView, setCalendarView] = useState({ view: 'life' });
-  const [zoom, setZoom] = useState(() => Number(localStorage.getItem('lifeHeatmapZoom') || 1));
-  const [fitMode, setFitMode] = useState(() => localStorage.getItem('lifeHeatmapFitMode') || 'width');
+  const [zoom, setZoom] = useState(readStoredZoom);
+  const [fitMode, setFitMode] = useState(readStoredFitMode);
   const [calendarTheme, setCalendarTheme] = useState(readCalendarTheme);
   const heatmapRef = useRef(null);
+  const viewScrollPositions = useRef({ activity: { left: 0, top: 0 }, calendar: { left: 0, top: 0 } });
   const stats = useMemo(() => calendar ? getLifeStats(calendar.birthDate, calendar.targetAge) : null, [calendar]);
   const custodyStats = useMemo(() => calendar ? getCustodyStats(calendar) : null, [calendar]);
   const dataError = owned.error || inviteState.error || shared.error || eventState.error || viewerState.error;
@@ -55,34 +72,118 @@ export default function Dashboard() {
     return () => delete document.documentElement.dataset.calendarTheme;
   }, [calendarTheme, primaryView]);
 
-  function updateZoom(value) {
-    const nextZoom = Math.min(2.5, Math.max(0.45, value));
+  const updateZoom = useCallback((value, { preserveFitMode = false } = {}) => {
+    const nextZoom = clampHeatmapZoom(value);
     setZoom(nextZoom);
     localStorage.setItem('lifeHeatmapZoom', String(nextZoom));
-  }
+    if (!preserveFitMode) {
+      setFitMode('manual');
+      localStorage.setItem('lifeHeatmapFitMode', 'manual');
+    }
+  }, []);
 
-  function updateFitMode(value) {
+  const updateFitMode = useCallback((value) => {
     setFitMode(value);
     localStorage.setItem('lifeHeatmapFitMode', value);
-    if (value === 'whole') updateZoom(0.55);
-    if (value === 'width') updateZoom(1);
-  }
+  }, []);
+
+  const showActivity = useCallback(() => {
+    if (role !== 'owner' || primaryView === 'activity') return;
+    viewScrollPositions.current.calendar = { left: window.scrollX, top: window.scrollY };
+    setActivityMounted(true);
+    window.history.pushState(
+      { ...(window.history.state || {}), timeLeftView: 'activity' },
+      '',
+      `${window.location.pathname}${window.location.search}#activity`
+    );
+    setPrimaryView('activity');
+  }, [primaryView, role]);
+
+  const showCalendar = useCallback(() => {
+    if (primaryView === 'calendar') return;
+    viewScrollPositions.current.activity = { left: window.scrollX, top: window.scrollY };
+    if (window.location.hash === '#activity' && window.history.state?.timeLeftView === 'activity') {
+      window.history.back();
+      return;
+    }
+    const nextState = { ...(window.history.state || {}) };
+    delete nextState.timeLeftView;
+    window.history.replaceState(nextState, '', `${window.location.pathname}${window.location.search}`);
+    setPrimaryView('calendar');
+  }, [primaryView]);
 
   function toggleCalendarBackground() {
     setCalendarTheme((current) => writeCalendarTheme(toggleCalendarTheme(current)));
   }
 
   useEffect(() => {
+    function handleHistoryChange() {
+      const requestedView = viewFromLocation();
+      const nextView = requestedView === 'activity' && role === 'owner' ? 'activity' : 'calendar';
+      viewScrollPositions.current[primaryView] = { left: window.scrollX, top: window.scrollY };
+      if (nextView === 'activity') setActivityMounted(true);
+      setPrimaryView(nextView);
+    }
+    window.addEventListener('popstate', handleHistoryChange);
+    return () => window.removeEventListener('popstate', handleHistoryChange);
+  }, [primaryView, role]);
+
+  useEffect(() => {
+    if (role === 'owner' || primaryView !== 'activity') return;
+    const nextState = { ...(window.history.state || {}) };
+    delete nextState.timeLeftView;
+    window.history.replaceState(nextState, '', `${window.location.pathname}${window.location.search}`);
+    setPrimaryView('calendar');
+  }, [primaryView, role]);
+
+  useEffect(() => {
+    const position = viewScrollPositions.current[primaryView];
+    window.scrollTo({ left: position.left, top: position.top, behavior: 'auto' });
+    let secondFrame;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        window.scrollTo({ left: position.left, top: position.top, behavior: 'auto' });
+      });
+    });
+    const settleTimer = window.setTimeout(() => {
+      window.scrollTo({ left: position.left, top: position.top, behavior: 'auto' });
+    }, 120);
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+      window.clearTimeout(settleTimer);
+    };
+  }, [primaryView]);
+
+  useEffect(() => {
     function handleKeyDown(event) {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
-      if (event.key === '+' || event.key === '=') updateZoom(zoom + 0.15);
-      if (event.key === '-') updateZoom(zoom - 0.15);
-      if (event.key === '0') updateZoom(1);
-      if (event.key.toLowerCase() === 'f') updateFitMode(fitMode === 'width' ? 'whole' : 'width');
+      if (primaryView !== 'calendar' || calendarView.view !== 'life') return;
+      if (
+        event.target instanceof HTMLInputElement
+        || event.target instanceof HTMLTextAreaElement
+        || event.target instanceof HTMLSelectElement
+        || event.target?.isContentEditable
+      ) return;
+      if (event.key === '+' || event.key === '=') {
+        event.preventDefault();
+        heatmapRef.current?.zoomBy(1);
+      }
+      if (event.key === '-') {
+        event.preventDefault();
+        heatmapRef.current?.zoomBy(-1);
+      }
+      if (event.key === '0') {
+        event.preventDefault();
+        heatmapRef.current?.resetZoom();
+      }
+      if (event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        heatmapRef.current?.fitCalendar();
+      }
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [zoom, fitMode]);
+  }, [calendarView.view, primaryView]);
 
   if (loading) return <div className="app-shell centered">Loading calendar...</div>;
 
@@ -109,16 +210,26 @@ export default function Dashboard() {
     );
   }
 
-  if (role === 'owner' && primaryView === 'activity') {
-    return <ActivityDashboard calendar={calendar} onBack={() => setPrimaryView('calendar')} />;
-  }
-
   return (
-    <main className="app-shell" data-calendar-theme={calendarTheme}>
+    <>
+      {role === 'owner' && activityMounted && (
+        <ActivityDashboard
+          active={primaryView === 'activity'}
+          calendar={calendar}
+          onBack={showCalendar}
+        />
+      )}
+      <main className="app-shell" data-calendar-theme={calendarTheme} hidden={primaryView !== 'calendar'}>
       <header className="topbar">
-        <div>
+        <div className="calendar-heading">
           <p className="eyebrow">{role === 'owner' ? 'Owner dashboard' : 'Read-only viewer'}</p>
           <h1>{calendar.firstName} {calendar.lastName}</h1>
+          {role === 'owner' && (
+            <PrimaryViewSwitcher
+              currentView="calendar"
+              onActivity={showActivity}
+            />
+          )}
         </div>
         <div className="actions">
           {pendingInvite && <button className="secondary" type="button" onClick={() => acceptViewerInvite(pendingInvite.calendarId, pendingInvite.id, user.uid)}>Accept invite</button>}
@@ -126,7 +237,6 @@ export default function Dashboard() {
           <button className="secondary theme-toggle" type="button" aria-pressed={calendarTheme === 'light'} onClick={toggleCalendarBackground}>
             {calendarTheme === 'dark' ? 'Light background' : 'Dark background'}
           </button>
-          {role === 'owner' && <button className="secondary" type="button" onClick={() => setPrimaryView('activity')}>Activity dashboard</button>}
           {role === 'owner' && <button className="secondary" type="button" onClick={() => setShowEvents(true)}>Add event</button>}
           {role === 'owner' && <button className="secondary" type="button" onClick={() => setShowSources(true)}>External sources</button>}
           {role === 'owner' && <button className="secondary" type="button" onClick={() => setEditingProfile(true)}>Edit profile</button>}
@@ -201,7 +311,8 @@ export default function Dashboard() {
       {showEvents && <EventManager calendar={calendar} events={events} role={role} onClose={() => setShowEvents(false)} />}
       {showSources && <ExternalSourcesManager calendarId={calendar.id} onClose={() => setShowSources(false)} />}
       {showViewers && <ViewerManager calendarId={calendar.id} viewers={viewers} onClose={() => setShowViewers(false)} />}
-    </main>
+      </main>
+    </>
   );
 }
 

@@ -1746,6 +1746,15 @@
     justify-self: stretch;
   }
 
+  .cycle-header-actions {
+    display: grid;
+    grid-template-columns: minmax(80px, auto) minmax(0, 1fr);
+  }
+
+  .cycle-header-actions .primary-view-switcher {
+    width: 100%;
+  }
+
   .cycle-view-switcher button,
   .cycle-header-actions button {
     flex: 1;

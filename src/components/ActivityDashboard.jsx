@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAllLifeEvents, useActivityJournalDetails, useConnectedSources, useLifeEvents } from '../hooks/useCalendar.js';
 import { loadAuthorizedActivityImage } from '../services/activityJournal.js';
+import PrimaryViewSwitcher from './PrimaryViewSwitcher.jsx';
 import {
   APP_TIMEZONE,
   buildActivityTallies,
@@ -83,7 +84,7 @@ function titleForPeriod(period, dateId, bounds, now) {
   return String(new Intl.DateTimeFormat('en-CA', { timeZone: APP_TIMEZONE, year: 'numeric' }).format(bounds.start));
 }
 
-export default function ActivityDashboard({ calendar, onBack }) {
+export default function ActivityDashboard({ active = true, calendar, onBack }) {
   const [mode, setMode] = useState('wheel');
   const [period, setPeriod] = useState('day');
   const [dateId, setDateId] = useState(() => getLocalDateId());
@@ -95,9 +96,11 @@ export default function ActivityDashboard({ calendar, onBack }) {
   ));
 
   useEffect(() => {
+    if (!active) return undefined;
+    setNow(new Date());
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [active]);
 
   const bounds = useMemo(() => getPeriodBounds(period, dateId), [period, dateId]);
   const previousBounds = useMemo(() => (
@@ -112,14 +115,14 @@ export default function ActivityDashboard({ calendar, onBack }) {
       end: new Date(bounds.start.getTime() + (36 * 3600 * 1000))
     };
   }, [bounds, dateId, period]);
-  const currentState = useLifeEvents(calendar.id, currentQuery?.start, currentQuery?.end, mode === 'wheel' && Boolean(bounds));
-  const historyState = useLifeEvents(calendar.id, historyQuery?.start, historyQuery?.end, mode === 'wheel' && Boolean(historyQuery));
-  const allLifeEventState = useAllLifeEvents(calendar.id, mode === 'totals');
-  const sourceState = useConnectedSources(calendar.id);
+  const currentState = useLifeEvents(calendar.id, currentQuery?.start, currentQuery?.end, active && mode === 'wheel' && Boolean(bounds));
+  const historyState = useLifeEvents(calendar.id, historyQuery?.start, historyQuery?.end, active && mode === 'wheel' && Boolean(historyQuery));
+  const allLifeEventState = useAllLifeEvents(calendar.id, active && mode === 'totals');
+  const sourceState = useConnectedSources(calendar.id, active);
   const journalState = useActivityJournalDetails(
     calendar.id,
     currentState.lifeEvents,
-    mode === 'wheel' && !currentState.loading
+    active && mode === 'wheel' && !currentState.loading
   );
   const enrichedLifeEvents = useMemo(() => (
     enrichLifeEventsWithJournalDetails(currentState.lifeEvents, journalState.details)
@@ -185,7 +188,7 @@ export default function ActivityDashboard({ calendar, onBack }) {
   }
 
   return (
-    <main className="activity-dashboard activity-cycle" data-theme={theme} style={{ '--activity-focus': accent }}>
+    <main className="activity-dashboard activity-cycle" data-theme={theme} hidden={!active} style={{ '--activity-focus': accent }}>
       <header className="cycle-header">
         <div className="cycle-brand">
           <p>Time Left To Live</p>
@@ -197,7 +200,7 @@ export default function ActivityDashboard({ calendar, onBack }) {
         </nav>
         <div className="cycle-header-actions">
           <button className="cycle-text-button" type="button" onClick={toggleTheme}>{theme === 'dark' ? 'Light' : 'Dark'}</button>
-          <button className="cycle-back-button" type="button" onClick={onBack}>Back to calendar</button>
+          <PrimaryViewSwitcher currentView="activity" onCalendar={onBack} />
         </div>
       </header>
 
