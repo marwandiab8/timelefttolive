@@ -6,6 +6,8 @@ import {
   buildActivityTallies,
   buildCategoryAnalysis,
   buildCategoryInsight,
+  buildChronologicalActivityTimeline,
+  buildDayActivityChart,
   buildJournalEntries,
   buildJournalMetrics,
   buildPointCategoryAnalysis,
@@ -25,7 +27,6 @@ import {
   getPeriodBounds,
   groupPhotosByDate,
   shiftPeriodDate,
-  selectActivityPreviewEntries,
   toggleActivitySelection
 } from '../utils/lifeEventUtils.js';
 
@@ -312,7 +313,16 @@ function WheelView({
         </aside>
       </section>
 
-      <ActivityStream analysis={analysis} bounds={bounds} onSelect={onSelect} />
+      <ActivityStream
+        analysis={analysis}
+        bounds={bounds}
+        now={now}
+        onInspectDate={(nextDateId) => {
+          onPeriodChange('day');
+          onDateChange(nextDateId);
+        }}
+        onSelect={onSelect}
+      />
 
       {period === 'day' && (
         <PhotoGallery
@@ -545,9 +555,18 @@ function PointGlance({ analysis, onClear }) {
   );
 }
 
-function ActivityStream({ analysis, bounds, onSelect }) {
+function ActivityStream({ analysis, bounds, now, onInspectDate, onSelect }) {
   const [showAll, setShowAll] = useState(false);
-  const entries = showAll ? analysis.activityEntries : selectActivityPreviewEntries(analysis.activityEntries, 8);
+  const timeline = useMemo(
+    () => buildChronologicalActivityTimeline(analysis, bounds.timezone),
+    [analysis, bounds.timezone]
+  );
+  const dayChart = useMemo(
+    () => buildDayActivityChart(analysis, bounds, now),
+    [analysis, bounds, now]
+  );
+  useEffect(() => setShowAll(false), [bounds.period, bounds.startDateId]);
+
   const today = getLocalDateId();
   const eyebrow = bounds.period !== 'day'
     ? 'Period activity'
@@ -556,45 +575,169 @@ function ActivityStream({ analysis, bounds, onSelect }) {
       : bounds.startDateId === shiftPeriodDate(today, 'day', -1)
         ? 'Yesterday’s activity'
         : 'Selected day activity';
-  if (!entries.length) return null;
+  const groupLimit = bounds.period === 'week' ? 7 : 12;
+  const visibleGroups = showAll || bounds.period === 'day'
+    ? timeline.groups
+    : timeline.groups.slice(0, groupLimit).map((group) => ({ ...group, entries: group.entries.slice(0, 5) }));
+  const visibleCount = visibleGroups.reduce((sum, group) => sum + group.entries.length, 0);
+  if (!timeline.entries.length) return null;
   return (
     <section className="cycle-activity-stream">
       <header>
         <div><p className="cycle-eyebrow">{eyebrow}</p><h2>What happened</h2></div>
-        <span>{analysis.activityEntries.length} {analysis.activityEntries.length === 1 ? 'entry' : 'entries'}</span>
+        <span>{timeline.entries.length} {timeline.entries.length === 1 ? 'activity' : 'activities'} · earliest first</span>
       </header>
-      <ol>
-        {entries.map((entry) => {
-          const details = entry.details || getMeaningfulEventDetails(entry.event);
-          const secondary = [details.artist, details.album, details.playlist, details.location, details.note]
-            .filter(Boolean)
-            .filter((value, index, values) => values.indexOf(value) === index)
-            .join(' · ');
-          return (
-            <li key={entry.id}>
-              <button type="button" onClick={() => onSelect(entry.pointCategory)} aria-label={`Open ${entry.pointCategory} activity`}>
-                <span className="cycle-entry-icon" aria-hidden="true">{entry.icon}</span>
-                <time>{entry.firstAt ? clockFormatter.format(entry.firstAt) : ''}</time>
-                <div>
-                  <strong>{details.track || entry.title}</strong>
-                  {secondary && <p>{secondary}</p>}
-                  <small>
-                    {entry.event?.sourceApp && `${entry.event.sourceApp}`}
-                    {entry.sentAt && ` · Source sent ${clockFormatter.format(entry.sentAt)}`}
-                  </small>
-                </div>
-                {entry.count > 1 && <b>×{entry.count}</b>}
-              </button>
-            </li>
-          );
-        })}
-      </ol>
-      {analysis.activityEntries.length > 8 && (
+
+      {dayChart && <DayActivityOverview chart={dayChart} onSelect={onSelect} />}
+
+      <div className="cycle-linear-history">
+        {visibleGroups.map((group) => bounds.period === 'day' ? (
+          <TimelineEntryList entries={group.entries} key={group.dateId} onSelect={onSelect} />
+        ) : (
+          <details className="cycle-activity-day" key={group.dateId} open={bounds.period === 'week'}>
+            <summary>
+              <div><strong>{timelineDateLabel(group.dateId)}</strong><span>{group.entries.length} shown</span></div>
+              <span>Open day</span>
+            </summary>
+            <button className="cycle-inspect-day" type="button" onClick={() => onInspectDate(group.dateId)}>View this day’s timeline</button>
+            <TimelineEntryList entries={group.entries} onSelect={onSelect} />
+          </details>
+        ))}
+      </div>
+
+      {bounds.period !== 'day' && visibleCount < timeline.entries.length && (
         <button className="cycle-show-more" type="button" onClick={() => setShowAll((current) => !current)}>
-          {showAll ? 'Show recent' : `Show all ${analysis.activityEntries.length} activities`}
+          {showAll ? 'Show concise view' : `Show all ${timeline.entries.length} activities`}
         </button>
       )}
-      <p className="cycle-stream-note">Times are shown in {bounds.timezone.replace('_', ' ')}. Point activities stay outside the duration wheel unless their source supplies a reliable duration.</p>
+      <p className="cycle-stream-note">Times run from morning to night in {bounds.timezone.replace('_', ' ')}. Point activities appear as moments and never add invented duration to the time wheel.</p>
+    </section>
+  );
+}
+
+function timelineDateLabel(dateId) {
+  const day = getPeriodBounds('day', dateId);
+  return day ? dateFormatter.format(day.start) : 'Date unavailable';
+}
+
+function TimelineEntryList({ entries, onSelect }) {
+  const timed = entries.filter((entry) => entry.timeRecorded);
+  const untimed = entries.filter((entry) => !entry.timeRecorded);
+  return (
+    <ol className="cycle-linear-timeline">
+      {timed.map((entry) => <TimelineEntry entry={entry} key={entry.id} onSelect={onSelect} />)}
+      {untimed.length > 0 && <li className="cycle-time-unrecorded"><span>Time not recorded</span></li>}
+      {untimed.map((entry) => <TimelineEntry entry={entry} key={entry.id} onSelect={onSelect} />)}
+    </ol>
+  );
+}
+
+function TimelineEntry({ entry, onSelect }) {
+  const details = entry.details || getMeaningfulEventDetails(entry.event);
+  const secondary = entry.type === 'session'
+    ? [entry.location, entry.nested && entry.parentTitle ? `Inside ${entry.parentTitle}` : ''].filter(Boolean).join(' · ')
+    : [details.artist, details.album, details.playlist, details.location, details.note]
+      .filter(Boolean)
+      .filter((value, index, values) => values.indexOf(value) === index)
+      .join(' · ');
+  const selection = entry.pointCategory || entry.category;
+  const title = details.track || entry.title;
+  return (
+    <li className={`${entry.type} ${entry.nested ? 'nested' : ''}`} style={{ '--timeline-color': entry.color }}>
+      <span className="cycle-timeline-marker" aria-hidden="true">{entry.icon}</span>
+      <time dateTime={entry.at?.toISOString()}>{entry.at ? clockFormatter.format(entry.at) : 'No time'}</time>
+      <article>
+        <button type="button" onClick={() => onSelect(selection)} aria-label={`Open ${selection} activity: ${title}`}>
+          <div>
+            <strong>{title}</strong>
+            {secondary && <p>{secondary}</p>}
+            {entry.type === 'session' && <small>{timelineSessionRange(entry)}</small>}
+            {entry.type === 'moment' && <small>{entry.sourceApp || 'Moment'}{entry.sentAt && ` · Source sent ${clockFormatter.format(entry.sentAt)}`}</small>}
+          </div>
+          {entry.type === 'session' ? (
+            <b className={entry.active ? 'active' : entry.incomplete ? 'incomplete' : ''}>
+              {entry.active ? 'In progress' : entry.incomplete ? entry.status : formatDuration(entry.durationSeconds)}
+            </b>
+          ) : entry.count > 1 ? <b>×{entry.count}</b> : <span aria-hidden="true">›</span>}
+        </button>
+        {entry.type === 'session' && (
+          <div className="cycle-timeline-boundaries">
+            {entry.startEvent && <span><b>{getEventDisplayTitle(entry.startEvent)}</b> {clockFormatter.format(entry.at)}{entry.startSentAt && <small> · sent {clockFormatter.format(entry.startSentAt)}</small>}</span>}
+            {entry.endEvent && <span><b>{getEventDisplayTitle(entry.endEvent)}</b> {clockFormatter.format(entry.endAt)}{entry.endSentAt && <small> · sent {clockFormatter.format(entry.endSentAt)}</small>}</span>}
+            {entry.active && <span><b>Status</b> In progress</span>}
+            {entry.statusDetail && <span className="incomplete"><b>Status</b> {entry.statusDetail}</span>}
+          </div>
+        )}
+      </article>
+    </li>
+  );
+}
+
+function timelineSessionRange(entry) {
+  if (entry.active) return `${clockFormatter.format(entry.at)} – In progress · ${formatDuration(entry.durationSeconds)}`;
+  if (entry.endAt) return `${clockFormatter.format(entry.at)} – ${clockFormatter.format(entry.endAt)} · ${formatDuration(entry.durationSeconds)}`;
+  if (entry.session?.missingBoundary === 'start') return `Finish recorded at ${clockFormatter.format(entry.at)} · Arrival not recorded`;
+  return `${clockFormatter.format(entry.at)} · Departure not recorded`;
+}
+
+function DayActivityOverview({ chart, onSelect }) {
+  if (!chart.rows.length && !chart.moments.length) return null;
+  return (
+    <section className="cycle-day-overview" aria-label="24-hour activity timeline">
+      <header>
+        <div><p className="cycle-eyebrow">Your day in time</p><h3>24-hour timeline</h3></div>
+        <span>{formatDuration(chart.trackedSeconds)} reliably tracked</span>
+      </header>
+      <div className="cycle-day-axis" aria-hidden="true"><span>12 AM</span><span>6 AM</span><span>Noon</span><span>6 PM</span><span>12 AM</span></div>
+      <div className="cycle-day-rows">
+        {chart.rows.map((row) => (
+          <article className={row.nested ? 'nested' : ''} key={row.id}>
+            <div><strong>{row.nested ? `↳ ${row.title}` : row.title}</strong><span>{row.active ? 'In progress' : row.incomplete ? row.status : formatDuration(row.durationSeconds)}</span></div>
+            <div className="cycle-day-track">
+              {chart.currentOffset !== null && <i className="current-time" style={{ left: `${chart.currentOffset}%` }} />}
+              {row.hasReliableInterval ? (
+                <button
+                  className={`cycle-day-bar ${row.active ? 'active' : ''}`}
+                  style={{ left: `${row.offset}%`, width: `${Math.max(row.width, 0.7)}%`, '--timeline-color': row.color }}
+                  type="button"
+                  title={timelineSessionRange(row)}
+                  aria-label={`${row.title}: ${timelineSessionRange(row)}`}
+                  onClick={() => onSelect(row.category)}
+                />
+              ) : row.offset !== null ? (
+                <button
+                  className="cycle-day-incomplete"
+                  style={{ left: `${row.offset}%`, '--timeline-color': row.color }}
+                  type="button"
+                  title={`${row.title}: ${row.statusDetail || 'Incomplete session'}`}
+                  aria-label={`${row.title}: ${row.statusDetail || 'Incomplete session'}`}
+                  onClick={() => onSelect(row.category)}
+                >!</button>
+              ) : null}
+            </div>
+          </article>
+        ))}
+        {chart.moments.length > 0 && (
+          <article className="moments">
+            <div><strong>Moments</strong><span>{chart.moments.length} recorded</span></div>
+            <div className="cycle-day-track">
+              {chart.currentOffset !== null && <i className="current-time" style={{ left: `${chart.currentOffset}%` }} />}
+              {chart.moments.map((moment) => (
+                <button
+                  className="cycle-day-moment"
+                  key={moment.id}
+                  style={{ left: `${moment.offset}%`, '--timeline-color': moment.color }}
+                  type="button"
+                  title={`${clockFormatter.format(moment.at)} · ${moment.title}`}
+                  aria-label={`${moment.title} at ${clockFormatter.format(moment.at)}`}
+                  onClick={() => onSelect(moment.pointCategory)}
+                ><span aria-hidden="true">{moment.icon}</span></button>
+              ))}
+            </div>
+          </article>
+        )}
+      </div>
+      <p className="cycle-chart-legend"><span><i className="session" /> Timed session</span><span><i className="moment" /> Point activity</span><span><i className="current" /> Current Toronto time</span></p>
     </section>
   );
 }

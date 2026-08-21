@@ -153,6 +153,53 @@ export function getEventTime(event) {
     || toJsDate(event?.occurredAt);
 }
 
+function eventDateOnlyId(event) {
+  const candidates = [
+    event?._journal?.dateId,
+    event?.dateId,
+    event?.metadata?.dateId,
+    event?.metadata?.dateKey,
+    event?.metadata?.reportDateKey
+  ];
+  return candidates.find((value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) || '';
+}
+
+function timestampOnDate(value, dateId, timeZone) {
+  const date = toJsDate(value);
+  if (!date) return null;
+  return !dateId || getDateIdInTimezone(date, timeZone) === dateId ? date : null;
+}
+
+// The timeline must not turn a date-only journal/report sentinel into a
+// user-facing clock time. When the source resolver supplies a real occurrence,
+// sent, or received timestamp on that same local day, use it in that order.
+export function getActivityDisplayTime(event, timeZone = APP_TIMEZONE) {
+  const dateId = eventDateOnlyId(event);
+  if (event?._journal && !toJsDate(event._journal.occurredAt) && event._journal.dateId) {
+    return timestampOnDate(getEventSentTime(event), dateId, timeZone)
+      || timestampOnDate(getEventReceivedTime(event), dateId, timeZone)
+      || null;
+  }
+  if (event?.timeRecorded === false || event?.metadata?.timeRecorded === false || event?.metadata?.dateOnly === true) {
+    return timestampOnDate(getEventSentTime(event), dateId, timeZone)
+      || timestampOnDate(getEventReceivedTime(event), dateId, timeZone)
+      || null;
+  }
+  const occurredAt = getEventTime(event);
+  const local = occurredAt ? zonedParts(occurredAt, timeZone) : null;
+  const pointCategory = getPointCategoryLabel(event);
+  const isDateOnlyPoint = dateId
+    && ['Journal', 'Work Reports', 'Attachments'].includes(pointCategory)
+    && getDateIdInTimezone(occurredAt, timeZone) === dateId
+    && local?.hour === 0
+    && local?.minute === 0
+    && local?.second === 0;
+  if (!isDateOnlyPoint) return occurredAt;
+  return timestampOnDate(getEventSentTime(event), dateId, timeZone)
+    || timestampOnDate(getEventReceivedTime(event), dateId, timeZone)
+    || null;
+}
+
 export function getEventEndTime(event) {
   return toJsDate(event?.endAt);
 }
@@ -252,7 +299,9 @@ export function getCategoryDefinition(label) {
 }
 
 export function getPointCategoryDefinition(label) {
-  return POINT_CATEGORY_DEFINITIONS[label] || { ...POINT_CATEGORY_DEFINITIONS.Moments, label };
+  return POINT_CATEGORY_DEFINITIONS[label]
+    || CATEGORY_DEFINITIONS[label]
+    || { ...POINT_CATEGORY_DEFINITIONS.Moments, label };
 }
 
 function firstMeaningfulString(...values) {
@@ -456,10 +505,21 @@ export function isPrimaryActivityCategory(label) {
   return Boolean(label) && !MOMENT_CATEGORIES.has(label);
 }
 
+function stableEventIdentity(event) {
+  return String(
+    event?.id
+    || event?.sourceRecordId
+    || event?.sourceEventId
+    || event?.metadata?.sourceDocumentId
+    || ''
+  );
+}
+
 export function sortLifeEvents(events) {
   return [...(Array.isArray(events) ? events : [])].sort((left, right) => (
     (getEventTime(left)?.getTime() ?? Number.MAX_SAFE_INTEGER)
     - (getEventTime(right)?.getTime() ?? Number.MAX_SAFE_INTEGER)
+    || stableEventIdentity(left).localeCompare(stableEventIdentity(right))
   ));
 }
 
@@ -874,8 +934,12 @@ export function groupMoments(events, timeZone = APP_TIMEZONE) {
     const category = getTallyActivityLabel(event);
     const pointCategory = getPointCategoryLabel(event);
     const title = getEventDisplayTitle(event).slice(0, 160);
-    const at = getEventTime(event);
-    const dateId = at ? getDateIdInTimezone(at, timeZone) : 'unknown';
+    const at = getActivityDisplayTime(event, timeZone);
+    const dateId = event?._journal?.dateId
+      || event?.dateId
+      || eventDateOnlyId(event)
+      || getDateIdInTimezone(at || getEventTime(event), timeZone)
+      || 'unknown';
     const sourceIdentity = event?.sourceRecordId || event?.sourceEventId || event?.metadata?.sourceDocumentId;
     // Only collapse records that share a stable upstream identity. When no
     // identity is supplied, exact time remains part of the key so separate
@@ -890,6 +954,7 @@ export function groupMoments(events, timeZone = APP_TIMEZONE) {
       pointCategory,
       title,
       icon: getPointCategoryDefinition(pointCategory).icon,
+      dateId,
       count: 0,
       events: [],
       firstAt: at,
@@ -902,7 +967,12 @@ export function groupMoments(events, timeZone = APP_TIMEZONE) {
     if (at && (!group.lastAt || at > group.lastAt)) group.lastAt = at;
     groups.set(key, group);
   });
-  return [...groups.values()].sort((left, right) => (left.firstAt?.getTime() || 0) - (right.firstAt?.getTime() || 0));
+  return [...groups.values()].sort((left, right) => {
+    if (left.firstAt && !right.firstAt) return -1;
+    if (!left.firstAt && right.firstAt) return 1;
+    return (left.firstAt?.getTime() || 0) - (right.firstAt?.getTime() || 0)
+      || left.id.localeCompare(right.id);
+  });
 }
 
 export function buildActivityEntries(events, timeZone = APP_TIMEZONE) {
@@ -912,8 +982,7 @@ export function buildActivityEntries(events, timeZone = APP_TIMEZONE) {
       event: group.events[0],
       sentAt: getEventSentTime(group.events[0]),
       receivedAt: getEventReceivedTime(group.events[0])
-    }))
-    .sort((left, right) => (right.firstAt?.getTime() || 0) - (left.firstAt?.getTime() || 0));
+    }));
 }
 
 export function selectActivityPreviewEntries(entries, limit = 8) {
@@ -1049,6 +1118,175 @@ export function buildPeriodAnalysis(events, bounds = null, options = {}) {
     coveredDays: new Set(allocatedSessions.map((session) => (
       getDateIdInTimezone(session.startAt, bounds?.timezone || session.timezone || APP_TIMEZONE)
     ))).size
+  };
+}
+
+function isWorkoutTimelineSession(session) {
+  const event = session?.event || {};
+  return /workout/.test(cleanToken(session?.rawCategory || event.activityFamily || event.eventType));
+}
+
+function timelineSessions(analysis) {
+  const sessions = Array.isArray(analysis?.sessions) ? analysis.sessions : [];
+  const workoutSessions = sessions.filter((session) => isWorkoutTimelineSession(session) && session.endAt);
+  const preferredWorkoutIds = new Set(deduplicateNestedWorkouts(workoutSessions).map((session) => session.id));
+  return sessions.filter((session) => (
+    !isWorkoutTimelineSession(session)
+    || !session.endAt
+    || preferredWorkoutIds.has(session.id)
+  ));
+}
+
+function findTimelineParent(session, sessions) {
+  if (!session?.endAt) return null;
+  return sessions
+    .filter((candidate) => (
+      candidate !== session
+      && candidate.endAt
+      && candidate.rawCategory !== session.rawCategory
+      && candidate.startAt <= session.startAt
+      && candidate.endAt >= session.endAt
+    ))
+    .sort((left, right) => (
+      (left.endAt - left.startAt) - (right.endAt - right.startAt)
+      || String(left.id).localeCompare(String(right.id))
+    ))[0] || null;
+}
+
+function timelineEntryComparator(left, right) {
+  const dateOrder = String(left.dateId || 'unknown').localeCompare(String(right.dateId || 'unknown'));
+  if (dateOrder) return dateOrder;
+  if (left.at && !right.at) return -1;
+  if (!left.at && right.at) return 1;
+  return (left.at?.getTime() || 0) - (right.at?.getTime() || 0)
+    || String(left.stableIdentity).localeCompare(String(right.stableIdentity));
+}
+
+// “What happened” combines reliable sessions with point-in-time moments. It
+// never contributes new duration: all totals still come from allocateIntervals.
+// Date-only records sort after timed records and keep an honest null clock time.
+export function buildChronologicalActivityTimeline(analysis, timeZone = APP_TIMEZONE) {
+  const sessions = timelineSessions(analysis);
+  const sessionEntries = sessions.map((session) => {
+    const parent = findTimelineParent(session, sessions);
+    const definition = getCategoryDefinition(session.category);
+    const stableIdentity = stableEventIdentity(session.startEvent)
+      || stableEventIdentity(session.endEvent)
+      || String(session.id);
+    const status = session.active
+      ? 'In progress'
+      : session.kind === 'incomplete'
+        ? session.incompleteReason === 'superseded_by_arrival' ? 'Ended elsewhere' : 'Incomplete'
+        : 'Completed';
+    return {
+      id: `session:${session.id}`,
+      stableIdentity,
+      type: 'session',
+      category: session.category,
+      pointCategory: null,
+      color: definition.color,
+      icon: definition.icon,
+      title: session.title || getSessionDisplayName(session),
+      at: session.startAt,
+      endAt: session.endAt,
+      dateId: getDateIdInTimezone(session.startAt, timeZone),
+      timeRecorded: true,
+      durationSeconds: session.durationSeconds,
+      active: Boolean(session.active),
+      incomplete: session.kind === 'incomplete',
+      status,
+      statusDetail: getIncompleteSessionMessage(session),
+      nested: Boolean(parent),
+      parentId: parent?.id || null,
+      parentTitle: parent?.title || null,
+      location: session.location || '',
+      startEvent: session.startEvent || null,
+      endEvent: session.endEvent || null,
+      startSentAt: getEventSentTime(session.startEvent),
+      endSentAt: getEventSentTime(session.endEvent),
+      session
+    };
+  });
+
+  const momentEntries = (Array.isArray(analysis?.momentGroups) ? analysis.momentGroups : []).map((group) => {
+    const event = group.events.find((candidate) => getActivityDisplayTime(candidate)) || group.events[0];
+    const definition = getPointCategoryDefinition(group.pointCategory);
+    return {
+      id: `moment:${group.id}`,
+      stableIdentity: stableEventIdentity(event) || group.id,
+      type: 'moment',
+      category: group.category,
+      pointCategory: group.pointCategory,
+      color: definition.color,
+      icon: definition.icon,
+      title: group.title,
+      at: group.firstAt || null,
+      endAt: null,
+      dateId: group.dateId || getDateIdInTimezone(getEventTime(event), timeZone) || 'unknown',
+      timeRecorded: Boolean(group.firstAt),
+      durationSeconds: null,
+      count: group.count,
+      details: group.details || getMeaningfulEventDetails(event),
+      sentAt: getEventSentTime(event),
+      receivedAt: getEventReceivedTime(event),
+      sourceApp: event?.sourceApp || '',
+      event,
+      events: group.events
+    };
+  });
+
+  const entries = [...sessionEntries, ...momentEntries].sort(timelineEntryComparator);
+  const groups = new Map();
+  entries.forEach((entry) => {
+    const dateId = entry.dateId || 'unknown';
+    const group = groups.get(dateId) || [];
+    group.push(entry);
+    groups.set(dateId, group);
+  });
+  return {
+    entries,
+    groups: [...groups.entries()]
+      .map(([dateId, items]) => ({ dateId, entries: items }))
+      .sort((left, right) => left.dateId.localeCompare(right.dateId))
+  };
+}
+
+function positionWithinDay(value, bounds) {
+  const date = toJsDate(value);
+  if (!date || !bounds?.start || !bounds?.end || bounds.end <= bounds.start) return null;
+  const percentage = ((date.getTime() - bounds.start.getTime()) / (bounds.end.getTime() - bounds.start.getTime())) * 100;
+  return Math.max(0, Math.min(100, percentage));
+}
+
+export function buildDayActivityChart(analysis, bounds, now = new Date()) {
+  if (!bounds || bounds.period !== 'day') return null;
+  const timeline = buildChronologicalActivityTimeline(analysis, bounds.timezone || APP_TIMEZONE);
+  const nowDate = toJsDate(now) || new Date();
+  const rows = timeline.entries.filter((entry) => entry.type === 'session').map((entry) => {
+    const startOffset = positionWithinDay(entry.at, bounds);
+    const effectiveEnd = entry.active
+      ? new Date(Math.min(nowDate.getTime(), bounds.end.getTime()))
+      : entry.endAt;
+    const endOffset = positionWithinDay(effectiveEnd, bounds);
+    const hasReliableInterval = startOffset !== null && endOffset !== null && effectiveEnd > entry.at;
+    return {
+      ...entry,
+      offset: startOffset,
+      width: hasReliableInterval ? Math.max(0, endOffset - startOffset) : 0,
+      hasReliableInterval
+    };
+  });
+  const moments = timeline.entries
+    .filter((entry) => entry.type === 'moment' && entry.at)
+    .map((entry) => ({ ...entry, offset: positionWithinDay(entry.at, bounds) }));
+  const currentOffset = nowDate >= bounds.start && nowDate < bounds.end
+    ? positionWithinDay(nowDate, bounds)
+    : null;
+  return {
+    rows,
+    moments,
+    currentOffset,
+    trackedSeconds: Number(analysis?.timedSeconds || 0)
   };
 }
 
@@ -1289,7 +1527,12 @@ export function buildPointCategoryAnalysis(category) {
     ...category,
     totalSeconds: category.seconds,
     reliableDuration: category.seconds > 0,
-    entries: [...category.entries].sort((left, right) => (right.firstAt?.getTime() || 0) - (left.firstAt?.getTime() || 0))
+    entries: [...category.entries].sort((left, right) => {
+      if (left.firstAt && !right.firstAt) return -1;
+      if (!left.firstAt && right.firstAt) return 1;
+      return (left.firstAt?.getTime() || 0) - (right.firstAt?.getTime() || 0)
+        || String(left.id).localeCompare(String(right.id));
+    })
   };
 }
 

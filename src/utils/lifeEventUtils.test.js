@@ -6,7 +6,9 @@ import {
   buildActivitySessions,
   buildActivityEntries,
   buildActivityTallies,
+  buildChronologicalActivityTimeline,
   buildComparison,
+  buildDayActivityChart,
   buildJournalEntries,
   buildJournalMetrics,
   buildPeriodAnalysis,
@@ -18,6 +20,7 @@ import {
   filterLifeEventsByRange,
   formatDuration,
   getActivityTallyRange,
+  getActivityDisplayTime,
   getDateIdInTimezone,
   getLocationLabel,
   getIncompleteSessionMessage,
@@ -60,6 +63,107 @@ describe('activity analysis utilities', () => {
     expect(shiftPeriodDate('2026-08-12', 'month', 1)).toBe('2026-09-01');
     expect(shiftPeriodDate('2026-08-12', 'year', -1)).toBe('2025-01-01');
     expect(APP_TIMEZONE).toBe('America/Toronto');
+  });
+
+  it('orders the activity story from morning to night with canonical identity as the stable tie-breaker', () => {
+    const bounds = getPeriodBounds('day', '2026-08-17');
+    const analysis = buildPeriodAnalysis([
+      { id: 'evening', sourceRecordId: 'evening', eventType: 'journal', occurredAt: '2026-08-17T23:00:00Z', metadata: { note: 'Evening note' } },
+      { id: 'same-b', sourceRecordId: 'same-b', eventType: 'start_spotify', occurredAt: '2026-08-17T12:00:00Z' },
+      { id: 'morning', sourceRecordId: 'morning', eventType: 'start_spotify', occurredAt: '2026-08-17T09:00:00Z' },
+      { id: 'same-a', sourceRecordId: 'same-a', eventType: 'start_spotify', occurredAt: '2026-08-17T12:00:00Z' }
+    ], bounds);
+    const timeline = buildChronologicalActivityTimeline(analysis, APP_TIMEZONE);
+    expect(timeline.entries.map((entry) => entry.event.id)).toEqual(['morning', 'same-a', 'same-b', 'evening']);
+    expect(buildActivityEntries(analysis.events).map((entry) => entry.event.id)).toEqual(['morning', 'same-a', 'same-b', 'evening']);
+  });
+
+  it('places date-only records in a time-not-recorded group after timed activities', () => {
+    const bounds = getPeriodBounds('day', '2026-08-18');
+    const [dateOnly] = enrichLifeEventsWithJournalDetails([{
+      id: 'date-only-story', sourceRecordId: 'journal/date-only-story', eventType: 'journal', title: 'Journal Entry',
+      occurredAt: '2026-08-18T04:00:00Z'
+    }], [{
+      lifeEventId: 'date-only-story', kind: 'journal', note: 'A note with no recorded time',
+      occurredAt: null, sourceSentAt: null, dateId: '2026-08-18', mediaIds: []
+    }]);
+    const analysis = buildPeriodAnalysis([
+      dateOnly,
+      { id: 'timed-story', sourceRecordId: 'spotify/timed-story', eventType: 'start_spotify', occurredAt: '2026-08-18T11:00:00Z' }
+    ], bounds);
+    const timeline = buildChronologicalActivityTimeline(analysis, APP_TIMEZONE);
+    expect(getActivityDisplayTime(dateOnly)).toBeNull();
+    expect(timeline.entries.map((entry) => [entry.event.id, entry.timeRecorded])).toEqual([
+      ['timed-story', true],
+      ['date-only-story', false]
+    ]);
+    expect(timeline.groups[0]).toMatchObject({ dateId: '2026-08-18' });
+  });
+
+  it('does not show a canonical report-date sentinel as midnight and uses a same-day sent time when available', () => {
+    const dateOnlyReport = {
+      id: 'report-date-only', eventType: 'project_report', activityFamily: 'project_report',
+      occurredAt: '2026-08-18T04:00:00Z', metadata: { reportDateKey: '2026-08-18' }
+    };
+    expect(getActivityDisplayTime(dateOnlyReport)).toBeNull();
+    expect(getActivityDisplayTime({
+      ...dateOnlyReport,
+      id: 'report-with-sent-time',
+      metadata: { reportDateKey: '2026-08-18', sentAtIso: '2026-08-18T12:42:03Z' }
+    }).toISOString()).toBe('2026-08-18T12:42:03.000Z');
+  });
+
+  it('positions reliable sessions and moments on the Toronto day chart without adding point duration', () => {
+    const bounds = getPeriodBounds('day', '2026-08-17');
+    const analysis = buildPeriodAnalysis([
+      { id: 'work-session', activityFamily: 'work', startAt: '2026-08-17T10:00:00Z', endAt: '2026-08-17T14:00:00Z' },
+      { id: 'spotify-noon', eventType: 'start_spotify', occurredAt: '2026-08-17T16:00:00Z' }
+    ], bounds);
+    const chart = buildDayActivityChart(analysis, bounds, new Date('2026-08-17T17:00:00Z'));
+    expect(chart).toMatchObject({ trackedSeconds: 14400, currentOffset: 54.166666666666664 });
+    expect(chart.rows[0]).toMatchObject({ hasReliableInterval: true, offset: 25 });
+    expect(chart.rows[0].width).toBeCloseTo(16.6667, 3);
+    expect(chart.moments[0]).toMatchObject({ offset: 50, durationSeconds: null });
+  });
+
+  it('extends only an active session to now and leaves historical incomplete sessions as markers', () => {
+    const bounds = getPeriodBounds('day', '2026-08-17');
+    const active = buildPeriodAnalysis([
+      { id: 'active-work-chart', eventType: 'arrive_work', activityFamily: 'work', occurredAt: '2026-08-17T11:00:00Z' }
+    ], bounds, { includeActive: true, now: new Date('2026-08-17T15:00:00Z') });
+    const activeChart = buildDayActivityChart(active, bounds, new Date('2026-08-17T15:00:00Z'));
+    expect(activeChart.rows[0]).toMatchObject({ active: true, hasReliableInterval: true });
+    expect(activeChart.rows[0].width).toBeCloseTo(16.6667, 3);
+
+    const incomplete = buildPeriodAnalysis([
+      { id: 'incomplete-work-chart', eventType: 'arrive_work', activityFamily: 'work', occurredAt: '2026-08-17T11:00:00Z' }
+    ], bounds, { includeActive: false, now: new Date('2026-08-18T15:00:00Z') });
+    const incompleteChart = buildDayActivityChart(incomplete, bounds, new Date('2026-08-18T15:00:00Z'));
+    expect(incompleteChart.rows[0]).toMatchObject({ incomplete: true, hasReliableInterval: false, width: 0 });
+    expect(incompleteChart.trackedSeconds).toBe(0);
+  });
+
+  it('shows a nested workout beneath its Gym visit while retaining non-overlapping tracked time', () => {
+    const bounds = getPeriodBounds('day', '2026-08-11');
+    const analysis = buildPeriodAnalysis([
+      { id: 'gym-chart', activityFamily: 'gym', startAt: '2026-08-11T12:00:00Z', endAt: '2026-08-11T14:00:00Z' },
+      { id: 'workout-chart', activityFamily: 'workout', title: 'Chest workout', startAt: '2026-08-11T12:30:00Z', endAt: '2026-08-11T13:30:00Z' }
+    ], bounds);
+    const chart = buildDayActivityChart(analysis, bounds, new Date('2026-08-11T16:00:00Z'));
+    expect(chart.rows).toHaveLength(2);
+    expect(chart.rows.find((row) => row.title === 'Chest workout')).toMatchObject({ nested: true, parentTitle: 'Gym visit' });
+    expect(chart.trackedSeconds).toBe(7200);
+  });
+
+  it.each(['week', 'month', 'year'])('groups %s activity dates and entries from earliest to latest', (period) => {
+    const bounds = getPeriodBounds(period, '2026-08-17');
+    const analysis = buildPeriodAnalysis([
+      { id: `${period}-late`, eventType: 'start_spotify', occurredAt: '2026-08-18T20:00:00Z' },
+      { id: `${period}-early`, eventType: 'start_spotify', occurredAt: '2026-08-17T10:00:00Z' }
+    ], bounds);
+    const timeline = buildChronologicalActivityTimeline(analysis, APP_TIMEZONE);
+    expect(timeline.groups.map((group) => group.dateId)).toEqual(['2026-08-17', '2026-08-18']);
+    expect(timeline.entries.map((entry) => entry.event.id)).toEqual([`${period}-early`, `${period}-late`]);
   });
 
   it('pairs boundaries by activity and location and preserves unrelated starts', () => {
@@ -448,9 +552,9 @@ describe('activity analysis utilities', () => {
     expect(analysis.activityEntries).toHaveLength(3);
     expect(focused).toMatchObject({ count: 3, totalSeconds: 0, reliableDuration: false });
     expect(focused.entries.map((entry) => entry.firstAt.toISOString())).toEqual([
-      '2026-08-17T10:33:00.000Z',
+      '2026-08-17T08:04:00.000Z',
       '2026-08-17T08:22:00.000Z',
-      '2026-08-17T08:04:00.000Z'
+      '2026-08-17T10:33:00.000Z'
     ]);
   });
 

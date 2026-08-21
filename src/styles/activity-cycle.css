@@ -872,7 +872,6 @@
   font-weight: 750;
 }
 
-.cycle-activity-stream ol,
 .cycle-point-history {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -880,30 +879,6 @@
   margin: 20px 0 0;
   padding: 0;
   list-style: none;
-}
-
-.cycle-activity-stream li button {
-  display: grid;
-  grid-template-columns: 36px 68px minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  width: 100%;
-  min-height: 74px;
-  padding: 11px 13px;
-  border: 1px solid transparent;
-  border-radius: 15px;
-  background: var(--cycle-surface-soft);
-  color: var(--cycle-text);
-  text-align: left;
-}
-
-.cycle-activity-stream li button:hover {
-  border-color: color-mix(in srgb, var(--activity-focus) 50%, var(--cycle-border));
-}
-
-.cycle-entry-icon {
-  font-size: 1.45rem;
-  text-align: center;
 }
 
 .cycle-activity-stream time,
@@ -916,12 +891,379 @@
 .cycle-activity-stream p,
 .cycle-activity-stream small {
   display: block;
-  overflow: hidden;
   margin: 3px 0 0;
   font-size: 0.76rem;
   line-height: 1.35;
+}
+
+.cycle-day-overview {
+  margin-top: 24px;
+  padding: clamp(18px, 2.2vw, 28px);
+  border: 1px solid var(--cycle-border);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--cycle-surface-soft) 78%, transparent);
+}
+
+.cycle-day-overview > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.cycle-day-overview h3 {
+  margin: 0;
+  font-size: clamp(1.35rem, 2vw, 2rem);
+}
+
+.cycle-day-overview > header > span,
+.cycle-day-rows article > div:first-child span {
+  color: var(--cycle-muted);
+  font-size: 0.78rem;
+}
+
+.cycle-day-axis {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  margin: 26px 0 10px 216px;
+  color: var(--cycle-muted);
+  font-size: 0.68rem;
+}
+
+.cycle-day-axis span:not(:first-child):not(:last-child) {
+  text-align: center;
+}
+
+.cycle-day-axis span:last-child {
+  text-align: right;
+}
+
+.cycle-day-rows {
+  display: grid;
+  gap: 11px;
+}
+
+.cycle-day-rows article {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.cycle-day-rows article > div:first-child {
+  min-width: 0;
+}
+
+.cycle-day-rows article > div:first-child strong,
+.cycle-day-rows article > div:first-child span {
+  display: block;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.cycle-day-rows article.nested > div:first-child {
+  padding-left: 18px;
+}
+
+.cycle-day-track {
+  position: relative;
+  height: 42px;
+  border: 1px solid color-mix(in srgb, var(--cycle-border) 70%, transparent);
+  border-radius: 12px;
+  background:
+    linear-gradient(to right, transparent calc(25% - 1px), var(--cycle-border) 25%, transparent calc(25% + 1px)),
+    linear-gradient(to right, transparent calc(50% - 1px), var(--cycle-border) 50%, transparent calc(50% + 1px)),
+    linear-gradient(to right, transparent calc(75% - 1px), var(--cycle-border) 75%, transparent calc(75% + 1px)),
+    color-mix(in srgb, var(--cycle-surface) 64%, transparent);
+}
+
+.cycle-day-bar {
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  min-width: 5px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--timeline-color), color-mix(in srgb, var(--timeline-color) 62%, white));
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--timeline-color) 28%, transparent);
+}
+
+.cycle-day-rows article.nested .cycle-day-bar {
+  top: 12px;
+  bottom: 12px;
+  border: 1px solid color-mix(in srgb, var(--timeline-color) 70%, white);
+  background: color-mix(in srgb, var(--timeline-color) 76%, transparent);
+}
+
+.cycle-day-bar.active {
+  background: repeating-linear-gradient(135deg, var(--timeline-color) 0 9px, color-mix(in srgb, var(--timeline-color) 66%, white) 9px 18px);
+}
+
+.cycle-day-incomplete,
+.cycle-day-moment {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  border: 2px solid var(--cycle-surface);
+  border-radius: 50%;
+  background: var(--timeline-color);
+  color: #07100e;
+  font-size: 0.74rem;
+  font-weight: 900;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--timeline-color) 32%, transparent);
+}
+
+.cycle-day-incomplete {
+  background: var(--cycle-surface);
+  color: var(--timeline-color);
+  border-color: var(--timeline-color);
+}
+
+.cycle-day-moment span {
+  line-height: 1;
+}
+
+.cycle-day-track .current-time {
+  position: absolute;
+  z-index: 1;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  background: #f3c95f;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #f3c95f 25%, transparent);
+}
+
+.cycle-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 18px 0 0;
+  color: var(--cycle-muted);
+  font-size: 0.72rem;
+}
+
+.cycle-chart-legend span {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.cycle-chart-legend i {
+  display: inline-block;
+  width: 18px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--activity-focus);
+}
+
+.cycle-chart-legend i.moment {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.cycle-chart-legend i.current {
+  width: 2px;
+  height: 14px;
+  border-radius: 0;
+  background: #f3c95f;
+}
+
+.cycle-linear-history {
+  margin-top: 24px;
+}
+
+.cycle-linear-timeline {
+  position: relative;
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cycle-linear-timeline::before {
+  position: absolute;
+  top: 18px;
+  bottom: 18px;
+  left: 23px;
+  width: 2px;
+  background: linear-gradient(var(--activity-focus), color-mix(in srgb, var(--activity-focus) 18%, var(--cycle-border)));
+  content: '';
+}
+
+.cycle-linear-timeline > li:not(.cycle-time-unrecorded) {
+  position: relative;
+  display: grid;
+  grid-template-columns: 48px 84px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 8px 0;
+}
+
+.cycle-linear-timeline > li.nested article {
+  margin-left: 18px;
+  border-left: 3px solid color-mix(in srgb, var(--timeline-color) 65%, transparent);
+}
+
+.cycle-timeline-marker {
+  z-index: 1;
+  display: grid;
+  grid-column: 1;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin: 8px auto 0;
+  border: 3px solid var(--cycle-surface);
+  border-radius: 50%;
+  background: var(--timeline-color);
+  color: #07100e;
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--timeline-color) 32%, transparent);
+  font-size: 0.9rem;
+}
+
+.cycle-linear-timeline > li > time {
+  padding-top: 18px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  text-align: right;
+}
+
+.cycle-linear-timeline > li > article {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--cycle-border);
+  border-radius: 17px;
+  background: var(--cycle-surface-soft);
+}
+
+.cycle-linear-timeline article > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  width: 100%;
+  min-height: 76px;
+  padding: 13px 15px;
+  border: 0;
+  background: transparent;
+  color: var(--cycle-text);
+  text-align: left;
+}
+
+.cycle-linear-timeline article > button:hover,
+.cycle-linear-timeline article > button:focus-visible {
+  background: color-mix(in srgb, var(--timeline-color) 11%, transparent);
+  outline: none;
+}
+
+.cycle-linear-timeline article > button:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--timeline-color);
+}
+
+.cycle-linear-timeline article > button strong,
+.cycle-linear-timeline article > button p,
+.cycle-linear-timeline article > button small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cycle-linear-timeline article > button p,
+.cycle-linear-timeline article > button small {
+  white-space: nowrap;
+}
+
+.cycle-linear-timeline article > button > b {
+  max-width: 150px;
+  color: color-mix(in srgb, var(--timeline-color) 78%, var(--cycle-text));
+  font-size: 0.76rem;
+  text-align: right;
+}
+
+.cycle-linear-timeline article > button > b.incomplete {
+  color: #efb84e;
+}
+
+.cycle-timeline-boundaries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 10px 15px 13px;
+  border-top: 1px solid var(--cycle-border);
+  color: var(--cycle-muted);
+  font-size: 0.72rem;
+}
+
+.cycle-timeline-boundaries span.incomplete {
+  flex-basis: 100%;
+  color: #efb84e;
+}
+
+.cycle-time-unrecorded {
+  position: relative;
+  display: grid;
+  grid-template-columns: 48px 84px minmax(0, 1fr);
+  padding: 18px 0 8px;
+}
+
+.cycle-time-unrecorded span {
+  grid-column: 2 / -1;
+  color: var(--cycle-muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cycle-activity-day {
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid var(--cycle-border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--cycle-surface-soft) 76%, transparent);
+}
+
+.cycle-activity-day > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 18px;
+  cursor: pointer;
+}
+
+.cycle-activity-day > summary div span,
+.cycle-activity-day > summary > span {
+  display: block;
+  margin-top: 3px;
+  color: var(--cycle-muted);
+  font-size: 0.74rem;
+}
+
+.cycle-activity-day .cycle-linear-timeline {
+  padding: 4px 16px 16px;
+}
+
+.cycle-activity-day .cycle-linear-timeline::before {
+  left: 39px;
+}
+
+.cycle-inspect-day {
+  min-height: 40px;
+  margin: 0 16px 8px;
+  padding: 0 15px;
+  border: 1px solid var(--cycle-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--cycle-text);
+  font-weight: 800;
 }
 
 .cycle-show-more {
@@ -1542,14 +1884,99 @@
     grid-column: 1 / -1;
   }
 
-  .cycle-activity-stream ol,
   .cycle-point-history {
     grid-template-columns: 1fr;
   }
 
-  .cycle-activity-stream li button {
-    grid-template-columns: 34px 58px minmax(0, 1fr) auto;
-    padding-inline: 9px;
+  .cycle-day-overview {
+    padding: 16px 12px;
+  }
+
+  .cycle-day-overview > header {
+    display: grid;
+  }
+
+  .cycle-day-axis {
+    margin: 24px 0 8px;
+    font-size: 0.62rem;
+  }
+
+  .cycle-day-rows article {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+  }
+
+  .cycle-day-rows article.nested > div:first-child {
+    padding-left: 12px;
+  }
+
+  .cycle-day-track {
+    height: 46px;
+  }
+
+  .cycle-chart-legend {
+    gap: 9px;
+  }
+
+  .cycle-linear-timeline::before {
+    left: 17px;
+  }
+
+  .cycle-linear-timeline > li:not(.cycle-time-unrecorded) {
+    grid-template-columns: 36px 58px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .cycle-timeline-marker {
+    width: 30px;
+    height: 30px;
+    border-width: 2px;
+    font-size: 0.78rem;
+  }
+
+  .cycle-linear-timeline > li > time {
+    padding-top: 16px;
+    font-size: 0.7rem;
+  }
+
+  .cycle-linear-timeline article > button {
+    gap: 8px;
+    min-height: 72px;
+    padding: 11px;
+  }
+
+  .cycle-linear-timeline article > button > b {
+    max-width: 84px;
+    font-size: 0.66rem;
+  }
+
+  .cycle-linear-timeline article > button p,
+  .cycle-linear-timeline article > button small {
+    white-space: normal;
+  }
+
+  .cycle-linear-timeline > li.nested article {
+    margin-left: 5px;
+  }
+
+  .cycle-time-unrecorded {
+    grid-template-columns: 36px 58px minmax(0, 1fr);
+  }
+
+  .cycle-time-unrecorded span {
+    grid-column: 2 / -1;
+  }
+
+  .cycle-activity-day .cycle-linear-timeline {
+    padding-inline: 8px;
+  }
+
+  .cycle-activity-day .cycle-linear-timeline::before {
+    left: 25px;
+  }
+
+  .cycle-timeline-boundaries {
+    display: grid;
   }
 
   .cycle-point-history li {
