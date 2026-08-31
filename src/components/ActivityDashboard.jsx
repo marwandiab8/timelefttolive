@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAllLifeEvents, useActivityJournalDetails, useConnectedSources, useLifeEvents } from '../hooks/useCalendar.js';
 import { loadAuthorizedActivityImage } from '../services/activityJournal.js';
+import { deleteActivityEntry, editActivityEntry } from '../services/activityEntries.js';
 import PrimaryViewSwitcher from './PrimaryViewSwitcher.jsx';
 import {
   APP_TIMEZONE,
@@ -16,8 +17,10 @@ import {
   enrichLifeEventsWithJournalDetails,
   formatDuration,
   getActivityTallyRange,
+  getActivityLabel,
   getDateIdInTimezone,
   getEventDisplayTitle,
+  getEventEndTime,
   getEventReceivedTime,
   getEventTime,
   getEventSentTime,
@@ -97,6 +100,9 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
   const [theme, setTheme] = useState(() => (
     localStorage.getItem('activityDashboardTheme') === 'light' ? 'light' : 'dark'
   ));
+  const [managedEntry, setManagedEntry] = useState(null);
+  const [managementMessage, setManagementMessage] = useState('');
+  const [managementError, setManagementError] = useState('');
 
   useEffect(() => {
     if (!active) return undefined;
@@ -190,6 +196,30 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
     localStorage.setItem('activityDashboardTheme', nextTheme);
   }
 
+  async function saveManagedEntry(data) {
+    setManagementError('');
+    try {
+      await editActivityEntry({ calendarId: calendar.id, ...data });
+      setManagedEntry(null);
+      setManagementMessage('Activity updated.');
+      window.setTimeout(() => setManagementMessage(''), 3500);
+    } catch (error) {
+      setManagementError(error?.message || 'Unable to update this activity.');
+    }
+  }
+
+  async function removeManagedEntry(entry) {
+    setManagementError('');
+    try {
+      await deleteActivityEntry({ calendarId: calendar.id, eventId: entry.eventId });
+      setManagedEntry(null);
+      setManagementMessage('Activity deleted.');
+      window.setTimeout(() => setManagementMessage(''), 3500);
+    } catch (error) {
+      setManagementError(error?.message || 'Unable to delete this activity.');
+    }
+  }
+
   function inspectTally(tally) {
     setPeriod('day');
     setDateId(tally.latestDateId || getLocalDateId(now));
@@ -215,6 +245,8 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
       </header>
 
       {error && <div className="activity-alert" role="alert">Some activity data could not be loaded. {error}</div>}
+      {managementMessage && <div className="activity-alert success" role="status">{managementMessage}</div>}
+      {managementError && <div className="activity-alert" role="alert">{managementError}</div>}
 
       {mode === 'wheel' ? (
         <WheelView
@@ -237,6 +269,8 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
           recentHistory={recentHistory}
           selectedLabel={selectedLabel}
           title={title}
+          onEdit={(entry) => setManagedEntry(entry)}
+          onDelete={(entry) => setManagedEntry({ ...entry, confirmDelete: true })}
         />
       ) : (
         <TotalsView
@@ -253,6 +287,7 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
         <summary>Tracking status</summary>
         <p>{sourceState.connections.filter((connection) => connection.status === 'active').length} active connected sources. Technical delivery details are kept out of the reflection view.</p>
       </details>
+      {managedEntry && <ActivityEntryDialog entry={managedEntry} onCancel={() => setManagedEntry(null)} onDelete={() => removeManagedEntry(managedEntry)} onSave={saveManagedEntry} />}
     </main>
   );
 }
@@ -276,7 +311,9 @@ function WheelView({
   previousAnalysis,
   recentHistory,
   selectedLabel,
-  title
+  title,
+  onEdit,
+  onDelete
 }) {
   return (
     <>
@@ -336,6 +373,8 @@ function WheelView({
           onDateChange(nextDateId);
         }}
         onSelect={onSelect}
+        onEdit={onEdit}
+        onDelete={onDelete}
       />
 
       {period === 'day' && (
@@ -569,7 +608,7 @@ function PointGlance({ analysis, onClear }) {
   );
 }
 
-function ActivityStream({ analysis, bounds, now, onInspectDate, onSelect }) {
+function ActivityStream({ analysis, bounds, now, onInspectDate, onSelect, onEdit, onDelete }) {
   const [showAll, setShowAll] = useState(false);
   const timeline = useMemo(
     () => buildChronologicalActivityTimeline(analysis, bounds.timezone),
@@ -606,7 +645,7 @@ function ActivityStream({ analysis, bounds, now, onInspectDate, onSelect }) {
 
       <div className="cycle-linear-history">
         {visibleGroups.map((group) => bounds.period === 'day' ? (
-          <TimelineEntryList entries={group.entries} key={group.dateId} onSelect={onSelect} />
+          <TimelineEntryList entries={group.entries} key={group.dateId} onSelect={onSelect} onEdit={onEdit} onDelete={onDelete} />
         ) : (
           <details className="cycle-activity-day" key={group.dateId} open={bounds.period === 'week'}>
             <summary>
@@ -614,7 +653,7 @@ function ActivityStream({ analysis, bounds, now, onInspectDate, onSelect }) {
               <span>Open day</span>
             </summary>
             <button className="cycle-inspect-day" type="button" onClick={() => onInspectDate(group.dateId)}>View this day’s timeline</button>
-            <TimelineEntryList entries={group.entries} onSelect={onSelect} />
+            <TimelineEntryList entries={group.entries} onSelect={onSelect} onEdit={onEdit} onDelete={onDelete} />
           </details>
         ))}
       </div>
@@ -634,19 +673,19 @@ function timelineDateLabel(dateId) {
   return day ? dateFormatter.format(day.start) : 'Date unavailable';
 }
 
-function TimelineEntryList({ entries, onSelect }) {
+function TimelineEntryList({ entries, onSelect, onEdit, onDelete }) {
   const timed = entries.filter((entry) => entry.timeRecorded);
   const untimed = entries.filter((entry) => !entry.timeRecorded);
   return (
     <ol className="cycle-linear-timeline">
-      {timed.map((entry) => <TimelineEntry entry={entry} key={entry.id} onSelect={onSelect} />)}
+      {timed.map((entry) => <TimelineEntry entry={entry} key={entry.id} onSelect={onSelect} onEdit={onEdit} onDelete={onDelete} />)}
       {untimed.length > 0 && <li className="cycle-time-unrecorded"><span>Time not recorded</span></li>}
-      {untimed.map((entry) => <TimelineEntry entry={entry} key={entry.id} onSelect={onSelect} />)}
+      {untimed.map((entry) => <TimelineEntry entry={entry} key={entry.id} onSelect={onSelect} onEdit={onEdit} onDelete={onDelete} />)}
     </ol>
   );
 }
 
-function TimelineEntry({ entry, onSelect }) {
+function TimelineEntry({ entry, onSelect, onEdit, onDelete }) {
   const details = entry.details || getMeaningfulEventDetails(entry.event);
   const secondary = entry.type === 'session'
     ? [entry.location, entry.nested && entry.parentTitle ? `Inside ${entry.parentTitle}` : ''].filter(Boolean).join(' · ')
@@ -656,6 +695,13 @@ function TimelineEntry({ entry, onSelect }) {
       .join(' · ');
   const selection = entry.pointCategory || entry.category;
   const title = details.track || entry.title;
+  const canonicalEvent = entry.type === 'session' ? (entry.startEvent || entry.session?.event) : entry.event;
+  const managed = canonicalEvent?.id ? {
+    eventId: canonicalEvent.id,
+    event: { ...canonicalEvent, startAt: canonicalEvent.startAt || entry.at, endAt: canonicalEvent.endAt || entry.endAt },
+    label: title,
+    dateLabel: entry.at ? dateFormatter.format(entry.at) : 'date unavailable'
+  } : null;
   return (
     <li className={`${entry.type} ${entry.nested ? 'nested' : ''}`} style={{ '--timeline-color': entry.color }}>
       <span className="cycle-timeline-marker" aria-hidden="true">{entry.icon}</span>
@@ -674,6 +720,7 @@ function TimelineEntry({ entry, onSelect }) {
             </b>
           ) : entry.count > 1 ? <b>×{entry.count}</b> : <span aria-hidden="true">›</span>}
         </button>
+        {managed && <div className="cycle-entry-actions"><button type="button" onClick={() => onEdit(managed)}>Edit</button><button type="button" className="danger" onClick={() => onDelete(managed)}>Delete</button></div>}
         {entry.type === 'session' && (
           <div className="cycle-timeline-boundaries">
             {entry.startedBeforeVisibleRange && <span><b>Continued into this period</b> The chart begins at the selected period boundary; the actual arrival is shown below.</span>}
@@ -981,6 +1028,102 @@ function PhotoLightbox({ calendarId, index, media, onClose, onMove, total }) {
         <div><strong>{media.caption || media.title || 'Photo'}</strong><p>{media.associationTitle ? `Attached to ${media.associationTitle}` : 'Standalone photo'}</p><small>{media.createdAt ? `${shortDateFormatter.format(new Date(media.createdAt))} · ${clockFormatter.format(new Date(media.createdAt))}` : 'Time not recorded'}{media.location ? ` · ${media.location}` : ''} · {index + 1} of {total}</small></div>
       </div>
       {total > 1 && <button className="cycle-lightbox-next" type="button" onClick={() => onMove(1)} aria-label="Next photo">›</button>}
+    </div>
+  );
+}
+
+function inputDateTime(value) {
+  const date = value instanceof Date ? value : (value ? new Date(value) : null);
+  if (!date || Number.isNaN(date.getTime())) return '';
+  const pad = (part) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export function ActivityEntryDialog({ entry, onCancel, onDelete, onSave }) {
+  const event = entry.event || {};
+  const start = getEventTime(event);
+  const end = getEventEndTime(event);
+  const [form, setForm] = useState(() => ({
+    activityFamily: event.activityFamily || getActivityLabel(event) || 'Other',
+    categoryId: event.categoryId || '',
+    eventType: event.eventType || '',
+    title: event.title || entry.label || '',
+    startAt: inputDateTime(event.startAt || start),
+    endAt: inputDateTime(event.endAt || end),
+    durationSeconds: event.durationSeconds ?? '',
+    location: event.location?.label || '',
+    description: event.description || event.metadata?.notes || event.metadata?.note || '',
+    workoutDetails: event.metadata?.workoutDetails ? JSON.stringify(event.metadata.workoutDetails, null, 2) : ''
+  }));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [confirming, setConfirming] = useState(Boolean(entry.confirmDelete));
+
+  async function submit(eventObject) {
+    eventObject.preventDefault();
+    setError('');
+    const startDate = form.startAt ? new Date(form.startAt) : null;
+    const endDate = form.endAt ? new Date(form.endAt) : null;
+    if (startDate && endDate && endDate < startDate) {
+      setError('End time cannot be earlier than start time.');
+      return;
+    }
+    let workoutDetails;
+    if (form.workoutDetails.trim()) {
+      try { workoutDetails = JSON.parse(form.workoutDetails); } catch { setError('Workout details must be valid JSON.'); return; }
+    }
+    setSaving(true);
+    try {
+      await onSave({
+        eventId: entry.eventId,
+        activityFamily: form.activityFamily,
+        categoryId: form.categoryId,
+        eventType: form.eventType,
+        title: form.title,
+        occurredAt: startDate?.toISOString() || null,
+        startAt: startDate?.toISOString() || null,
+        endAt: endDate?.toISOString() || null,
+        durationSeconds: form.durationSeconds,
+        location: form.location ? { ...(event.location || {}), label: form.location } : null,
+        description: form.description,
+        metadata: { ...(workoutDetails === undefined ? {} : { workoutDetails }) }
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="activity-dialog-backdrop" role="presentation" onMouseDown={(eventObject) => { if (eventObject.target === eventObject.currentTarget) onCancel(); }}>
+      <section className="activity-dialog" role="dialog" aria-modal="true" aria-labelledby="activity-dialog-title">
+        {confirming ? (
+          <>
+            <header className="activity-dialog-header"><h2 id="activity-dialog-title">Delete this activity?</h2><button className="activity-dialog-close" type="button" aria-label="Close activity dialog" onClick={onCancel}>×</button></header>
+            <p>This will remove <strong>{entry.label}</strong> from your timeline and all activity totals.</p>
+            <p>{entry.dateLabel}</p>
+            <div className="activity-dialog-actions"><button type="button" onClick={onCancel}>Cancel</button><button className="danger" type="button" disabled={saving} onClick={async () => { setSaving(true); try { await onDelete(); } finally { setSaving(false); } }}>{saving ? 'Deleting…' : 'Delete activity'}</button></div>
+          </>
+        ) : (
+          <form onSubmit={submit}>
+            <header className="activity-dialog-header"><h2 id="activity-dialog-title">Edit activity</h2><button className="activity-dialog-close" type="button" aria-label="Close activity dialog" onClick={onCancel}>×</button></header>
+            <p className="activity-dialog-context">{entry.label} · {entry.dateLabel}</p>
+            <div className="activity-form-grid">
+              <label>Activity/category<input value={form.activityFamily} onChange={(e) => setForm({ ...form, activityFamily: e.target.value })} required /></label>
+              <label>Category ID<input value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })} /></label>
+              <label>Title or label<input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></label>
+              <label>Event type<input value={form.eventType} onChange={(e) => setForm({ ...form, eventType: e.target.value })} required /></label>
+              <label>Start date and time<input type="datetime-local" value={form.startAt} onChange={(e) => setForm({ ...form, startAt: e.target.value })} /></label>
+              <label>End date and time <small>(leave blank if active)</small><input type="datetime-local" value={form.endAt} onChange={(e) => setForm({ ...form, endAt: e.target.value })} /></label>
+              <label>Duration (seconds)<input type="number" min="0" value={form.durationSeconds} onChange={(e) => setForm({ ...form, durationSeconds: e.target.value })} /></label>
+              <label>Location<input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} /></label>
+              <label className="wide">Notes or description<textarea rows="3" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
+              <label className="wide">Workout details <small>(JSON, when applicable)</small><textarea rows="4" value={form.workoutDetails} onChange={(e) => setForm({ ...form, workoutDetails: e.target.value })} /></label>
+            </div>
+            {error && <p className="activity-form-error" role="alert">{error}</p>}
+            <div className="activity-dialog-actions"><button type="button" onClick={onCancel} disabled={saving}>Cancel</button><button className="danger outline" type="button" onClick={() => setConfirming(true)} disabled={saving}>Delete</button><button className="primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</button></div>
+          </form>
+        )}
+      </section>
     </div>
   );
 }

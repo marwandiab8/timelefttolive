@@ -16,6 +16,7 @@ const {
   createActivityMediaHandler,
   createJournalDetailsHandler
 } = require("./src/activityJournal");
+const { editActivityEntry, deleteActivityEntry } = require("./src/activityEntries");
 
 admin.initializeApp();
 
@@ -48,6 +49,24 @@ exports.revokeSourceIngestionToken = onCall({ region }, async (request) => {
     throw new HttpsError("unauthenticated", "Sign in to revoke ingestion tokens.");
   }
   return revokeSourceIngestionToken(admin.firestore(), request.auth.uid, request.data || {});
+});
+
+exports.editActivityEntry = onCall({ region }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in to edit activities.");
+  try {
+    return await editActivityEntry(admin.firestore(), request.auth.uid, request.data || {});
+  } catch (error) {
+    throw new HttpsError(error.code || "internal", error.message || "Unable to edit activity.");
+  }
+});
+
+exports.deleteActivityEntry = onCall({ region }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in to delete activities.");
+  try {
+    return await deleteActivityEntry(admin.firestore(), request.auth.uid, request.data || {});
+  } catch (error) {
+    throw new HttpsError(error.code || "internal", error.message || "Unable to delete activity.");
+  }
 });
 
 exports.ingestExternalDailyItem = onRequest({ region, cors: false }, async (req, res) => {

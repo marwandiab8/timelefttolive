@@ -428,9 +428,31 @@ async function upsertLifeEventRecord(db, payload) {
   const now = new Date();
 
   return db.runTransaction(async (tx) => {
+    const tombstone = await tx.get(calendarRef.collection("lifeEventTombstones").doc(payload.idempotencyKey));
+    if (tombstone.exists) {
+      return {
+        status: "deleted",
+        duplicate: true,
+        deleted: true,
+        lifeEventId: eventRef.id,
+        idempotencyKey: payload.idempotencyKey,
+        schemaVersion: payload.schemaVersion,
+        receivedAt: now
+      };
+    }
     const existing = await tx.get(eventRef);
     if (existing.exists) {
       const data = existing.data() || {};
+      if (data.manualOverride) {
+        return {
+          status: "manual_override",
+          duplicate: true,
+          lifeEventId: eventRef.id,
+          idempotencyKey: payload.idempotencyKey,
+          schemaVersion: payload.schemaVersion,
+          receivedAt: data.receivedAt || now
+        };
+      }
       if (data.contentHash !== payload.contentHash) {
         const err = new Error("Idempotency conflict for the same key.");
         err.code = "idempotency_conflict";
