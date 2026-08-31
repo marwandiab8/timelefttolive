@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { TotalsView } from './ActivityDashboard.jsx';
+import { ActivityEntryDialog, TotalsView } from './ActivityDashboard.jsx';
 
 const allTimeRange = {
   id: 'all',
@@ -58,5 +58,35 @@ describe('ActivityDashboard totals view', () => {
     expect(markup).toContain('3 entries');
     expect(markup).toContain('Recorded as Moments · no duration added');
     expect(markup).not.toContain('0m');
+  });
+});
+
+describe('Activity entry management', () => {
+  const entry = {
+    eventId: 'canonical-1',
+    label: 'Leave Home',
+    dateLabel: 'Monday, August 31, 2026',
+    event: {
+      id: 'canonical-1', eventType: 'leave_home', activityFamily: 'Home', title: 'Leave Home',
+      occurredAt: new Date('2026-08-31T14:00:00Z'), startAt: new Date('2026-08-31T14:00:00Z'),
+      endAt: null, durationSeconds: null, metadata: { source: 'shortcut', workoutDetails: { sets: 2 } }
+    }
+  };
+
+  it('prepopulates active entries and provides the full edit surface', () => {
+    const markup = renderToStaticMarkup(<ActivityEntryDialog entry={entry} onCancel={vi.fn()} onDelete={vi.fn()} onSave={vi.fn()} />);
+    expect(markup).toContain('Activity/category');
+    expect(markup).toContain('Start date and time');
+    expect(markup).toContain('End date and time');
+    expect(markup).toContain('Workout details');
+    expect(markup).toContain('Leave Home');
+  });
+
+  it('requires explicit delete confirmation and identifies the entry', () => {
+    const markup = renderToStaticMarkup(<ActivityEntryDialog entry={{ ...entry, confirmDelete: true }} onCancel={vi.fn()} onDelete={vi.fn()} onSave={vi.fn()} />);
+    expect(markup).toContain('Delete this activity?');
+    expect(markup).toContain('timeline and all activity totals');
+    expect(markup).toContain('Cancel');
+    expect(markup).toContain('Leave Home');
   });
 });

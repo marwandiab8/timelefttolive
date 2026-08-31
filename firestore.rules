@@ -81,6 +81,10 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      match /lifeEventTombstones/{eventId} {
+        allow read, write: if false;
+      }
+
       match /ingestionDeadLetters/{deadLetterId} {
         allow read, write: if false;
       }
