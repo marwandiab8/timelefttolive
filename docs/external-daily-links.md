@@ -137,6 +137,10 @@ npm run backfill:external -- --calendarId=CALENDAR_ID --sourceApp=aigridline --i
 
 Without `--input`, the script prints a planned summary. Cross-project Firestore scanning must run server-side with Admin credentials; do not put Admin credentials in the browser.
 
-## Current Limitation
+## Ingestion
 
-This repo now has the Time Left To Live side: schema, UI, mappers, source connections, rules, and dry-run backfill mapping. Real-time cross-project ingestion should be added as a Cloud Function or source-app server function once source app credentials and calendar/source mappings are finalized.
+Real-time ingestion is implemented as Cloud Functions in `functions/`. Source apps call `ingestExternalDailyItem` / `ingestExternalDailyItemsBatch` (legacy, this document's payload shape) or `POST /api/v1/life-events` (canonical). Both authenticate with a per-connection bearer token created from **External sources**, and the legacy endpoints also mirror supported items into canonical `lifeEvents`. See the [README](../README.md#cloud-functions) and [the phase 1 handoff](timelefttolive-life-event-ingestion-phase-1-handoff.md).
+
+## Backfill Limitation
+
+`npm run backfill:external` only maps records from a JSON file and prints the result; it performs no writes. Cross-project Firestore scanning must run server-side with Admin credentials. To backfill legacy items into canonical `lifeEvents`, use `npm run backfill:life-events` instead.

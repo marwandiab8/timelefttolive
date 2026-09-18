@@ -12,6 +12,8 @@ A private life-calendar and mortality-awareness dashboard. Users sign in, create
 - Date-range events with visibility and overlap indicators.
 - Viewer invites with read-only access for accepted viewers.
 - Firestore and Storage rules for owner/viewer permissions.
+- Owner-only **Activity dashboard** (`#activity`): a day/week/month/year "life wheel", chronological timeline, all-time totals, work attendance, workout summaries, journal notes and photos, all derived from ingested life events. Entries can be edited or deleted.
+- Life-event ingestion API (`POST /api/v1/life-events` and `:batch`) that other apps (aigridline/GridlineAI, GYM-K2, Darts tracker, MyDoubleProgress, Apple Shortcuts via aigridline) write to with per-connection bearer tokens.
 
 ## Firebase Setup
 
@@ -71,11 +73,26 @@ npm run build
 
 ```bash
 npm ci
+npm --prefix functions ci
 npm run build
-firebase deploy --only hosting,firestore,storage --project YOUR_FIREBASE_PROJECT_ID
+firebase deploy --only hosting,functions,firestore,storage --project YOUR_FIREBASE_PROJECT_ID
 ```
 
-The Hosting config serves the Vite `dist` folder and rewrites all routes to `index.html`.
+The Hosting config serves the Vite `dist` folder and rewrites all routes to `index.html`, except the `/api/...` routes listed under [Cloud Functions](#cloud-functions), which are rewritten to functions. Deploy `functions` together with `hosting`, otherwise those API routes have no backend.
+
+Always pass `--project` explicitly. `.firebaserc` defines `production` (`timelefttolive`) and `staging` (`timelefttolive-stg-go`) aliases, and `npm run build:staging` builds against staging and refuses to embed the production project. See [docs/timelefttolive-life-event-ingestion-staging-plan.md](docs/timelefttolive-life-event-ingestion-staging-plan.md).
+
+## Test
+
+```bash
+npm run test:frontend    # vitest, src/
+npm run test:functions   # node --test, functions/src/
+npm run test:rules       # Firestore rules, needs Java for the emulator
+npm run test:hosting     # hosting rewrites + ingestion through the emulators
+npm test                 # all of the above
+```
+
+The functions require Node 22 (see `functions/package.json`).
 
 ## Viewer Sharing
 
@@ -103,7 +120,12 @@ lifeCalendars/{calendarId}/viewers/{viewerEmail}
 lifeCalendars/{calendarId}/events/{eventId}
 lifeCalendars/{calendarId}/dailyEntries/{YYYY-MM-DD}
 lifeCalendars/{calendarId}/dailyEntries/{YYYY-MM-DD}/attachments/{attachmentId}
+lifeCalendars/{calendarId}/dailyEntries/{YYYY-MM-DD}/externalItems/{externalItemId}
+lifeCalendars/{calendarId}/sourceConnections/{connectionId}
+lifeCalendars/{calendarId}/lifeEvents/{lifeEventId}
 ```
+
+Server-only collections (no client access) under each calendar: `sourceConnectionSecrets`, `lifeEventTombstones`, `ingestionDeadLetters`, `rawIngestionPayloads`. `externalIndex` and `externalNeedsDateReview` are owner-readable but server-written. `lifeEvents` is owner-read-only; every write goes through Cloud Functions.
 
 Storage uploads are stored at:
 
@@ -124,6 +146,30 @@ lifeCalendars/{calendarId}/dailyEntries/{YYYY-MM-DD}/externalItems/{externalItem
 ```
 
 Owners can manage source app connections from **External sources**. Day detail groups linked reports, pictures, workouts, MyDoubleProgress records, darts records, and other items. Connector/mapping details and example payloads are in [docs/external-daily-links.md](docs/external-daily-links.md).
+
+## Cloud Functions
+
+All functions live in `functions/` and run in `northamerica-northeast1`.
+
+| Function | Route / trigger | Purpose |
+| --- | --- | --- |
+| `apiV1LifeEvents`, `apiV1LifeEventsBatch` | `POST /api/v1/life-events`, `/api/v1/life-events:batch` | Canonical life-event ingestion (bearer token, idempotent, max 100 per batch). |
+| `ingestExternalDailyItem`, `ingestExternalDailyItemsBatch` | HTTPS | Legacy daily-item ingestion, kept compatible and mirrored into `lifeEvents`. |
+| `createSourceIngestionToken`, `revokeSourceIngestionToken` | callable | Owner-only management of source connection tokens (only a hash is stored). |
+| `editActivityEntry`, `deleteActivityEntry` | callable | Owner-only edit and delete of a life event. Deletes write a tombstone so re-ingestion does not bring the entry back. |
+| `getActivityJournalDetails`, `getActivityMedia` | `POST /api/activity/journal-details`, `GET /api/activity/media` (Firebase ID token as bearer) | Read journal text and photos for the Activity dashboard from the separate `gridlineai` Firebase project (hardcoded in `functions/index.js`) using a second Admin app. |
+| `cleanupLifeEventIngestionArtifacts` | scheduled, every 24h | Deletes expired raw-payload audit records and dead letters. |
+
+The ingestion design and contract are in [docs/timelefttolive-life-event-platform.md](docs/timelefttolive-life-event-platform.md) and [docs/timelefttolive-life-event-ingestion-phase-1-handoff.md](docs/timelefttolive-life-event-ingestion-phase-1-handoff.md). These docs describe phase 1 and predate the Activity dashboard and the activity callables/endpoints above.
+
+## Operational Scripts
+
+The Admin-SDK scripts need Application Default Credentials and an explicit `--project`.
+
+- `npm run backfill:external` only maps a JSON file of records and prints the result; it never writes (see [docs/external-daily-links.md](docs/external-daily-links.md)).
+- `npm run backfill:life-events -- --project=ID [--calendar-id=ID]` backfills legacy external items into canonical `lifeEvents`. It is a dry run unless `--apply` is passed.
+- `npm run enrich:gridline-journals -- --project=ID` enriches journal life events from their legacy records. It is a dry run unless `--apply` is passed, and `--apply` also requires `--confirm-project=ID`.
+- `npm run staging:fixture:create`, `staging:fixture:cleanup` and `staging:smoke-test` only run against the staging project.
 
 ## Notes
 

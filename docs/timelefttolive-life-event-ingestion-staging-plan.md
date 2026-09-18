@@ -1,5 +1,7 @@
 # TimeLeftToLive Life-Event Phase 1 Staging Deployment Plan (Deployment Status Updated)
 
+> **Point-in-time record (July 2026).** Sections 10 and 11 record what was deployed to staging; section 17 records the status at that time (`STAGING DEPLOYMENT BLOCKED`, owner-run smoke rerun pending). This document was not updated with the outcome of that rerun. The activity functions added later (`editActivityEntry`, `deleteActivityEntry`, `getActivityJournalDetails`, `getActivityMedia`) and their hosting rewrites are not part of this plan. Test counts are from phase 1.
+
 ## 1) Project configuration and separation
 
 - Production: `timelefttolive`
