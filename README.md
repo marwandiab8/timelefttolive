@@ -160,7 +160,7 @@ All functions live in `functions/` and run in `northamerica-northeast1`.
 | `getActivityJournalDetails`, `getActivityMedia` | `POST /api/activity/journal-details`, `GET /api/activity/media` (Firebase ID token as bearer) | Read journal text and photos for the Activity dashboard from the separate `gridlineai` Firebase project (hardcoded in `functions/index.js`) using a second Admin app. |
 | `cleanupLifeEventIngestionArtifacts` | scheduled, every 24h | Deletes expired raw-payload audit records and dead letters. |
 
-The ingestion design and contract are in [docs/timelefttolive-life-event-platform.md](docs/timelefttolive-life-event-platform.md) and [docs/timelefttolive-life-event-ingestion-phase-1-handoff.md](docs/timelefttolive-life-event-ingestion-phase-1-handoff.md). These docs describe phase 1 and predate the Activity dashboard and the activity callables/endpoints above.
+The dashboard and the four activity functions are documented in [docs/activity-dashboard.md](docs/activity-dashboard.md). The ingestion design and contract are in [docs/timelefttolive-life-event-platform.md](docs/timelefttolive-life-event-platform.md) and [docs/timelefttolive-life-event-ingestion-phase-1-handoff.md](docs/timelefttolive-life-event-ingestion-phase-1-handoff.md). Those two describe phase 1 only.
 
 ## Operational Scripts
 

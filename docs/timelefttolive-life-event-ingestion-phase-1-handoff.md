@@ -1,6 +1,6 @@
 # TimeLeftToLive Life Event Ingestion — Phase 1 Handoff
 
-> **Point-in-time document (phase 1, July 2026).** It does not cover later work: the Activity dashboard, `editActivityEntry` / `deleteActivityEntry` (with `lifeEventTombstones`), `getActivityJournalDetails` / `getActivityMedia`, or the legacy and journal backfill scripts. Test counts below are from phase 1; the current suite is larger. For the current overview see the [README](../README.md).
+> **Point-in-time document (phase 1, July 2026).** It does not cover later work: the Activity dashboard, `editActivityEntry` / `deleteActivityEntry` (with `lifeEventTombstones`), `getActivityJournalDetails` / `getActivityMedia`, or the legacy and journal backfill scripts. Test counts below are from phase 1; the current suite is larger. For the current overview see the [README](../README.md); the later activity work is documented in [activity-dashboard.md](activity-dashboard.md).
 
 ## 1) Scope and phase status
 Phase 1 implements the TimeLeftToLive Life Event ingestion foundation only. Implemented areas:
