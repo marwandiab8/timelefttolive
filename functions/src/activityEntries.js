@@ -25,8 +25,9 @@ function cleanString(value, field, max = 2000) {
   return result;
 }
 
-function objectValue(value, field) {
+function objectValue(value, field, { allowNull = false } = {}) {
   if (value === undefined) return undefined;
+  if (value === null && allowNull) return null;
   if (!value || typeof value !== "object" || Array.isArray(value)) fail("invalid-argument", `${field} must be an object.`);
   return value;
 }
@@ -35,7 +36,7 @@ async function editActivityEntry(db, uid, data = {}) {
   const calendarId = cleanString(data.calendarId, "calendarId", 200);
   const eventId = cleanString(data.eventId, "eventId", 200);
   if (!calendarId || !eventId) fail("invalid-argument", "calendarId and eventId are required.");
-  const linkedEventId = cleanString(data.linkedEventId, "linkedEventId", 200);
+  const linkedEventId = cleanString(data.linkedEventId ?? undefined, "linkedEventId", 200);
   const calendarRef = db.collection("lifeCalendars").doc(calendarId);
   const eventRef = calendarRef.collection("lifeEvents").doc(eventId);
   const linkedEventRef = linkedEventId ? calendarRef.collection("lifeEvents").doc(linkedEventId) : null;
@@ -77,7 +78,8 @@ async function editActivityEntry(db, uid, data = {}) {
       const value = cleanString(data[field], field, max);
       if (value !== undefined) patch[field] = value;
     }
-    const location = objectValue(data.location, "location");
+    // null clears the location; omitting the field leaves it unchanged.
+    const location = objectValue(data.location, "location", { allowNull: true });
     if (location !== undefined) patch.location = location;
     const metadata = objectValue(data.metadata, "metadata");
     if (metadata !== undefined) patch.metadata = { ...(current.metadata || {}), ...metadata };
@@ -106,25 +108,33 @@ async function deleteActivityEntry(db, uid, data = {}) {
   const calendarId = cleanString(data.calendarId, "calendarId", 200);
   const eventId = cleanString(data.eventId, "eventId", 200);
   if (!calendarId || !eventId) fail("invalid-argument", "calendarId and eventId are required.");
+  const linkedEventId = cleanString(data.linkedEventId ?? undefined, "linkedEventId", 200);
   const calendarRef = db.collection("lifeCalendars").doc(calendarId);
-  const eventRef = calendarRef.collection("lifeEvents").doc(eventId);
-  const tombstoneRef = calendarRef.collection("lifeEventTombstones").doc(eventId);
+  // A paired session is two events (arrival and departure). Deleting only one
+  // would leave an "Incomplete" boundary behind, so both go in one transaction.
+  const eventIds = linkedEventId && linkedEventId !== eventId ? [eventId, linkedEventId] : [eventId];
   await db.runTransaction(async (tx) => {
-    const [calendar, event] = await Promise.all([tx.get(calendarRef), tx.get(eventRef)]);
+    const eventRefs = eventIds.map((id) => calendarRef.collection("lifeEvents").doc(id));
+    const [calendar, ...events] = await Promise.all([tx.get(calendarRef), ...eventRefs.map((ref) => tx.get(ref))]);
     assertOwner(calendar, uid);
-    if (!event.exists) fail("not-found", "This activity no longer exists.");
-    const current = event.data();
-    tx.set(tombstoneRef, {
-      eventId,
-      idempotencyKey: current.idempotencyKey || eventId,
-      sourceApp: current.sourceApp || "",
-      sourceRecordId: current.sourceRecordId || "",
-      sourceEventId: current.sourceEventId || "",
-      deletedAt: admin.firestore.FieldValue.serverTimestamp(),
-      deletedBy: uid,
-      deletedByUid: uid
-    }, { merge: true });
-    tx.delete(eventRef);
+    events.forEach((event, index) => {
+      if (!event.exists) fail("not-found", index === 0 ? "This activity no longer exists." : "The linked activity boundary no longer exists.");
+    });
+    events.forEach((event, index) => {
+      const id = eventIds[index];
+      const current = event.data();
+      tx.set(calendarRef.collection("lifeEventTombstones").doc(id), {
+        eventId: id,
+        idempotencyKey: current.idempotencyKey || id,
+        sourceApp: current.sourceApp || "",
+        sourceRecordId: current.sourceRecordId || "",
+        sourceEventId: current.sourceEventId || "",
+        deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+        deletedBy: uid,
+        deletedByUid: uid
+      }, { merge: true });
+      tx.delete(eventRefs[index]);
+    });
   });
   return { id: eventId };
 }

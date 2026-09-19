@@ -142,7 +142,7 @@ Request (all fields other than `calendarId` and `eventId` are optional; omitted 
 | `description` | string | At most 4000 characters. |
 | `startAt`, `endAt`, `occurredAt` | ISO date string, or `null`/empty to clear | Must parse as dates. `endAt` must not be before `startAt`. `occurredAt` defaults to `startAt`. |
 | `durationSeconds` | number, or `null`/empty | Non-negative, rounded to whole seconds. When both `startAt` and `endAt` exist it is computed from them, and an explicitly supplied value that disagrees is rejected. |
-| `location` | object | Replaces the stored `location`. See [known issues](#known-issues-and-limitations) about `null`. |
+| `location` | object, or `null` | An object replaces the stored `location`; `null` clears it; omitting the field leaves it unchanged. Anything else is rejected. |
 | `metadata` | object | Shallow-merged into the existing `metadata`; existing keys not mentioned are kept. |
 | `linkedEventId`, `linkedEndAt` | string, ISO date | See below. |
 
@@ -154,18 +154,20 @@ What it writes: the patch above plus `updatedAt`, `updatedBy`, `updatedByUid` an
 
 ### `deleteActivityEntry`
 
-Request: `{ calendarId, eventId }`. Returns `{ id: eventId }`. Errors `not-found` if the event does not exist.
+Request: `{ calendarId, eventId, linkedEventId? }`. Returns `{ id: eventId }`. Errors `not-found` if the event, or the linked event when one is given, does not exist. A `null` or empty `linkedEventId` is treated as absent.
 
-In one transaction it:
+For a paired session (arrival and departure) the dashboard passes the departure event's id as `linkedEventId`, the same way `editActivityEntry` does, so both boundaries are removed together. Nothing is deleted if either is missing or the caller is not the owner.
 
-1. writes `lifeEventTombstones/{eventId}` with the event's idempotency key, source app, source record id and source event id, `deletedAt`, and `deletedBy`/`deletedByUid`, and
-2. deletes `lifeEvents/{eventId}`.
+In one transaction, for each event being deleted, it:
+
+1. writes `lifeEventTombstones/{id}` with the event's idempotency key, source app, source record id and source event id, `deletedAt`, and `deletedBy`/`deletedByUid`, and
+2. deletes `lifeEvents/{id}`.
 
 The document id of a life event is its idempotency key, so the tombstone has the same id. When the source app re-sends a deleted event, `upsertLifeEventRecord` finds the tombstone and answers with status `deleted` and `duplicate: true` without recreating it. Deletion is therefore permanent and survives replays and backfills. There is no undo in the app; to bring an entry back, remove the tombstone document by hand and re-ingest it.
 
 ### The edit dialog
 
-`ActivityEntryDialog` (exported from `ActivityDashboard.jsx`) edits activity/category, category id, title, event type, start and end (local time via `datetime-local`), duration, location label, notes, and a free-form JSON `workoutDetails` block (stored under `metadata.workoutDetails`). It checks end-before-start and JSON validity in the browser, and offers a delete confirmation step. Successful actions show a status banner for a few seconds; failures show the server message.
+`ActivityEntryDialog` (exported from `ActivityDashboard.jsx`) edits activity/category, category id, title, event type, start and end (local time via `datetime-local`), duration, location label, notes, and a free-form JSON `workoutDetails` block (stored under `metadata.workoutDetails`). It checks end-before-start and JSON validity in the browser, and offers a delete confirmation step. `buildLocationPatch` decides what to send for the location: nothing when it is unchanged, the new label merged over the stored location when it was edited, and `null` (or the location without its label, if it has coordinates) when the label was erased. `buildDeleteRequest` adds the departure event's id for paired sessions. Both leave keys out rather than passing `undefined`, because the Firebase callable client encodes `undefined` as `null`. Successful actions show a status banner for a few seconds; failures show the server message.
 
 ## HTTP functions: journal details and photos
 
@@ -207,14 +209,12 @@ The browser cannot put a bearer token in an `<img src>`, so `loadAuthorizedActiv
 
 These were checked against the current code. None stops the app from working day to day.
 
-1. **Editing an entry that has no location fails.** The dialog sends `location: null` whenever the location field is empty, and `editActivityEntry` rejects `null` with `invalid-argument: location must be an object.` Reproduced directly against the function. It affects any entry whose stored `location` has no `label` (the reproduction used a Spotify start event with no location), and also means a location cannot be cleared. Omitting the field, or having the function treat `null` as "clear", would fix it.
-2. **Deleting a paired session leaves half of it behind.** The Delete action passes only the arrival event's id. The departure event stays, and the timeline then shows an "Incomplete" session ("Arrival was not recorded") and the tracked time drops to zero for that visit. Reproduced with an arrive/leave pair: the total went from 8h to 0 with one leftover Incomplete entry. To remove a paired session completely, the departure must be deleted as well; `deleteActivityEntry` does not accept a linked event the way `editActivityEntry` does.
-3. **Deletion cannot be undone from the app.** See the tombstone description above.
-4. **The timezone is fixed.** `America/Toronto` is hardcoded in the frontend utilities; it is not read from the calendar or the browser.
-5. **`gridlineai` is hardcoded** as the only journal and photo source, in both `functions/index.js` and the authorization code.
-6. **My totals downloads every life event** for the calendar and computes in the browser. That is fine at current volumes but grows with history.
-7. **Journal details are capped** at 500 events per view, and photos larger than 20 MB are not previewed.
-8. **Classification is pattern based.** Category assignment depends on words appearing in event types, titles and locations. A source that names things differently will land in Moments or Places until the rules in `getTallyActivityLabel` are extended.
+1. **Deletion cannot be undone from the app.** See the tombstone description above.
+2. **The timezone is fixed.** `America/Toronto` is hardcoded in the frontend utilities; it is not read from the calendar or the browser.
+3. **`gridlineai` is hardcoded** as the only journal and photo source, in both `functions/index.js` and the authorization code.
+4. **My totals downloads every life event** for the calendar and computes in the browser. That is fine at current volumes but grows with history.
+5. **Journal details are capped** at 500 events per view, and photos larger than 20 MB are not previewed.
+6. **Classification is pattern based.** Category assignment depends on words appearing in event types, titles and locations. A source that names things differently will land in Moments or Places until the rules in `getTallyActivityLabel` are extended.
 
 ## Code map and tests
 
@@ -231,4 +231,4 @@ These were checked against the current code. None stops the app from working day
 | Hosting routes | `firebase.json` |
 | Ingestion side of edits and deletes | `manualOverride` and tombstone checks in `functions/src/ingestion/lifeEventFoundation.js` |
 
-Tests: `src/utils/lifeEventUtils.test.js` (derivation, about 76 tests), `src/components/ActivityDashboard.test.jsx`, `src/services/activityJournal.test.js`, `functions/src/activityEntries.test.js` (edit, ownership and time validation, delete with tombstone, paired edit) and `functions/src/activityJournal.test.js` (authorization, sanitized details, fail-closed media). Run them with `npm run test:frontend` and `npm run test:functions`. There is no test covering the two behaviours listed as issues 1 and 2.
+Tests: `src/utils/lifeEventUtils.test.js` (derivation, about 76 tests), `src/components/ActivityDashboard.test.jsx`, `src/services/activityJournal.test.js`, `functions/src/activityEntries.test.js` (edit, ownership and time validation, clearing and omitting location, delete with tombstone, paired edit and paired delete) and `functions/src/activityJournal.test.js` (authorization, sanitized details, fail-closed media). Run them with `npm run test:frontend` and `npm run test:functions`.

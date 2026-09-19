@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { ActivityEntryDialog, TotalsView } from './ActivityDashboard.jsx';
+import { ActivityEntryDialog, TotalsView, buildDeleteRequest, buildLocationPatch } from './ActivityDashboard.jsx';
 
 const allTimeRange = {
   id: 'all',
@@ -88,5 +88,42 @@ describe('Activity entry management', () => {
     expect(markup).toContain('timeline and all activity totals');
     expect(markup).toContain('Cancel');
     expect(markup).toContain('Leave Home');
+  });
+});
+
+describe('buildLocationPatch', () => {
+  it('leaves the location out when it is unchanged, including an empty box on an entry with no location', () => {
+    expect(buildLocationPatch(undefined, '')).toBeUndefined();
+    expect(buildLocationPatch(null, '')).toBeUndefined();
+    expect(buildLocationPatch({ label: 'Home' }, 'Home')).toBeUndefined();
+    expect(buildLocationPatch({ label: 'Home' }, '  Home  ')).toBeUndefined();
+    expect(buildLocationPatch({ latitude: 43.7, longitude: -79.4 }, '')).toBeUndefined();
+  });
+
+  it('sets the label while keeping the stored coordinates', () => {
+    expect(buildLocationPatch({ latitude: 43.7, longitude: -79.4 }, 'Gym'))
+      .toEqual({ latitude: 43.7, longitude: -79.4, label: 'Gym' });
+    expect(buildLocationPatch(undefined, 'Gym')).toEqual({ label: 'Gym' });
+  });
+
+  it('clears a location whose label was erased, keeping any coordinates', () => {
+    expect(buildLocationPatch({ label: 'Home' }, '')).toBeNull();
+    expect(buildLocationPatch({ label: 'Home', latitude: 43.7, longitude: -79.4 }, ''))
+      .toEqual({ latitude: 43.7, longitude: -79.4 });
+  });
+});
+
+describe('buildDeleteRequest', () => {
+  it('includes the departure event for a paired session', () => {
+    expect(buildDeleteRequest('cal-1', { eventId: 'arrive-1', linkedEventId: 'leave-1' }))
+      .toEqual({ calendarId: 'cal-1', eventId: 'arrive-1', linkedEventId: 'leave-1' });
+  });
+
+  it('omits the key entirely for an unpaired entry, since undefined is encoded as null', () => {
+    for (const linkedEventId of ['', undefined, null]) {
+      const request = buildDeleteRequest('cal-1', { eventId: 'moment-1', linkedEventId });
+      expect(request).toEqual({ calendarId: 'cal-1', eventId: 'moment-1' });
+      expect(Object.keys(request)).not.toContain('linkedEventId');
+    }
   });
 });

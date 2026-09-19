@@ -211,7 +211,7 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
   async function removeManagedEntry(entry) {
     setManagementError('');
     try {
-      await deleteActivityEntry({ calendarId: calendar.id, eventId: entry.eventId });
+      await deleteActivityEntry(buildDeleteRequest(calendar.id, entry));
       setManagedEntry(null);
       setManagementMessage('Activity deleted.');
       window.setTimeout(() => setManagementMessage(''), 3500);
@@ -1041,6 +1041,30 @@ function inputDateTime(value) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+// Returns the `location` value to send, or undefined when the field must be
+// left out. The callable client encodes undefined as null, and null means
+// "clear the location", so an unchanged location must be omitted from the
+// payload rather than passed as undefined.
+export function buildLocationPatch(location, label) {
+  const previous = location?.label || '';
+  const next = (label || '').trim();
+  if (next === previous) return undefined;
+  if (next) return { ...(location || {}), label: next };
+  const { label: removedLabel, ...rest } = location || {};
+  return Object.keys(rest).length ? rest : null;
+}
+
+// A paired session is an arrival and a departure event; both must be deleted
+// together. The key is omitted (not undefined) for unpaired entries for the
+// same encoding reason as above.
+export function buildDeleteRequest(calendarId, entry) {
+  return {
+    calendarId,
+    eventId: entry.eventId,
+    ...(entry.linkedEventId ? { linkedEventId: entry.linkedEventId } : {})
+  };
+}
+
 export function ActivityEntryDialog({ entry, onCancel, onDelete, onSave }) {
   const event = entry.event || {};
   const start = getEventTime(event);
@@ -1076,6 +1100,7 @@ export function ActivityEntryDialog({ entry, onCancel, onDelete, onSave }) {
     }
     setSaving(true);
     try {
+      const locationPatch = buildLocationPatch(event.location, form.location);
       await onSave({
         eventId: entry.eventId,
         linkedEventId: entry.linkedEventId,
@@ -1088,7 +1113,7 @@ export function ActivityEntryDialog({ entry, onCancel, onDelete, onSave }) {
         startAt: startDate?.toISOString() || null,
         endAt: endDate?.toISOString() || null,
         durationSeconds: form.durationSeconds,
-        location: form.location ? { ...(event.location || {}), label: form.location } : null,
+        ...(locationPatch === undefined ? {} : { location: locationPatch }),
         description: form.description,
         metadata: { ...(workoutDetails === undefined ? {} : { workoutDetails }) }
       });

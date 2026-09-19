@@ -57,6 +57,104 @@ test('delete writes an owner tombstone and removes only the canonical event', as
   assert.equal(tombstone.sourceApp, '');
 });
 
+test('editing an entry that has no location accepts location: null', async () => {
+  // The dialog sends location: null when the location box is empty.
+  const db = fakeDb(seedEvent());
+  await editActivityEntry(db, 'owner-1', { calendarId: 'cal-1', eventId: 'event-1', title: 'Renamed', location: null });
+  const event = db.store.get('lifeCalendars/cal-1/lifeEvents/event-1');
+  assert.equal(event.title, 'Renamed');
+  assert.equal(event.location, null);
+});
+
+test('location: null clears an existing location', async () => {
+  const seed = seedEvent();
+  seed['lifeCalendars/cal-1/lifeEvents/event-1'].location = { label: 'Home', latitude: 43.7, longitude: -79.4 };
+  const db = fakeDb(seed);
+  await editActivityEntry(db, 'owner-1', { calendarId: 'cal-1', eventId: 'event-1', location: null });
+  assert.equal(db.store.get('lifeCalendars/cal-1/lifeEvents/event-1').location, null);
+});
+
+test('omitting location leaves the stored location unchanged', async () => {
+  const seed = seedEvent();
+  seed['lifeCalendars/cal-1/lifeEvents/event-1'].location = { label: 'Home' };
+  const db = fakeDb(seed);
+  await editActivityEntry(db, 'owner-1', { calendarId: 'cal-1', eventId: 'event-1', title: 'Renamed' });
+  assert.deepEqual(db.store.get('lifeCalendars/cal-1/lifeEvents/event-1').location, { label: 'Home' });
+});
+
+test('location must still be an object or null', async () => {
+  const db = fakeDb(seedEvent());
+  for (const location of ['Home', ['Home'], 42, true]) {
+    await assert.rejects(
+      () => editActivityEntry(db, 'owner-1', { calendarId: 'cal-1', eventId: 'event-1', location }),
+      { code: 'invalid-argument' }
+    );
+  }
+});
+
+function seedPair() {
+  const seed = seedEvent();
+  seed['lifeCalendars/cal-1/lifeEvents/event-1'] = {
+    ...seed['lifeCalendars/cal-1/lifeEvents/event-1'],
+    eventType: 'arrive_home', idempotencyKey: 'key-arrive', sourceApp: 'shortcut', sourceEventId: 'src-arrive'
+  };
+  seed['lifeCalendars/cal-1/lifeEvents/event-2'] = {
+    id: 'event-2', eventType: 'leave_home', idempotencyKey: 'key-leave', sourceApp: 'shortcut', sourceEventId: 'src-leave',
+    occurredAt: admin.firestore.Timestamp.fromDate(new Date('2026-08-31T20:00:00Z'))
+  };
+  return seed;
+}
+
+test('deleting a paired session removes both boundary events and tombstones both', async () => {
+  const db = fakeDb(seedPair());
+  await deleteActivityEntry(db, 'owner-1', { calendarId: 'cal-1', eventId: 'event-1', linkedEventId: 'event-2' });
+  assert.equal(db.store.has('lifeCalendars/cal-1/lifeEvents/event-1'), false);
+  assert.equal(db.store.has('lifeCalendars/cal-1/lifeEvents/event-2'), false);
+  const arrive = db.store.get('lifeCalendars/cal-1/lifeEventTombstones/event-1');
+  const leave = db.store.get('lifeCalendars/cal-1/lifeEventTombstones/event-2');
+  assert.equal(arrive.idempotencyKey, 'key-arrive');
+  assert.equal(leave.idempotencyKey, 'key-leave');
+  assert.equal(leave.sourceEventId, 'src-leave');
+  assert.equal(leave.deletedBy, 'owner-1');
+});
+
+test('deleting without linkedEventId leaves the other boundary alone', async () => {
+  const db = fakeDb(seedPair());
+  await deleteActivityEntry(db, 'owner-1', { calendarId: 'cal-1', eventId: 'event-1' });
+  assert.equal(db.store.has('lifeCalendars/cal-1/lifeEvents/event-2'), true);
+  assert.equal(db.store.has('lifeCalendars/cal-1/lifeEventTombstones/event-2'), false);
+});
+
+test('a null or empty linkedEventId is treated as no linked event', async () => {
+  // The callable client encodes undefined as null, so unpaired deletes can arrive this way.
+  for (const linkedEventId of [null, '']) {
+    const db = fakeDb(seedPair());
+    await deleteActivityEntry(db, 'owner-1', { calendarId: 'cal-1', eventId: 'event-1', linkedEventId });
+    assert.equal(db.store.has('lifeCalendars/cal-1/lifeEvents/event-1'), false);
+    assert.equal(db.store.has('lifeCalendars/cal-1/lifeEvents/event-2'), true);
+  }
+});
+
+test('a missing linked event aborts the delete without changing anything', async () => {
+  const db = fakeDb(seedPair());
+  await assert.rejects(
+    () => deleteActivityEntry(db, 'owner-1', { calendarId: 'cal-1', eventId: 'event-1', linkedEventId: 'no-such-event' }),
+    { code: 'not-found' }
+  );
+  assert.equal(db.store.has('lifeCalendars/cal-1/lifeEvents/event-1'), true);
+  assert.equal(db.store.has('lifeCalendars/cal-1/lifeEventTombstones/event-1'), false);
+});
+
+test('a non-owner cannot delete either half of a paired session', async () => {
+  const db = fakeDb(seedPair());
+  await assert.rejects(
+    () => deleteActivityEntry(db, 'other-user', { calendarId: 'cal-1', eventId: 'event-1', linkedEventId: 'event-2' }),
+    { code: 'permission-denied' }
+  );
+  assert.equal(db.store.has('lifeCalendars/cal-1/lifeEvents/event-1'), true);
+  assert.equal(db.store.has('lifeCalendars/cal-1/lifeEvents/event-2'), true);
+});
+
 test('paired boundary edits update the linked departure timestamp', async () => {
   const seed = seedEvent();
   seed['lifeCalendars/cal-1/lifeEvents/event-2'] = { id: 'event-2', eventType: 'leave_home', occurredAt: admin.firestore.Timestamp.fromDate(new Date('2026-08-31T13:30:00Z')) };
