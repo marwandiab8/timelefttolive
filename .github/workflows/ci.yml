@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch or PR makes the older run pointless.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Keep in step with the version used for local development.
+  FIREBASE_TOOLS_VERSION: 15.29.0
+  # A demo- project ID makes the emulators run without any Google credentials
+  # and guarantees they cannot touch a real project.
+  EMULATOR_PROJECT: demo-timelefttolive
+
+jobs:
+  unit:
+    name: Frontend, functions and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm --prefix functions ci
+
+      - name: Frontend tests
+        run: npm run test:frontend
+
+      - name: Functions tests
+        run: npm run test:functions
+
+      - name: Staging tool tests
+        run: npm run test:staging-tools
+
+      - name: Build
+        run: npm run build
+
+  emulator:
+    name: Firestore rules and hosting routes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
+
+      # The Firestore emulator needs a recent JDK.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm --prefix functions ci
+          npm install --global firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }}
+
+      - name: Cache emulator downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}-${{ env.FIREBASE_TOOLS_VERSION }}
+
+      # The hosting emulator serves dist/, and the hosting tests exercise the
+      # rewrites in firebase.json, so the app has to be built first.
+      - name: Build
+        run: npm run build
+
+      - name: Firestore rules tests
+        run: npm run test:rules -- --project ${{ env.EMULATOR_PROJECT }}
+
+      - name: Hosting and ingestion tests
+        run: npm run test:hosting -- --project ${{ env.EMULATOR_PROJECT }}

@@ -89,10 +89,13 @@ npm run test:frontend    # vitest, src/
 npm run test:functions   # node --test, functions/src/
 npm run test:rules       # Firestore rules, needs Java for the emulator
 npm run test:hosting     # hosting rewrites + ingestion through the emulators
+npm run test:staging-tools  # staging fixture and smoke-test helpers
 npm test                 # all of the above
 ```
 
 The functions require Node 22 (see `functions/package.json`).
+
+GitHub Actions (`.github/workflows/ci.yml`) runs all of these on every push to `main` and every pull request, in two jobs: one for the frontend, functions and build, and one for the Firestore rules and hosting tests. The emulator job uses Java 21 and the `demo-timelefttolive` project, so it needs no credentials. To reproduce it locally, add `-- --project demo-timelefttolive` to `npm run test:rules` or `npm run test:hosting`.
 
 ## Viewer Sharing
 
