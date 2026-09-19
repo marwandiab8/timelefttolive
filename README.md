@@ -102,7 +102,7 @@ The owner opens **Manage viewers** and invites a viewer by email. The invite is 
 lifeCalendars/{calendarId}/viewers/{viewerEmail}
 ```
 
-When that viewer signs in with the same email, they can accept the invite. Accepted viewers can read:
+When that viewer signs in with the same email, they can accept the invite. The email must be verified: Google accounts already are, and email/password accounts are sent a verification link on sign-up (the dashboard offers to resend it). Firestore and Storage rules check `email_verified` on the ID token, so an unverified account cannot accept an invite or read shared data. Accepted viewers can read:
 
 - the calendar profile,
 - events marked `visibility: "viewers"`,

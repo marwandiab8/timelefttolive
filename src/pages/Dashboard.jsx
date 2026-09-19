@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ActivityDashboard from '../components/ActivityDashboard.jsx';
 import CalendarBreadcrumbs from '../components/CalendarBreadcrumbs.jsx';
 import { DayDrilldownView, MonthDetailView, WeekDetailView, YearDetailView } from '../components/CalendarDrilldown.jsx';
+import EmailVerificationNotice from '../components/EmailVerificationNotice.jsx';
 import EventManager from '../components/EventManager.jsx';
 import ExternalSourcesManager from '../components/ExternalSourcesManager.jsx';
 import LifeHeatmap from '../components/LifeHeatmap.jsx';
@@ -33,7 +34,8 @@ function viewFromLocation() {
 export default function Dashboard() {
   const { user } = useAuth();
   const owned = useOwnedCalendar(user.uid);
-  const inviteState = useViewerInvites(user, !owned.calendar);
+  const [emailVerified, setEmailVerified] = useState(Boolean(user.emailVerified));
+  const inviteState = useViewerInvites(user, !owned.calendar && emailVerified);
   const invites = inviteState.invites;
   const acceptedInvite = invites.find((invite) => invite.status === 'accepted');
   const shared = useSharedCalendar(acceptedInvite?.calendarId, !owned.calendar && Boolean(acceptedInvite));
@@ -197,6 +199,9 @@ export default function Dashboard() {
           </div>
           {calendar && <button className="secondary" type="button" onClick={() => setEditingProfile(false)}>Back</button>}
         </header>
+        {!calendar && !emailVerified && user.email && (
+          <EmailVerificationNotice email={user.email} onVerified={() => setEmailVerified(true)} />
+        )}
         {!calendar && pendingInvite && (
           <section className="panel">
             <h2>Viewer invite</h2>

@@ -22,8 +22,17 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/lifeCalendars/$(calendarId)/viewers/$(request.auth.token.email));
     }
 
-    function isAcceptedViewer(calendarId) {
+    // Viewer access is keyed by email address, so the token must prove the
+    // caller controls that address. Email/password accounts are unverified
+    // until the user follows the verification link; Google accounts are verified.
+    function hasVerifiedEmail() {
       return signedIn()
+        && request.auth.token.email != null
+        && request.auth.token.email_verified == true;
+    }
+
+    function isAcceptedViewer(calendarId) {
+      return hasVerifiedEmail()
         && exists(/databases/$(database)/documents/lifeCalendars/$(calendarId)/viewers/$(request.auth.token.email))
         && viewerDoc(calendarId).data.status == "accepted"
         && viewerDoc(calendarId).data.role == "viewer";
@@ -37,6 +46,14 @@ service cloud.firestore {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }
 
+    // Collection-group lookup of the caller's own invites (useViewerInvites).
+    // The nested match under lifeCalendars/{calendarId} does not apply to
+    // collection-group queries, so this needs its own rule. The query must
+    // filter on the caller's verified email, so nobody can list other invites.
+    match /{path=**}/viewers/{viewerId} {
+      allow read: if hasVerifiedEmail() && resource.data.email == request.auth.token.email;
+    }
+
     match /lifeCalendars/{calendarId} {
       allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
       allow read: if isCalendarOwner() || isAcceptedViewer(calendarId);
@@ -44,10 +61,10 @@ service cloud.firestore {
 
       match /viewers/{viewerId} {
         allow read: if isOwner(calendarId)
-          || (signedIn() && viewerId == request.auth.token.email && resource.data.email == request.auth.token.email)
+          || (hasVerifiedEmail() && viewerId == request.auth.token.email && resource.data.email == request.auth.token.email)
           || (signedIn() && resource.data.uid == request.auth.uid);
         allow create, update, delete: if isOwner(calendarId);
-        allow update: if signedIn()
+        allow update: if hasVerifiedEmail()
           && viewerId == request.auth.token.email
           && resource.data.status == "pending"
           && resource.data.email == request.auth.token.email

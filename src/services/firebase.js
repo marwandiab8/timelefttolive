@@ -5,6 +5,7 @@ import {
   signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  sendEmailVerification,
   signOut
 } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
@@ -40,8 +41,30 @@ export function signInWithEmail(email, password) {
   return signInWithEmailAndPassword(auth, email, password);
 }
 
-export function registerWithEmail(email, password) {
-  return createUserWithEmailAndPassword(auth, email, password);
+export async function registerWithEmail(email, password) {
+  const credential = await createUserWithEmailAndPassword(auth, email, password);
+  try {
+    await sendEmailVerification(credential.user);
+  } catch (error) {
+    // The account exists; the user can request another email from the dashboard.
+    console.error('Failed to send verification email', error);
+  }
+  return credential;
+}
+
+export function resendVerificationEmail() {
+  if (!auth?.currentUser) return Promise.reject(new Error('Sign in to verify your email.'));
+  return sendEmailVerification(auth.currentUser);
+}
+
+// Firestore and Storage rules read email_verified from the ID token, so a
+// verified user needs a fresh token, not just a reloaded profile.
+export async function refreshEmailVerification() {
+  const current = auth?.currentUser;
+  if (!current) return false;
+  await current.reload();
+  if (current.emailVerified) await current.getIdToken(true);
+  return current.emailVerified;
 }
 
 export function logOut() {

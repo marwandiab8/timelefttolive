@@ -16,6 +16,8 @@ service firebase.storage {
 
     function isAcceptedViewer(calendarId) {
       return signedIn()
+        && request.auth.token.email != null
+        && request.auth.token.email_verified == true
         && firestore.exists(/databases/(default)/documents/lifeCalendars/$(calendarId)/viewers/$(request.auth.token.email))
         && firestore.get(/databases/(default)/documents/lifeCalendars/$(calendarId)/viewers/$(request.auth.token.email)).data.status == "accepted"
         && firestore.get(/databases/(default)/documents/lifeCalendars/$(calendarId)/viewers/$(request.auth.token.email)).data.role == "viewer";
