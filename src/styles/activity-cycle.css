@@ -253,45 +253,36 @@
   width: 100%;
   height: 100%;
   overflow: visible;
-  transform: rotate(-90deg);
-  filter: drop-shadow(0 26px 45px rgba(0, 0, 0, 0.22));
-}
-
-.life-wheel-track,
-.life-wheel-segment {
-  fill: none;
-  stroke-width: 15;
-}
-
-.life-wheel-track {
-  stroke: color-mix(in srgb, var(--cycle-muted) 19%, transparent);
 }
 
 .life-wheel-segment {
   cursor: pointer;
-  transition: opacity 220ms ease, stroke-width 220ms ease, filter 220ms ease;
-}
-
-.life-wheel-segment:hover,
-.life-wheel-segment:focus,
-.life-wheel-segment.selected {
   outline: none;
-  stroke-width: 18;
-  filter: brightness(1.08) drop-shadow(0 0 4px currentColor);
+  transition: opacity 220ms ease, filter 220ms ease;
 }
 
+.life-wheel-segment:hover {
+  filter: brightness(1.08);
+}
+
+/* The other slices step back so the selected one stands out. */
 .life-wheel-segment.faded {
-  opacity: 0.18;
+  opacity: 0.2;
+}
+
+.life-wheel-segment:focus-visible {
+  stroke: var(--cycle-text);
+  stroke-width: 0.7;
 }
 
 .life-wheel-center {
   position: absolute;
-  inset: 27%;
+  inset: 29.5%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: 4px;
   text-align: center;
 }
 
@@ -305,18 +296,18 @@
 .life-wheel-center p,
 .life-wheel-center time {
   margin: 4px 0;
-  font-size: clamp(0.8rem, 1vw, 1rem);
+  font-size: clamp(0.75rem, 0.95vw, 0.95rem);
 }
 
 .life-wheel-center h2 {
   margin: 4px 0;
-  font-size: clamp(1.3rem, 2vw, 2rem);
+  font-size: clamp(1.15rem, 1.7vw, 1.7rem);
 }
 
 .life-wheel-center > strong {
   margin: 5px 0 3px;
   color: var(--cycle-text);
-  font-size: clamp(2.1rem, 4.3vw, 4rem);
+  font-size: clamp(1.6rem, 2.7vw, 2.6rem);
   line-height: 0.95;
   letter-spacing: -0.055em;
 }
@@ -327,7 +318,7 @@
 }
 
 .life-wheel-icon {
-  font-size: 1.7rem;
+  font-size: 1.4rem;
 }
 
 .life-wheel-labels {
@@ -339,40 +330,34 @@
 .life-wheel-labels button {
   position: absolute;
   display: grid;
-  min-width: 92px;
-  padding: 7px 9px;
-  border: 1px solid color-mix(in srgb, var(--label-color) 40%, var(--cycle-border));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--cycle-surface) 94%, transparent);
-  color: var(--cycle-text);
+  justify-items: center;
+  gap: 1px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #fff;
+  cursor: pointer;
+  line-height: 1;
   pointer-events: auto;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
   transform: translate(-50%, -50%);
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.18);
+  transition: opacity 220ms ease;
 }
 
 .life-wheel-labels button span {
-  font-size: 1.15rem;
+  font-size: 1.3rem;
 }
 
-.life-wheel-labels button b,
 .life-wheel-labels button small {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
   white-space: nowrap;
 }
 
-.life-wheel-labels button b {
-  font-size: 0.7rem;
-}
-
-.life-wheel-labels button small {
-  color: var(--cycle-muted);
-  font-size: 0.65rem;
-}
-
-.life-wheel-labels button.selected {
-  border-color: var(--label-color);
-  background: color-mix(in srgb, var(--label-color) 18%, var(--cycle-surface));
+.life-wheel-labels button.faded {
+  opacity: 0.3;
 }
 
 .cycle-glance {
@@ -1866,32 +1851,12 @@
     width: min(92vw, 600px);
   }
 
-  .life-wheel-track,
-  .life-wheel-segment {
-    stroke-width: 13;
-  }
-
-  .life-wheel-segment:hover,
-  .life-wheel-segment:focus,
-  .life-wheel-segment.selected {
-    stroke-width: 16;
-  }
-
-  .life-wheel-labels button {
-    min-width: 68px;
-    padding: 5px 6px;
-  }
-
-  .life-wheel-labels button b {
-    display: none;
-  }
-
-  .life-wheel-center {
-    inset: 25%;
+  .life-wheel-labels button span {
+    font-size: 0.9rem;
   }
 
   .life-wheel-center > strong {
-    font-size: clamp(2rem, 10vw, 3.2rem);
+    font-size: clamp(1.4rem, 6.5vw, 2.2rem);
   }
 
   .cycle-glance {

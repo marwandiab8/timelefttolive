@@ -32,6 +32,12 @@ import {
   shiftPeriodDate,
   toggleActivitySelection
 } from '../utils/lifeEventUtils.js';
+import {
+  buildWheelSegments,
+  describeWheelSegment,
+  getWheelLabelMode,
+  getWheelLabelPosition
+} from '../utils/wheelGeometry.js';
 
 const PERIODS = ['day', 'week', 'month', 'year'];
 const TALLY_RANGES = [
@@ -434,29 +440,25 @@ function PeriodNavigation({ period, title, dateId, onPeriodChange, onMove, onDat
   );
 }
 
-function LifeWheel({ analysis, categoryAnalysis, now, onSelect, period, pointAnalysis, selectedLabel, title }) {
-  let cursor = 0;
-  const segments = analysis.categories.map((category) => {
-    const percentage = analysis.timedSeconds ? (category.seconds / analysis.timedSeconds) * 100 : 0;
-    const segment = { ...category, percentage, offset: cursor, midpoint: cursor + (percentage / 2) };
-    cursor += percentage;
-    return segment;
-  });
+export function LifeWheel({ analysis, categoryAnalysis, now, onSelect, period, pointAnalysis, selectedLabel, title }) {
+  // Slices are proportional to time, except that tiny ones are drawn at a
+  // minimum size so they stay visible; see buildWheelSegments.
+  const segments = buildWheelSegments(analysis.categories);
   const centerSession = categoryAnalysis?.activeSession
     || (period === 'day' ? categoryAnalysis?.sessions[0] : null);
 
   return (
     <div className="life-wheel" data-testid="life-wheel">
       <svg viewBox="0 0 100 100" role="img" aria-label={`${title} time allocation`}>
-        <circle className="life-wheel-track" cx="50" cy="50" r="39" pathLength="100" />
         {segments.map((segment) => (
-          <circle
+          <path
             aria-label={`${segment.label}, ${formatDuration(segment.seconds)}`}
             className={`life-wheel-segment ${selectedLabel && selectedLabel !== segment.label ? 'faded' : ''} ${selectedLabel === segment.label ? 'selected' : ''}`}
-            cx="50" cy="50" key={segment.label} pathLength="100" r="39" role="button"
-            stroke={segment.color}
-            strokeDasharray={`${segment.percentage} ${100 - segment.percentage}`}
-            strokeDashoffset={-segment.offset}
+            d={describeWheelSegment(segment)}
+            fill={segment.color}
+            fillRule="evenodd"
+            key={segment.label}
+            role="button"
             tabIndex="0"
             onClick={() => onSelect(segment.label)}
             onKeyDown={(event) => {
@@ -466,8 +468,8 @@ function LifeWheel({ analysis, categoryAnalysis, now, onSelect, period, pointAna
               }
             }}
           >
-            <title>{segment.label}: {formatDuration(segment.seconds)}</title>
-          </circle>
+            <title>{`${segment.label}: ${formatDuration(segment.seconds)}`}</title>
+          </path>
         ))}
       </svg>
       <WheelLabels segments={segments} onSelect={onSelect} selectedLabel={selectedLabel} />
@@ -508,21 +510,23 @@ function LifeWheel({ analysis, categoryAnalysis, now, onSelect, period, pointAna
 function WheelLabels({ segments, selectedLabel, onSelect }) {
   return (
     <div className="life-wheel-labels" aria-hidden="true">
-      {segments.filter((segment) => segment.percentage >= 4).map((segment) => {
-        const angle = ((segment.midpoint / 100) * 360) - 90;
-        const radians = angle * (Math.PI / 180);
-        const left = 50 + (42 * Math.cos(radians));
-        const top = 50 + (42 * Math.sin(radians));
+      {segments.map((segment) => {
+        const duration = formatDuration(segment.seconds);
+        const mode = getWheelLabelMode(segment, duration.length);
+        if (mode === 'none') return null;
+        const { left, top } = getWheelLabelPosition(segment);
+        const state = selectedLabel === segment.label ? 'selected' : selectedLabel ? 'faded' : '';
         return (
           <button
-            className={selectedLabel === segment.label ? 'selected' : ''}
+            className={state}
             key={segment.label}
-            style={{ left: `${left}%`, top: `${top}%`, '--label-color': segment.color }}
+            style={{ left: `${left}%`, top: `${top}%` }}
             type="button"
             tabIndex="-1"
             onClick={() => onSelect(segment.label)}
           >
-            <span>{segment.icon}</span><b>{segment.label}</b><small>{formatDuration(segment.seconds)}</small>
+            <span>{segment.icon}</span>
+            {mode === 'full' && <small>{duration}</small>}
           </button>
         );
       })}

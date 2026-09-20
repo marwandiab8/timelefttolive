@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { ActivityEntryDialog, TotalsView, buildDeleteRequest, buildLocationPatch } from './ActivityDashboard.jsx';
+import { getCategoryDefinition } from '../utils/lifeEventUtils.js';
+import { ActivityEntryDialog, LifeWheel, TotalsView, buildDeleteRequest, buildLocationPatch } from './ActivityDashboard.jsx';
 
 const allTimeRange = {
   id: 'all',
@@ -125,5 +126,64 @@ describe('buildDeleteRequest', () => {
       expect(request).toEqual({ calendarId: 'cal-1', eventId: 'moment-1' });
       expect(Object.keys(request)).not.toContain('linkedEventId');
     }
+  });
+});
+
+describe('LifeWheel', () => {
+  const H = 3600;
+  const categories = [['Home', 57 * H], ['Work', 45 * H], ['Sleep', 44 * H], ['Places', 11 * 60]]
+    .map(([label, seconds]) => ({ ...getCategoryDefinition(label), label, seconds, sessions: [] }));
+  const analysis = { categories, timedSeconds: categories.reduce((total, category) => total + category.seconds, 0), activeCount: 0 };
+  const render = (props = {}) => renderToStaticMarkup(
+    <LifeWheel analysis={analysis} categoryAnalysis={null} now={new Date('2026-09-19T12:00:00Z')} onSelect={vi.fn()} period="week" pointAnalysis={null} selectedLabel={null} title="Last week" {...props} />
+  );
+
+  it('draws one rounded path per category in that category\'s colour, and no dashed circles', () => {
+    const markup = render();
+    expect(markup.match(/<path /g)).toHaveLength(categories.length);
+    expect(markup).not.toContain('<circle');
+    expect(markup).not.toContain('stroke-dasharray');
+    categories.forEach((category) => expect(markup).toContain(`fill="${category.color}"`));
+    expect(markup).not.toMatch(/NaN|undefined/);
+  });
+
+  it('keeps an 11 minute slice visible next to a 57 hour one', () => {
+    const markup = render();
+    const places = markup.match(/<path[^>]*aria-label="Places, 11m"[^>]*>/)[0];
+    expect(places).toMatch(/ d="M [\d.]+ [\d.]+ L/);
+  });
+
+  it('prints the icon on every slice and the duration where it fits', () => {
+    const markup = render();
+    const labels = markup.match(/<div class="life-wheel-labels"[\s\S]*?<\/div>/)[0];
+    expect(labels.match(/<button/g)).toHaveLength(categories.length);
+    expect(labels).toContain('57h');
+    expect(labels).toContain('45h');
+    expect(labels).not.toContain('11m');
+  });
+
+  it('does not repeat the category names on the ring, since the legend has them', () => {
+    const labels = render().match(/<div class="life-wheel-labels"[\s\S]*?<\/div>/)[0];
+    expect(labels).not.toContain('Home');
+    expect(labels).not.toContain('Work');
+  });
+
+  it('fades the other slices and shows the selected activity in the centre', () => {
+    const work = { ...categories[1], sessionCount: 3, totalSeconds: categories[1].seconds, sessions: [], activeSession: null };
+    const markup = render({ categoryAnalysis: work, selectedLabel: 'Work' });
+    expect(markup.match(/life-wheel-segment faded/g)).toHaveLength(categories.length - 1);
+    expect(markup).toContain('life-wheel-segment  selected');
+    expect(markup).toContain('<h2>Work</h2>');
+  });
+
+  it('shows total tracked time in the centre when nothing is selected', () => {
+    expect(render()).toContain('tracked time');
+  });
+
+  it('renders without React warnings, such as an array of children inside a tooltip title', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render();
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
   });
 });

@@ -60,12 +60,22 @@ The header switches between **Time wheel** and **My totals**, offers a light/dar
 ### Time wheel
 
 - **Period navigation:** day, week (Monday to Sunday), month or year, with previous/next, a date picker and a Today button. Titles read "Today", "Yesterday", "This Week", "Last Week" where they apply.
-- **Wheel:** a donut of tracked time by category. The centre shows total tracked time and how many sessions are in progress. Selecting a segment (or a legend entry) focuses that category.
+- **Wheel:** a donut of tracked time by category, largest first, clockwise from 12 o'clock. Slices are separated by small gaps and have rounded corners. The centre shows total tracked time and how many sessions are in progress. Each slice shows its icon and, where it fits, its duration. Selecting a slice (or a legend entry) focuses that category and fades the rest.
 - **At a glance:** a sentence about the largest category plus tracked time, moments, and, for a day, how much of the 24 hours is covered. Sessions with a missing finish are called out and excluded from the total.
 - **What happened:** the chronological timeline, earliest first. Sessions show their status (Completed, In progress, Incomplete, Ended elsewhere), their start and end boundary events and when the source sent them. Moments (point events such as Spotify plays, journal entries, achievements) show alongside without adding duration. For a day there is also a 24-hour overview chart. For a week, month or year the timeline is grouped by day and can be expanded.
 - **Photos from this day** (day view only) and, when Journal is selected, a **journal reflection** with entries, photo counts and a private gallery with a lightbox (arrow keys and Escape work).
 - **Focused analysis** for the selected category: trend against the previous period and recent history, location breakdown, and category-specific panels (work attendance, workout summaries, session history).
 - **Edit / Delete** buttons on each timeline entry that has a canonical event id.
+
+#### How the wheel is drawn
+
+Angles come from `buildWheelSegments` in `src/utils/wheelGeometry.js`, and each slice is an SVG path from `describeWheelSegment`.
+
+- Slices are proportional to time **except that none is drawn smaller than 8 degrees**, so a few minutes stay visible next to a whole week. The room those slices take is removed from the larger ones. The exact figures are always in the legend, the tooltip and the centre total; a slice's real share is `trueShare` and `boosted` marks the ones drawn larger than that.
+- Neighbouring slices leave a 1.8 degree gap, centred on each boundary. With a single slice the ring is drawn whole, with no gap.
+- If there are too many slices to give each the minimum, the ring is shared evenly.
+- Corner rounding shrinks on narrow slices so the corners never overlap.
+- The icon is shown on every slice. The duration is added only when the upright text fits inside the slice's wedge, checked geometrically by `getWheelLabelMode`.
 
 ### My totals
 
@@ -223,6 +233,7 @@ These were checked against the current code. None stops the app from working day
 | Shell and routing | `src/pages/Dashboard.jsx`, `src/components/PrimaryViewSwitcher.jsx` |
 | UI | `src/components/ActivityDashboard.jsx`, `src/styles/activity-cycle.css` |
 | Derivation logic | `src/utils/lifeEventUtils.js` |
+| Wheel geometry | `src/utils/wheelGeometry.js` |
 | Firestore hooks | `src/hooks/useCalendar.js` |
 | Browser clients for the functions | `src/services/activityEntries.js`, `src/services/activityJournal.js` |
 | Callables | `functions/src/activityEntries.js` |
@@ -231,4 +242,4 @@ These were checked against the current code. None stops the app from working day
 | Hosting routes | `firebase.json` |
 | Ingestion side of edits and deletes | `manualOverride` and tombstone checks in `functions/src/ingestion/lifeEventFoundation.js` |
 
-Tests: `src/utils/lifeEventUtils.test.js` (derivation, about 76 tests), `src/components/ActivityDashboard.test.jsx`, `src/services/activityJournal.test.js`, `functions/src/activityEntries.test.js` (edit, ownership and time validation, clearing and omitting location, delete with tombstone, paired edit and paired delete) and `functions/src/activityJournal.test.js` (authorization, sanitized details, fail-closed media). Run them with `npm run test:frontend` and `npm run test:functions`.
+Tests: `src/utils/lifeEventUtils.test.js` (derivation, about 76 tests), `src/utils/wheelGeometry.test.js` (slice angles, minimum size, paths, label fit), `src/components/ActivityDashboard.test.jsx`, `src/services/activityJournal.test.js`, `functions/src/activityEntries.test.js` (edit, ownership and time validation, clearing and omitting location, delete with tombstone, paired edit and paired delete) and `functions/src/activityJournal.test.js` (authorization, sanitized details, fail-closed media). Run them with `npm run test:frontend` and `npm run test:functions`.

@@ -1914,18 +1914,6 @@ export function buildActivityBreakdown(events) {
   return buildPeriodAnalysis(events).categories.map((category) => ({ ...category, value: category.seconds, usesDuration: true, count: category.sessions.length }));
 }
 
-export function getDonutBackground(breakdown) {
-  const total = breakdown.reduce((sum, item) => sum + item.value, 0);
-  if (!total) return 'conic-gradient(var(--activity-track) 0 100%)';
-  let cursor = 0;
-  const stops = breakdown.map((item) => {
-    const start = cursor;
-    cursor += (item.value / total) * 100;
-    return `${item.color} ${start.toFixed(2)}% ${cursor.toFixed(2)}%`;
-  });
-  return `conic-gradient(${stops.join(', ')})`;
-}
-
 export function formatDuration(seconds) {
   const minutes = Math.round(Math.max(0, Number(seconds) || 0) / 60);
   if (minutes < 60) return `${minutes}m`;
