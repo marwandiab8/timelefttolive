@@ -4,9 +4,13 @@
 
 Production (`timelefttolive`) has the functions, hosting, Firestore rules and indexes, and Storage rules from commit `b86b7dc`. Not yet checked with a signed-in browser: the email verification flow and paired-session edit and delete.
 
-Production hosting is newer than the rest: commit `6e6b6c0`, which redesigns the Activity time wheel (deployed to staging first, then production).
+Production and staging hosting are at commit `d34dd44`, which draws each week's events as coloured wedges of its square and makes the squares about 6% bigger. Before it came `08c5069` (main calendar redesign) and `6e6b6c0` (Activity time wheel). Each went to staging first, then production.
 
-Staging (`timelefttolive-stg-go`) has the Firestore rules and indexes and all 11 functions from the same commit as production, and the same `6e6b6c0` hosting. Firebase Storage has never been set up on staging, so `storage.rules` was not deployed there (set it up from the console, then `firebase deploy --only storage --project timelefttolive-stg-go`). Still to do on staging: sign in with an email/password account and check the verification notice and invite flow, and edit and delete a paired session in the Activity dashboard.
+Everything else (functions, Firestore and Storage rules, indexes) is from `b86b7dc` on both.
+
+Firebase Hosting's CDN can serve the previous `index.html` for a minute or two after a deploy, so check the served asset names (or wait) before concluding a deploy did not take.
+
+Not checked with real data yet: the calendar wedges, serif face and phone layout, and the Activity wheel's 8 degree minimum slice and icons. Firebase Storage has never been set up on staging, so `storage.rules` was not deployed there (set it up from the console, then `firebase deploy --only storage --project timelefttolive-stg-go`). Still to do on staging: sign in with an email/password account and check the verification notice and invite flow, and edit and delete a paired session in the Activity dashboard.
 
 ## Fixed and deployed
 
