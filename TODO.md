@@ -4,7 +4,9 @@
 
 Production (`timelefttolive`) has the functions, hosting, Firestore rules and indexes, and Storage rules from commit `b86b7dc`. Not yet checked with a signed-in browser: the email verification flow and paired-session edit and delete.
 
-Staging (`timelefttolive-stg-go`) has the Firestore rules and indexes, all 11 functions and hosting from the same commit. Firebase Storage has never been set up on staging, so `storage.rules` was not deployed there (set it up from the console, then `firebase deploy --only storage --project timelefttolive-stg-go`). Still to do on staging: sign in with an email/password account and check the verification notice and invite flow, and edit and delete a paired session in the Activity dashboard.
+Production hosting is newer than the rest: commit `6e6b6c0`, which redesigns the Activity time wheel (deployed to staging first, then production).
+
+Staging (`timelefttolive-stg-go`) has the Firestore rules and indexes and all 11 functions from the same commit as production, and the same `6e6b6c0` hosting. Firebase Storage has never been set up on staging, so `storage.rules` was not deployed there (set it up from the console, then `firebase deploy --only storage --project timelefttolive-stg-go`). Still to do on staging: sign in with an email/password account and check the verification notice and invite flow, and edit and delete a paired session in the Activity dashboard.
 
 ## Fixed and deployed
 
