@@ -29,6 +29,9 @@ const FIT_PADDING = 12;
 const DESKTOP_MINIMUM_WIDTH = 980;
 const MOBILE_MINIMUM_WIDTH = 860;
 const MOBILE_FIT_MINIMUM_ZOOM = 0.7;
+// Weekend marks are the same in every square, so they only appear once the
+// squares are big enough for them to be more than noise.
+const DETAIL_ZOOM = 1.4;
 
 const LifeHeatmap = forwardRef(function LifeHeatmap({
   calendar,
@@ -264,28 +267,26 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
     return 'future';
   }
 
+  const detailed = zoom >= DETAIL_ZOOM;
+
   return (
     <section className="heatmap-section">
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">Life calendar</p>
-          <h2>One square per week</h2>
+      <div className="heatmap-controls">
+        <div className="heat-legend" aria-label="Legend">
+          <span><i className="swatch-past" />Past</span>
+          <span><i className="swatch-current" />Current</span>
+          <span><i className="swatch-future" />Future</span>
+          {detailed && <span><i className="swatch-weekend" />Weekend marks</span>}
         </div>
-        <div className="legend">
-          <span><i style={{ background: settings.pastColor }} />Past</span>
-          <span><i style={{ background: settings.currentWeekColor }} />Current</span>
-          <span><i style={{ background: settings.futureColor }} />Future</span>
-          <span><i style={{ background: settings.weekendColor }} />Weekend marks</span>
-        </div>
+        <HeatmapZoomToolbar
+          fitMode={fitMode}
+          zoom={zoom}
+          onFit={activateFit}
+          onReset={() => requestZoom(HEATMAP_RESET_ZOOM)}
+          onZoomIn={() => requestZoom(stepHeatmapZoom(zoom, 1))}
+          onZoomOut={() => requestZoom(stepHeatmapZoom(zoom, -1))}
+        />
       </div>
-      <HeatmapZoomToolbar
-        fitMode={fitMode}
-        zoom={zoom}
-        onFit={activateFit}
-        onReset={() => requestZoom(HEATMAP_RESET_ZOOM)}
-        onZoomIn={() => requestZoom(stepHeatmapZoom(zoom, 1))}
-        onZoomOut={() => requestZoom(stepHeatmapZoom(zoom, -1))}
-      />
       <div
         ref={scrollRef}
         className="heatmap-scroll"
@@ -296,13 +297,22 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
       >
         <div
           ref={heatmapElementRef}
-          className="heatmap"
+          className={`heatmap ${detailed ? 'heatmap-detailed' : ''}`}
           style={{ '--cell-base': `${geometry.baseCellSize}px`, '--heatmap-zoom': zoom }}
         >
-          {rowsWithEvents.map((row) => (
-            <div className="year-row" key={row.age}>
-              <button className="year-label age-button" type="button" onClick={() => onAgeClick(row.age)}>
-                {row.label}
+          {rowsWithEvents.map((row, rowIndex) => (
+            <div
+              className={`year-row ${row.weeks.some((week) => isCurrentWeek(week)) ? 'current-year' : ''} ${row.age % 10 === 9 && rowIndex < rowsWithEvents.length - 1 ? 'decade-end' : ''}`}
+              key={row.age}
+            >
+              <button
+                aria-label={row.label}
+                className={`year-label age-button ${row.age % 10 === 0 ? 'decade' : ''}`}
+                title={row.label}
+                type="button"
+                onClick={() => onAgeClick(row.age)}
+              >
+                {row.age}
               </button>
               <div className="week-row">
                 {row.weeks.map((week) => {
@@ -320,7 +330,7 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
                       aria-label={title}
                       onClick={() => onSelectWeek({ ...week, events: weekEvents })}
                       style={{
-                        background: baseColor,
+                        '--cell-fill': baseColor,
                         '--current-color': settings.currentWeekColor,
                         '--weekend-color': settings.weekendColor
                       }}

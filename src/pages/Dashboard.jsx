@@ -4,6 +4,7 @@ import CalendarBreadcrumbs from '../components/CalendarBreadcrumbs.jsx';
 import { DayDrilldownView, MonthDetailView, WeekDetailView, YearDetailView } from '../components/CalendarDrilldown.jsx';
 import EmailVerificationNotice from '../components/EmailVerificationNotice.jsx';
 import EventManager from '../components/EventManager.jsx';
+import LifeSummary from '../components/LifeSummary.jsx';
 import ExternalSourcesManager from '../components/ExternalSourcesManager.jsx';
 import LifeHeatmap from '../components/LifeHeatmap.jsx';
 import PrimaryViewSwitcher from '../components/PrimaryViewSwitcher.jsx';
@@ -224,10 +225,10 @@ export default function Dashboard() {
           onBack={showCalendar}
         />
       )}
-      <main className="app-shell" data-calendar-theme={calendarTheme} hidden={primaryView !== 'calendar'}>
+      <main className="app-shell" data-calendar-theme={calendarTheme} hidden={primaryView !== 'calendar'} style={calendarColorVariables(calendar.settings)}>
       <header className="topbar">
         <div className="calendar-heading">
-          <p className="eyebrow">{role === 'owner' ? 'Owner dashboard' : 'Read-only viewer'}</p>
+          <p className="calendar-role">{role === 'owner' ? 'Owner dashboard' : 'Read-only viewer'}</p>
           <h1>{calendar.firstName} {calendar.lastName}</h1>
           {role === 'owner' && (
             <PrimaryViewSwitcher
@@ -236,32 +237,25 @@ export default function Dashboard() {
             />
           )}
         </div>
-        <div className="actions">
+        <div className="actions calendar-actions">
           {pendingInvite && <button className="secondary" type="button" onClick={() => acceptViewerInvite(pendingInvite.calendarId, pendingInvite.id, user.uid)}>Accept invite</button>}
           <button className="secondary" type="button" onClick={() => heatmapRef.current?.scrollToCurrentWeek()}>Today</button>
-          <button className="secondary theme-toggle" type="button" aria-pressed={calendarTheme === 'light'} onClick={toggleCalendarBackground}>
+          {role === 'owner' && <button className="primary" type="button" onClick={() => setShowEvents(true)}>Add event</button>}
+          <button className="quiet-button theme-toggle" type="button" aria-pressed={calendarTheme === 'light'} onClick={toggleCalendarBackground}>
             {calendarTheme === 'dark' ? 'Light background' : 'Dark background'}
           </button>
-          {role === 'owner' && <button className="secondary" type="button" onClick={() => setShowEvents(true)}>Add event</button>}
-          {role === 'owner' && <button className="secondary" type="button" onClick={() => setShowSources(true)}>External sources</button>}
-          {role === 'owner' && <button className="secondary" type="button" onClick={() => setEditingProfile(true)}>Edit profile</button>}
-          {role === 'owner' && <button className="secondary" type="button" onClick={() => setShowViewers(true)}>Manage viewers</button>}
-          <button className="ghost" type="button" onClick={() => logOut()}>Sign out</button>
+          {role === 'owner' && <button className="quiet-button" type="button" onClick={() => setShowSources(true)}>External sources</button>}
+          {role === 'owner' && <button className="quiet-button" type="button" onClick={() => setEditingProfile(true)}>Edit profile</button>}
+          {role === 'owner' && <button className="quiet-button" type="button" onClick={() => setShowViewers(true)}>Manage viewers</button>}
+          <button className="quiet-button" type="button" onClick={() => logOut()}>Sign out</button>
         </div>
       </header>
 
-      <section className="summary-grid">
-        <Summary label="Current age" value={stats.currentAge} />
-        <Summary label="Target age" value={stats.targetAge} />
-        <Summary label="Weeks lived" value={stats.weeksLived.toLocaleString()} />
-        <Summary label="Weeks remaining" value={stats.weeksRemaining.toLocaleString()} />
-        <Summary label="Days remaining" value={stats.daysRemaining.toLocaleString()} />
-        <Summary label="Life remaining" value={`${stats.percentageRemaining.toFixed(1)}%`} />
-      </section>
+      <LifeSummary stats={stats} />
       {custodyStats && (
         <section className="family-time-panel">
           <div>
-            <p className="eyebrow">Time with my boys</p>
+            <p className="family-time-label">Time with my boys</p>
             <h2>{custodyStats.weeksRemaining.toLocaleString()} weeks together</h2>
             <p className="muted">
               About {custodyStats.daysRemaining.toLocaleString()} days with {custodyStats.childNames.join(', ')}
@@ -330,11 +324,13 @@ function getBreadcrumbs(view, setCalendarView) {
   return items;
 }
 
-function Summary({ label, value }) {
-  return (
-    <article className="summary-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </article>
-  );
+// The summary bar and the grid share the calendar's own past, current and
+// future colours, so the two read as one encoding.
+function calendarColorVariables(settings = {}) {
+  return {
+    '--life-past': settings.pastColor || '#46505c',
+    '--life-now': settings.currentWeekColor || '#f4c542',
+    '--life-future': settings.futureColor || '#17222c',
+    '--life-weekend': settings.weekendColor || '#65d6ad'
+  };
 }
