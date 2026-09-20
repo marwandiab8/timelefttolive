@@ -4,13 +4,15 @@ import {
   eventIntersectsMonth,
   eventIntersectsWeek,
   formatDateId,
-  getDaysForWeek,
+  getDaysForWeekRange,
   getLifeYearRange,
   getMonthsForLifeYear,
   getWeeksForRange,
+  isCurrentWeek,
   isDateInRange,
   parseDateId
 } from '../utils/dateUtils.js';
+import { buildWedgeGradient, isSafeColor, pickWeekWedges } from '../utils/eventWedges.js';
 import { useRangeEntries } from '../hooks/useCalendar.js';
 import { useRangeExternalItems } from '../services/externalSources/externalDailyItems.js';
 
@@ -40,7 +42,7 @@ export function YearDetailView({ calendar, age, events, role, onNavigate }) {
             <button className="month-card" key={month.id} type="button" onClick={() => onNavigate({ view: 'month', age, monthId: month.id })}>
               <span className="eyebrow">{month.name}</span>
               <strong>{formatDateId(month.rangeStart)} to {formatDateId(month.rangeEnd)}</strong>
-              <span>{monthEvents.length} events · {monthExternal.length} linked items</span>
+              <span>{count(monthEvents.length, 'event')}{monthExternal.length > 0 ? `, ${count(monthExternal.length, 'linked item')}` : ''}</span>
               <span>{hasJournal ? 'Journal activity' : 'No journal entries'}</span>
               <span className="mini-strip">
                 {Array.from({ length: 12 }, (_, index) => <i key={index} className={index < monthEntries.length ? 'active' : ''} />)}
@@ -76,13 +78,25 @@ export function MonthDetailView({ calendar, age, monthId, events, role, onNaviga
           const weekEvents = events.filter((event) => eventIntersectsWeek(event, week));
           const weekEntries = entryState.entries.filter((entry) => isDateInRange(entry.dateId, week.start, week.end));
           const weekExternal = externalState.items.filter((item) => isDateInRange(item.dateId, week.start, week.end));
+          const current = isCurrentWeek(week);
           return (
-            <button className="drill-card" key={week.dateId} type="button" onClick={() => onNavigate({ view: 'week', age, monthId, weekStart: week.dateId })}>
-              <strong>Week of {formatDateId(week.start)}</strong>
-              <span>{formatDateId(week.start)} to {formatDateId(week.end)}</span>
-              <span>{week.days.map((day) => day.getDate()).join(' · ')}</span>
-              <span>{weekEvents.length} events · {weekEntries.length} saved days · {weekExternal.length} linked items</span>
-              <EventDots events={weekEvents} />
+            <button
+              className={`drill-card week-nav-card ${current ? 'current' : ''}`}
+              key={week.dateId}
+              type="button"
+              aria-label={`Week of ${formatDateId(week.start)}`}
+              onClick={() => onNavigate({ view: 'week', age, monthId, weekStart: week.dateId, weekEnd: formatDateId(week.end) })}
+            >
+              <span className="drill-card-head">
+                <strong>{shortDate(week.start)} to {shortDate(week.end)}</strong>
+                {current && <span className="today-badge">This week</span>}
+              </span>
+              <WeekStrip days={week.days} events={events} monthStart={monthStart} monthEnd={monthEnd} />
+              <span className="drill-card-foot">
+                <span>{weekEvents.length ? count(weekEvents.length, 'event') : 'No events'}</span>
+                {weekEntries.length > 0 && <span>{count(weekEntries.length, 'saved day')}</span>}
+                {weekExternal.length > 0 && <span>{count(weekExternal.length, 'linked item')}</span>}
+              </span>
             </button>
           );
         })}
@@ -91,10 +105,13 @@ export function MonthDetailView({ calendar, age, monthId, events, role, onNaviga
   );
 }
 
-export function WeekDetailView({ calendar, age, monthId, weekStart, events, role, onNavigate }) {
-  const days = getDaysForWeek(weekStart);
+export function WeekDetailView({ calendar, age, monthId, weekStart, weekEnd, events, role, onNavigate }) {
+  // The heatmap's weeks start on the birth date's weekday, so use the exact days of
+  // the week that was opened instead of snapping to Sunday.
+  const days = getDaysForWeekRange(weekStart, weekEnd);
   const startId = formatDateId(days[0]);
   const endId = formatDateId(days.at(-1));
+  const todayId = formatDateId(new Date());
   const entryState = useRangeEntries(calendar.id, startId, endId, role);
   const externalState = useRangeExternalItems(calendar.id, startId, endId, role, calendar.ownerUid);
 
@@ -102,8 +119,8 @@ export function WeekDetailView({ calendar, age, monthId, weekStart, events, role
     <section className="detail-surface">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Week</p>
-          <h2>{startId} to {endId}</h2>
+          <h2>{shortDate(days[0])} to {shortDate(days.at(-1), true)}</h2>
+          <p className="muted">{startId} to {endId}</p>
         </div>
       </div>
       {(entryState.error || externalState.error) && <p className="error">{entryState.error || externalState.error}</p>}
@@ -114,13 +131,24 @@ export function WeekDetailView({ calendar, age, monthId, weekStart, events, role
           const entry = entryState.entries.find((item) => item.dateId === dateId);
           const dayExternal = externalState.items.filter((item) => item.dateId === dateId);
           const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+          const isToday = dateId === todayId;
           return (
-            <button className={`drill-card day-nav-card ${isWeekend ? 'weekend' : ''}`} key={dateId} type="button" onClick={() => onNavigate({ view: 'day', age, monthId, weekStart, dateId })}>
-              <strong>{day.toLocaleDateString(undefined, { weekday: 'long' })}</strong>
-              <span>{dateId}</span>
-              <span>{dayEvents.length} events · {dayExternal.length} linked items</span>
-              <span>{entry?.journalText || entry?.notes ? 'Journal saved' : 'No journal yet'}</span>
-              <EventDots events={dayEvents} />
+            <button
+              className={`drill-card day-nav-card ${isWeekend ? 'weekend' : ''} ${isToday ? 'today' : ''}`}
+              key={dateId}
+              type="button"
+              onClick={() => onNavigate({ view: 'day', age, monthId, weekStart, weekEnd, dateId })}
+            >
+              <span className="drill-card-head">
+                <strong>{day.toLocaleDateString(undefined, { weekday: 'long' })}</strong>
+                {isToday && <span className="today-badge">Today</span>}
+              </span>
+              <time className="drill-card-date" dateTime={dateId}>{shortDate(day)}</time>
+              <EventList events={dayEvents} />
+              <span className="drill-card-foot">
+                <span>{entry?.journalText || entry?.notes ? 'Journal saved' : 'No journal yet'}</span>
+                {dayExternal.length > 0 && <span>{count(dayExternal.length, 'linked item')}</span>}
+              </span>
             </button>
           );
         })}
@@ -133,11 +161,50 @@ export function DayDrilldownView(props) {
   return <DayDetailView {...props} />;
 }
 
-function EventDots({ events }) {
+const DEFAULT_EVENT_COLOR = '#7c9cff';
+
+function shortDate(date, withYear = false) {
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(withYear ? { year: 'numeric' } : {}) });
+}
+
+function count(value, noun) {
+  return `${value} ${noun}${value === 1 ? '' : 's'}`;
+}
+
+// The week as seven small squares: days with events show the same wedges as the
+// life calendar, today is ringed, and days outside the month are dimmed.
+function WeekStrip({ days, events, monthStart, monthEnd }) {
+  const todayId = formatDateId(new Date());
   return (
-    <span className="event-dot-row">
-      {events.slice(0, 5).map((event) => <i key={event.id} style={{ background: event.color }} />)}
-      {events.length > 5 && <b>+{events.length - 5}</b>}
+    <span className="week-strip" aria-hidden="true">
+      {days.map((day) => {
+        const dateId = formatDateId(day);
+        const { wedges } = pickWeekWedges(events.filter((event) => eventIntersectsDate(event, dateId)), DEFAULT_EVENT_COLOR);
+        const outside = day < monthStart || day > monthEnd;
+        return (
+          <span className={`week-strip-day ${dateId === todayId ? 'today' : ''} ${outside ? 'outside' : ''}`} key={dateId}>
+            <small>{day.toLocaleDateString(undefined, { weekday: 'narrow' })}</small>
+            <i style={wedges.length ? { background: buildWedgeGradient(wedges.map((wedge) => wedge.color)) } : undefined} />
+            <b>{day.getDate()}</b>
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+// Up to three events by name, so a day says what is on it, not just how many.
+function EventList({ events }) {
+  if (!events.length) return <span className="drill-card-empty">No events</span>;
+  return (
+    <span className="drill-card-events">
+      {events.slice(0, 3).map((event) => (
+        <span className="drill-card-event" key={event.id}>
+          <i style={{ background: isSafeColor(event.color) ? event.color : DEFAULT_EVENT_COLOR }} />
+          {event.title || 'Event'}
+        </span>
+      ))}
+      {events.length > 3 && <b>+{events.length - 3} more</b>}
     </span>
   );
 }

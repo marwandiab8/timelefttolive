@@ -14,7 +14,8 @@ import WeekDetailPanel from '../components/WeekDetailPanel.jsx';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { acceptViewerInvite, useEvents, useOwnedCalendar, useSharedCalendar, useViewerInvites, useViewers } from '../hooks/useCalendar.js';
 import { logOut } from '../services/firebase.js';
-import { getLifeStats } from '../utils/dateUtils.js';
+import { useCurrentDay } from '../hooks/useCurrentDay.js';
+import { formatDateId, getLifeStats, parseDateId } from '../utils/dateUtils.js';
 import { getCustodyStats } from '../utils/custodyUtils.js';
 import { clampHeatmapZoom } from '../utils/heatmapViewport.js';
 import { readCalendarTheme, toggleCalendarTheme, writeCalendarTheme } from '../utils/theme.js';
@@ -60,8 +61,10 @@ export default function Dashboard() {
   const [calendarTheme, setCalendarTheme] = useState(readCalendarTheme);
   const heatmapRef = useRef(null);
   const viewScrollPositions = useRef({ activity: { left: 0, top: 0 }, calendar: { left: 0, top: 0 } });
-  const stats = useMemo(() => calendar ? getLifeStats(calendar.birthDate, calendar.targetAge) : null, [calendar]);
-  const custodyStats = useMemo(() => calendar ? getCustodyStats(calendar) : null, [calendar]);
+  // Recomputed at midnight, so the summary is right in a tab left open overnight.
+  const currentDay = useCurrentDay();
+  const stats = useMemo(() => calendar ? getLifeStats(calendar.birthDate, calendar.targetAge, parseDateId(currentDay)) : null, [calendar, currentDay]);
+  const custodyStats = useMemo(() => calendar ? getCustodyStats(calendar, parseDateId(currentDay)) : null, [calendar, currentDay]);
   const dataError = owned.error || inviteState.error || shared.error || eventState.error || viewerState.error;
   const pendingInvite = invites.find((invite) => invite.status === 'pending');
   const breadcrumbs = getBreadcrumbs(calendarView, setCalendarView);
@@ -273,7 +276,7 @@ export default function Dashboard() {
           ref={heatmapRef}
           calendar={calendar}
           events={events}
-          onSelectWeek={(week) => setCalendarView({ view: 'week', age: week.age, weekStart: week.dateId })}
+          onSelectWeek={(week) => setCalendarView({ view: 'week', age: week.age, weekStart: week.dateId, weekEnd: formatDateId(week.end) })}
           onAgeClick={(age) => setCalendarView({ view: 'year', age })}
           zoom={zoom}
           fitMode={fitMode}
@@ -291,7 +294,7 @@ export default function Dashboard() {
       )}
 
       {calendarView.view === 'week' && (
-        <WeekDetailView calendar={calendar} age={calendarView.age} monthId={calendarView.monthId} weekStart={calendarView.weekStart} events={events} role={role} onNavigate={setCalendarView} />
+        <WeekDetailView calendar={calendar} age={calendarView.age} monthId={calendarView.monthId} weekStart={calendarView.weekStart} weekEnd={calendarView.weekEnd} events={events} role={role} onNavigate={setCalendarView} />
       )}
 
       {calendarView.view === 'day' && (
@@ -319,7 +322,7 @@ function getBreadcrumbs(view, setCalendarView) {
   const items = [{ label: 'Life Overview', onClick: () => setCalendarView({ view: 'life' }) }];
   if (view.age !== undefined) items.push({ label: `Age ${view.age}`, onClick: () => setCalendarView({ view: 'year', age: view.age }) });
   if (view.monthId) items.push({ label: view.monthId, onClick: () => setCalendarView({ view: 'month', age: view.age, monthId: view.monthId }) });
-  if (view.weekStart) items.push({ label: `Week of ${view.weekStart}`, onClick: () => setCalendarView({ view: 'week', age: view.age, monthId: view.monthId, weekStart: view.weekStart }) });
+  if (view.weekStart) items.push({ label: `Week of ${view.weekStart}`, onClick: () => setCalendarView({ view: 'week', age: view.age, monthId: view.monthId, weekStart: view.weekStart, weekEnd: view.weekEnd }) });
   if (view.dateId) items.push({ label: view.dateId, onClick: null });
   return items;
 }

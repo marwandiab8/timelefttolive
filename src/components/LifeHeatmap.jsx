@@ -12,7 +12,8 @@ import {
   eventIntersectsWeek,
   formatDateId,
   getLifeYearsWeeks,
-  isCurrentWeek
+  isCurrentWeek,
+  parseDateId
 } from '../utils/dateUtils.js';
 import {
   calculateAnchoredOffset,
@@ -23,6 +24,7 @@ import {
   isReducedMotionPreferred,
   stepHeatmapZoom
 } from '../utils/heatmapViewport.js';
+import { useCurrentDay } from '../hooks/useCurrentDay.js';
 import { buildWedgeGradient, pickWeekWedges } from '../utils/eventWedges.js';
 import HeatmapZoomToolbar from './HeatmapZoomToolbar.jsx';
 
@@ -69,6 +71,8 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
   const centerCurrentAfterFitRef = useRef(false);
   const [geometry, setGeometry] = useState({ baseCellSize: 18, viewportWidth: 0 });
   const settings = calendar.settings || {};
+  // Changes at midnight, so which week is current stays right in a tab left open overnight.
+  const today = parseDateId(useCurrentDay());
 
   const scrollToCurrentWeek = useCallback(({ announce = true, block = 'center' } = {}) => {
     const current = rowsWithEvents.flatMap((row) => row.weeks).find((week) => isCurrentWeek(week));
@@ -271,7 +275,6 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
   }
 
   function getWeekState(week) {
-    const today = new Date();
     if (isCurrentWeek(week, today)) return 'current';
     if (week.end < today) return 'past';
     return 'future';
@@ -313,7 +316,7 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
         >
           {rowsWithEvents.map((row, rowIndex) => (
             <div
-              className={`year-row ${row.weeks.some((week) => isCurrentWeek(week)) ? 'current-year' : ''} ${row.age % 10 === 9 && rowIndex < rowsWithEvents.length - 1 ? 'decade-end' : ''}`}
+              className={`year-row ${row.weeks.some((week) => isCurrentWeek(week, today)) ? 'current-year' : ''} ${row.age % 10 === 9 && rowIndex < rowsWithEvents.length - 1 ? 'decade-end' : ''}`}
               key={row.age}
             >
               <button

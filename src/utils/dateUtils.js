@@ -190,6 +190,22 @@ export function getDaysForWeek(weekStartDate) {
   return getDaysInWeek(getWeekStart(weekStartDate));
 }
 
+/**
+ * The days of one cell of the life calendar. Those weeks are counted from the
+ * birth date, so they can start on any weekday, and the last cell of each age
+ * row is longer than seven days. Falls back to the Sunday-to-Saturday week
+ * when no usable end date is given.
+ */
+export function getDaysForWeekRange(weekStartDate, weekEndDate) {
+  if (!weekEndDate) return getDaysForWeek(weekStartDate);
+  const start = toLocalDate(weekStartDate);
+  const end = toLocalDate(weekEndDate);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    return getDaysForWeek(weekStartDate);
+  }
+  return getDaysInRange(start, end);
+}
+
 export function eventIntersectsWeek(event, week) {
   if (!event?.startDate || !event?.endDate) return false;
   const eventStart = toLocalDate(event.startDate);
