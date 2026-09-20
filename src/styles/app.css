@@ -5,6 +5,8 @@
   color: #f7f0e5;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  --error-text: #ff9d9d;
+  --danger-text: #ff8b8b;
   --display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", serif;
 }
 
@@ -251,7 +253,7 @@ button {
 }
 
 .danger {
-  color: #ff8b8b;
+  color: var(--danger-text);
 }
 
 button:hover {
@@ -360,7 +362,7 @@ legend {
 }
 
 .error {
-  color: #ff9d9d;
+  color: var(--error-text);
 }
 
 .life-summary {
@@ -805,7 +807,7 @@ legend {
 }
 
 .breadcrumbs b {
-  color: #5f6b6b;
+  color: #808f8f;
 }
 
 .detail-surface {
@@ -1330,6 +1332,8 @@ legend {
 }
 
 .app-shell[data-calendar-theme="light"] {
+  --error-text: #b3261e;
+  --danger-text: #b3261e;
   --card-surface: #ffffff;
   --card-bg: #ffffff;
   --card-border: rgba(30, 57, 48, 0.18);
@@ -1403,7 +1407,7 @@ legend {
 }
 
 .app-shell[data-calendar-theme="light"] .zoom-shortcuts {
-  color: #667870;
+  color: #4f625b;
 }
 
 .activity-cycle .primary-view-switcher {
@@ -1432,8 +1436,9 @@ legend {
 }
 
 .app-shell[data-calendar-theme="light"] .text-button,
-.app-shell[data-calendar-theme="light"] .attachment a {
-  color: #9b6b0b;
+.app-shell[data-calendar-theme="light"] .attachment a,
+.app-shell[data-calendar-theme="light"] .age-button:hover {
+  color: #7a5508;
 }
 
 .app-shell[data-calendar-theme="light"] .muted,
@@ -1479,7 +1484,7 @@ legend {
 
 .app-shell[data-calendar-theme="light"] .divider,
 .app-shell[data-calendar-theme="light"] .breadcrumbs b {
-  color: #73847d;
+  color: #5d6f67;
 }
 
 .app-shell[data-calendar-theme="light"] .quiet-button {
