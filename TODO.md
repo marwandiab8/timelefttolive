@@ -4,9 +4,13 @@
 
 Production (`timelefttolive`) has the functions, hosting, Firestore rules and indexes, and Storage rules from commit `b86b7dc`. Not yet checked with a signed-in browser: the email verification flow and paired-session edit and delete.
 
-Production and staging hosting are at commit `d34dd44`, which draws each week's events as coloured wedges of its square and makes the squares about 6% bigger. Before it came `08c5069` (main calendar redesign) and `6e6b6c0` (Activity time wheel). Each went to staging first, then production.
+Production and staging are both at the latest: hosting at `e04d6b2` (readable text in the light theme, with a stylesheet contrast test) and Firestore rules and indexes at `81a9190`, which fix the "Missing or insufficient permissions" error in the week, month and year views. That error came from a collection-group query on `externalItems` that the rules never allowed. The fix also adds the two `COLLECTION_GROUP` indexes it needs and one for the invite lookup on `viewers.email`. Before those came `55f5e7a` (week view showed the previous week), `d34dd44` (event wedges), `08c5069` (main calendar redesign) and `6e6b6c0` (Activity time wheel).
 
-Everything else (functions, Firestore and Storage rules, indexes) is from `b86b7dc` on both.
+The indexes took about 3.5 minutes to build on staging and about 5 on production. Firestore reported them ready a moment before queries could use them, so verify with a real query (below) before relying on them.
+
+Functions are from `b86b7dc` on both.
+
+To check index state: `gcloud firestore indexes composite list --project=<id>` (look for `CREATING` or `READY`). The emulator does not enforce indexes, so also run the three collection-group queries with the Admin SDK, which skips rules but not index checks.
 
 Firebase Hosting's CDN can serve the previous `index.html` for a minute or two after a deploy, so check the served asset names (or wait) before concluding a deploy did not take.
 
