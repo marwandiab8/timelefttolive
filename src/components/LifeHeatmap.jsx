@@ -23,9 +23,11 @@ import {
   isReducedMotionPreferred,
   stepHeatmapZoom
 } from '../utils/heatmapViewport.js';
+import { buildWedgeGradient, pickWeekWedges } from '../utils/eventWedges.js';
 import HeatmapZoomToolbar from './HeatmapZoomToolbar.jsx';
 
-const FIT_PADDING = 12;
+// Matches the horizontal padding of `.heatmap-scroll` in app.css.
+const FIT_PADDING = 6;
 const DESKTOP_MINIMUM_WIDTH = 980;
 const MOBILE_MINIMUM_WIDTH = 860;
 const MOBILE_FIT_MINIMUM_ZOOM = 0.7;
@@ -44,13 +46,21 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
   onFitModeChange
 }, ref) {
   const rows = useMemo(() => getLifeYearsWeeks(calendar.birthDate, calendar.targetAge), [calendar.birthDate, calendar.targetAge]);
+  const defaultEventColor = calendar.settings?.defaultEventColor || '#7c9cff';
   const rowsWithEvents = useMemo(() => rows.map((row) => ({
     ...row,
-    weeks: row.weeks.map((week) => ({
-      ...week,
-      weekEvents: events.filter((event) => eventIntersectsWeek(event, week))
-    }))
-  })), [rows, events]);
+    weeks: row.weeks.map((week) => {
+      const weekEvents = events.filter((event) => eventIntersectsWeek(event, week));
+      const { wedges, overflow } = pickWeekWedges(weekEvents, defaultEventColor);
+      return {
+        ...week,
+        weekEvents,
+        wedges,
+        wedgeOverflow: overflow,
+        wedgeBackground: buildWedgeGradient(wedges.map((wedge) => wedge.color))
+      };
+    })
+  })), [rows, events, defaultEventColor]);
   const cellRefs = useRef(new Map());
   const heatmapElementRef = useRef(null);
   const scrollRef = useRef(null);
@@ -276,6 +286,7 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
           <span><i className="swatch-past" />Past</span>
           <span><i className="swatch-current" />Current</span>
           <span><i className="swatch-future" />Future</span>
+          <span><i className="swatch-events" />Events</span>
           {detailed && <span><i className="swatch-weekend" />Weekend marks</span>}
         </div>
         <HeatmapZoomToolbar
@@ -319,7 +330,10 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
                   const state = getWeekState(week);
                   const weekEvents = week.weekEvents;
                   const baseColor = state === 'past' ? settings.pastColor : settings.futureColor;
-                  const title = `${formatDateId(week.start)} to ${formatDateId(week.end)} · Age ${row.age} · ${weekEvents.length} events`;
+                  const eventNames = weekEvents.length
+                    ? `: ${week.wedges.map((wedge) => wedge.title).join(', ')}${week.wedgeOverflow ? ` and ${week.wedgeOverflow} more` : ''}`
+                    : '';
+                  const title = `${formatDateId(week.start)} to ${formatDateId(week.end)} · Age ${row.age} · ${weekEvents.length} ${weekEvents.length === 1 ? 'event' : 'events'}${eventNames}`;
                   return (
                     <button
                       ref={(node) => node && cellRefs.current.set(week.dateId, node)}
@@ -335,10 +349,10 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
                         '--weekend-color': settings.weekendColor
                       }}
                     >
-                      <span className="event-stripes">
-                        {weekEvents.slice(0, 3).map((event) => <i key={event.id} style={{ background: event.color }} />)}
-                      </span>
-                      {weekEvents.length > 3 && <span className="event-count">{weekEvents.length}</span>}
+                      {week.wedges.length > 0 && (
+                        <span aria-hidden="true" className="event-wedges" style={{ background: week.wedgeBackground }} />
+                      )}
+                      {week.wedgeOverflow > 0 && <span className="event-count">{weekEvents.length}</span>}
                       <span className="weekend-strip"><i /><i /></span>
                     </button>
                   );

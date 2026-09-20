@@ -507,6 +507,10 @@ legend {
   border: 1px solid var(--life-outline);
 }
 
+.swatch-events {
+  background: conic-gradient(from 0deg, #7c9cff 0% 33.3%, #f4a261 33.3% 66.7%, #65d6ad 66.7% 100%);
+}
+
 .swatch-weekend {
   height: 2px !important;
   background: var(--life-weekend, #65d6ad);
@@ -531,7 +535,7 @@ legend {
 .heatmap-scroll {
   width: 100%;
   overflow-x: auto;
-  padding: 14px 12px 32px;
+  padding: 14px 6px 32px;
   overscroll-behavior-x: contain;
   scrollbar-gutter: stable;
   touch-action: pan-x pan-y;
@@ -540,15 +544,15 @@ legend {
 .heatmap {
   width: max-content;
   display: grid;
-  gap: calc(4px * min(var(--heatmap-zoom, 1), 1));
+  gap: calc(2px * min(var(--heatmap-zoom, 1), 1));
   --cell-base: 18px;
   --cell-size: calc(var(--cell-base) * var(--heatmap-zoom, 1));
 }
 
 .year-row {
   display: grid;
-  grid-template-columns: 40px 1fr;
-  gap: 12px;
+  grid-template-columns: 32px 1fr;
+  gap: 10px;
   align-items: center;
 }
 
@@ -589,7 +593,7 @@ legend {
 .week-row {
   display: grid;
   grid-template-columns: repeat(52, var(--cell-size));
-  gap: calc(3px * min(var(--heatmap-zoom, 1), 1));
+  gap: calc(2px * min(var(--heatmap-zoom, 1), 1));
 }
 
 .week-cell {
@@ -645,19 +649,20 @@ legend {
   50% { box-shadow: 0 0 0 8px rgba(244, 197, 66, 0.32); }
 }
 
-/* Events are a thin line along the bottom, so a long event does not paint over the lived/ahead picture. */
-.event-stripes {
+/* Each event is a wedge of its week's square; several events split it like a pie. */
+.event-wedges {
   position: absolute;
-  inset: auto 2px 2px;
-  display: grid;
-  grid-auto-flow: column;
-  height: 3px;
-  border-radius: 2px;
-  overflow: hidden;
+  inset: 0;
 }
 
-.event-stripes i {
-  min-width: 0;
+.week-cell.future .event-wedges {
+  opacity: 0.72;
+}
+
+/* Keep an amber frame around the current week even when it has events. */
+.week-cell.current .event-wedges {
+  inset: 3px;
+  border-radius: 2px;
 }
 
 .event-count {
@@ -691,6 +696,7 @@ legend {
   height: 2px;
   background: var(--weekend-color);
   border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
 }
 
 .zoom-toolbar,

@@ -6,9 +6,9 @@ export const HEATMAP_RESET_ZOOM = 1;
 const WEEK_COUNT = 52;
 const WEEK_GAP_COUNT = WEEK_COUNT - 1;
 // These two must match the `.year-row` grid in app.css: the label column and its gap.
-const YEAR_LABEL_WIDTH = 40;
-const YEAR_ROW_GAP = 12;
-const WEEK_GAP = 3;
+const YEAR_LABEL_WIDTH = 32;
+const YEAR_ROW_GAP = 10;
+const WEEK_GAP = 2;
 
 export function clampHeatmapZoom(value) {
   const numeric = Number(value);
