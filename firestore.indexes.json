@@ -35,6 +35,24 @@
       ]
     },
     {
+      "collectionGroup": "externalItems",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "ownerUid", "order": "ASCENDING" },
+        { "fieldPath": "calendarId", "order": "ASCENDING" },
+        { "fieldPath": "dateId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "externalItems",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "calendarId", "order": "ASCENDING" },
+        { "fieldPath": "visibility", "order": "ASCENDING" },
+        { "fieldPath": "dateId", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "lifeEvents",
       "queryScope": "COLLECTION",
       "fields": [
@@ -43,5 +61,16 @@
       ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "viewers",
+      "fieldPath": "email",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "arrayConfig": "CONTAINS", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    }
+  ]
 }

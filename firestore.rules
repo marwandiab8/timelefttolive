@@ -54,6 +54,16 @@ service cloud.firestore {
       allow read: if hasVerifiedEmail() && resource.data.email == request.auth.token.email;
     }
 
+    // Collection-group lookup of linked items across days (the year, month and
+    // week views). Nested rules do not apply to collection-group queries, so this
+    // repeats the read rule of lifeCalendars/{id}/dailyEntries/{date}/externalItems.
+    // The query has to pin the owner, or the calendar plus visibility "viewers",
+    // for these conditions to hold. Writes stay with the nested rule.
+    match /{path=**}/externalItems/{externalItemId} {
+      allow read: if (signedIn() && resource.data.ownerUid == request.auth.uid)
+        || (isAcceptedViewer(resource.data.calendarId) && resource.data.visibility == "viewers");
+    }
+
     match /lifeCalendars/{calendarId} {
       allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
       allow read: if isCalendarOwner() || isAcceptedViewer(calendarId);
