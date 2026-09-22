@@ -962,11 +962,20 @@ function allocationPriority(session) {
 }
 
 function allocateIntervals(sessions) {
-  const complete = [...sessions]
-    .filter((session) => session.endAt)
+  const complete = [...sessions].filter((session) => session.endAt);
+  // Music is an overlay, not part of the exclusive day partition: a Spotify
+  // session that happens to fall inside a Work or Home session (the common
+  // case) still counts in full on the ring, rather than being silently
+  // zeroed out by the higher-priority category that "owns" those minutes.
+  // It neither takes minutes from, nor gives up minutes to, any other
+  // category - the day's ring total can exceed 24h when they overlap.
+  const overlay = complete.filter((session) => session.category === 'Music');
+  const exclusive = complete
+    .filter((session) => session.category !== 'Music')
     .sort((left, right) => allocationPriority(right) - allocationPriority(left) || left.startAt - right.startAt);
+
   const accepted = [];
-  complete.forEach((session) => {
+  exclusive.forEach((session) => {
     let fragments = [{ start: session.startAt.getTime(), end: session.endAt.getTime() }];
     accepted.forEach((prior) => {
       prior.fragments.forEach((occupied) => {
@@ -984,6 +993,13 @@ function allocateIntervals(sessions) {
     const allocatedSeconds = fragments.reduce((sum, part) => sum + ((part.end - part.start) / 1000), 0);
     if (allocatedSeconds > 0) accepted.push({ ...session, allocatedSeconds, fragments });
   });
+
+  overlay.forEach((session) => {
+    const fragment = { start: session.startAt.getTime(), end: session.endAt.getTime() };
+    const allocatedSeconds = (fragment.end - fragment.start) / 1000;
+    if (allocatedSeconds > 0) accepted.push({ ...session, allocatedSeconds, fragments: [fragment] });
+  });
+
   return accepted.sort((left, right) => left.startAt - right.startAt);
 }
 

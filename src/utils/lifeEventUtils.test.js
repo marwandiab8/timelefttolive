@@ -750,6 +750,22 @@ describe('activity analysis utilities', () => {
     expect(analysis.timedSeconds).toBe(0);
   });
 
+  it('gives a Spotify session its own ring time even while it happens entirely inside a Work session', () => {
+    const bounds = getPeriodBounds('day', '2026-09-22');
+    const analysis = buildPeriodAnalysis([
+      { id: 'arrive-work', eventType: 'arrive_work', occurredAt: '2026-09-22T11:05:00Z' },
+      { id: 'leave-work', eventType: 'leave_work', occurredAt: '2026-09-22T22:55:00Z' },
+      { id: 'spotify-start', eventType: 'start_spotify', occurredAt: '2026-09-22T22:15:08Z' },
+      { id: 'spotify-finish', eventType: 'finish_spotify', occurredAt: '2026-09-22T22:16:13Z' }
+    ], bounds, { includeActive: true, now: new Date('2026-09-22T23:44:00Z') });
+    const work = analysis.categories.find((category) => category.label === 'Work');
+    const music = analysis.categories.find((category) => category.label === 'Music');
+    expect(work.seconds).toBe(42600);
+    // Music does not steal from, or get reduced by, the overlapping Work time.
+    expect(music.seconds).toBe(65);
+    expect(analysis.timedSeconds).toBe(work.seconds + music.seconds);
+  });
+
   it('keeps every meaningful category represented in the concise activity preview', () => {
     const entries = [
       ...Array.from({ length: 9 }, (_, index) => ({ id: `journal-${index}`, pointCategory: 'Journal' })),
