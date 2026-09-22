@@ -669,12 +669,65 @@ function boundaryDescriptor(event) {
   }
   if (!phase) return null;
   const category = getTallyActivityLabel(event);
-  // Shortcut Spotify events describe track occurrences. Without a supplied
-  // duration they remain Moments rather than open-ended listening sessions.
+  // Shortcut Spotify events describe track occurrences. Most have no matching
+  // stop, so treating every start as an open-ended session boundary here would
+  // turn a lifetime of one-off plays into permanently "incomplete" sessions.
+  // A start WITH a real, nearby stop is still turned into a session - see
+  // pairMusicBoundaries, which runs as a separate, additive pass in
+  // buildActivitySessions rather than through this generic machinery.
   if (category === 'Music') return null;
   const location = cleanToken(getLocationLabel(event) || event?.location?.placeId);
   const subject = cleanToken(event?.sourceUserId || event?.timeLeftUserId);
   return { phase, category, key: `${subject}|${category}|${location}`, rawActivity: activity };
+}
+
+// Additive, opt-in pairing for Music events only: matches a start_spotify to the
+// next finish_spotify (or stop_spotify) for the same subject/location, in time
+// order, exactly like the generic boundary matching above - but never leaves an
+// unmatched start behind as an "incomplete" session. A lone start (the common
+// case for all pre-existing data, since finish_spotify didn't exist until this
+// was added) is left completely untouched here, so it keeps flowing through
+// boundaryDescriptor's null-for-Music path into the Moments/point-category
+// list exactly as it always has.
+function pairMusicBoundaries(events, bounds) {
+  const openStarts = new Map();
+  const sessions = [];
+  sortLifeEvents(events).forEach((event) => {
+    if (getTallyActivityLabel(event) !== 'Music') return;
+    const eventType = cleanToken(event?.eventType);
+    const eventTime = getEventTime(event);
+    if (!eventTime) return;
+    const location = cleanToken(getLocationLabel(event) || event?.location?.placeId);
+    const subject = cleanToken(event?.sourceUserId || event?.timeLeftUserId);
+    const key = `${subject}|Music|${location}`;
+
+    if (/^(arrive|start)_/.test(eventType)) {
+      const starts = openStarts.get(key) || [];
+      starts.push({ event, eventTime });
+      openStarts.set(key, starts);
+      return;
+    }
+    if (!/^(leave|finish|stop)_/.test(eventType)) return;
+
+    const starts = openStarts.get(key) || [];
+    const start = starts.pop();
+    openStarts.set(key, starts);
+    if (!start || eventTime <= start.eventTime) return;
+
+    const interval = clippedInterval(start.eventTime, eventTime, bounds);
+    if (!interval) return;
+    const identity = `${start.event.id || start.eventTime.getTime()}|${event.id || eventTime.getTime()}`;
+    const session = makeSession(start.event, interval, {
+      id: `spotify-paired-${identity}`,
+      kind: 'paired',
+      active: false,
+      startEvent: start.event,
+      endEvent: event
+    });
+    session.title = getSessionDisplayName(session);
+    sessions.push(session);
+  });
+  return sessions;
 }
 
 function clippedInterval(start, end, bounds) {
@@ -897,6 +950,8 @@ export function buildActivitySessions(events, bounds = null, options = {}) {
     sessions.push(session);
   });
 
+  sessions.push(...pairMusicBoundaries(safeEvents, bounds));
+
   return sessions.sort((left, right) => left.startAt - right.startAt);
 }
 
@@ -1054,7 +1109,17 @@ export function buildPeriodAnalysis(events, bounds = null, options = {}) {
     const end = getEventEndTime(event) || start;
     return start && end && end >= bounds.start && start < bounds.end;
   });
-  const moments = periodEvents.filter(isPointEvent);
+  // A start/finish pair that pairMusicBoundaries turned into a real session is now
+  // represented by that session (with real duration); it must not also linger in
+  // the Moments/point-category list as two redundant instantaneous entries.
+  const pairedMusicEventIds = new Set(
+    sessions
+      .filter((session) => session.category === 'Music' && session.kind === 'paired')
+      .flatMap((session) => [session.startEvent, session.endEvent])
+      .filter(Boolean)
+      .map((event) => event.id || event)
+  );
+  const moments = periodEvents.filter((event) => isPointEvent(event) && !pairedMusicEventIds.has(event.id || event));
   const groups = new Map();
 
   sessions.filter((session) => isPrimaryActivityCategory(session.category)).forEach((session) => {

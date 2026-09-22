@@ -444,8 +444,13 @@ export function LifeWheel({ analysis, categoryAnalysis, now, onSelect, period, p
   // Slices are proportional to time, except that tiny ones are drawn at a
   // minimum size so they stay visible; see buildWheelSegments.
   const segments = buildWheelSegments(analysis.categories);
+  // Only pin the center to one session's own start/end/duration when that
+  // session is live, or when it's the day's only session for this category.
+  // With two+ sessions in a day (e.g. left for lunch and came back), showing
+  // just the first one's window was misleading, so fall through to the
+  // "N sessions" summary below instead.
   const centerSession = categoryAnalysis?.activeSession
-    || (period === 'day' ? categoryAnalysis?.sessions[0] : null);
+    || (period === 'day' && categoryAnalysis?.sessionCount === 1 ? categoryAnalysis?.sessions[0] : null);
 
   return (
     <div className="life-wheel" data-testid="life-wheel">

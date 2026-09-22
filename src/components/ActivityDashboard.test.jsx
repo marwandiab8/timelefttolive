@@ -180,6 +180,37 @@ describe('LifeWheel', () => {
     expect(render()).toContain('tracked time');
   });
 
+  it('shows that one session\'s own start/end time in the centre on a day with a single session', () => {
+    const session = { startAt: new Date('2026-09-19T07:04:00Z'), endAt: new Date('2026-09-19T12:19:00Z'), durationSeconds: 5 * H + 15 * 60, active: false };
+    const work = { ...categories[1], sessionCount: 1, totalSeconds: session.durationSeconds, sessions: [session], activeSession: null };
+    const markup = render({ categoryAnalysis: work, period: 'day', selectedLabel: 'Work' });
+    expect(markup).toContain('5h 15m');
+    expect(markup).not.toContain('1 sessions');
+    expect(markup).not.toContain('2 sessions');
+  });
+
+  it('shows the session count and the full total, not just the first session\'s window, on a day with two sessions in the same category', () => {
+    // e.g. arrived at 7:04, left for lunch at 12:19, came back at 1:53, left at 6:23: two Work sessions that day.
+    const morning = { startAt: new Date('2026-09-19T07:04:00Z'), endAt: new Date('2026-09-19T12:19:00Z'), durationSeconds: 5 * H + 15 * 60, active: false };
+    const afternoon = { startAt: new Date('2026-09-19T13:53:00Z'), endAt: new Date('2026-09-19T18:23:00Z'), durationSeconds: 4 * H + 30 * 60, active: false };
+    const totalSeconds = morning.durationSeconds + afternoon.durationSeconds;
+    const work = { ...categories[1], sessionCount: 2, totalSeconds, sessions: [morning, afternoon], activeSession: null };
+    const markup = render({ categoryAnalysis: work, period: 'day', selectedLabel: 'Work' });
+    expect(markup).toContain('2 sessions');
+    expect(markup).toContain('9h 45m');
+    // must not show the first session's own 5h15m window as if it were the whole day
+    expect(markup).not.toContain('5h 15m');
+    expect(markup).not.toMatch(/7:04.*12:19/);
+  });
+
+  it('still centres on the live session when one is in progress, even with earlier sessions the same day', () => {
+    const morning = { startAt: new Date('2026-09-19T07:04:00Z'), endAt: new Date('2026-09-19T12:19:00Z'), durationSeconds: 5 * H + 15 * 60, active: false };
+    const live = { startAt: new Date('2026-09-19T13:53:00Z'), endAt: null, durationSeconds: null, active: true };
+    const work = { ...categories[1], sessionCount: 2, totalSeconds: morning.durationSeconds, sessions: [morning, live], activeSession: live };
+    const markup = render({ categoryAnalysis: work, period: 'day', selectedLabel: 'Work' });
+    expect(markup).toContain('In progress');
+  });
+
   it('renders without React warnings, such as an array of children inside a tooltip title', () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     render();

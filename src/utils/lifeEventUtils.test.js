@@ -707,6 +707,49 @@ describe('activity analysis utilities', () => {
     ]);
   });
 
+  it('turns a matched start_spotify/finish_spotify pair into a real timed session, not a moment', () => {
+    const bounds = getPeriodBounds('day', '2026-08-17');
+    const analysis = buildPeriodAnalysis([
+      { id: 'spotify-start', sourceRecordId: 'play-1', eventType: 'start_spotify', activityFamily: 'spotify', occurredAt: '2026-08-17T08:04:00Z' },
+      { id: 'spotify-finish', sourceRecordId: 'play-1-end', eventType: 'finish_spotify', activityFamily: 'spotify', occurredAt: '2026-08-17T08:19:00Z' }
+    ], bounds);
+    const musicCategory = analysis.categories.find((category) => category.label === 'Music');
+    expect(musicCategory).toBeTruthy();
+    expect(musicCategory.seconds).toBe(900);
+    expect(analysis.timedSeconds).toBe(900);
+    const musicSession = analysis.sessions.find((session) => session.category === 'Music' && session.kind === 'paired');
+    expect(musicSession).toBeTruthy();
+    expect(musicSession.startAt.toISOString()).toBe('2026-08-17T08:04:00.000Z');
+    expect(musicSession.endAt.toISOString()).toBe('2026-08-17T08:19:00.000Z');
+    // The two boundary events are represented by the session now, not as separate Moments.
+    expect(analysis.pointCategories.find((category) => category.label === 'Spotify')).toBeUndefined();
+    expect(analysis.moments).toHaveLength(0);
+  });
+
+  it('pairs a matched Spotify start/finish into a session while a separate lone start still stays a moment', () => {
+    const bounds = getPeriodBounds('day', '2026-08-17');
+    const analysis = buildPeriodAnalysis([
+      { id: 'paired-start', sourceRecordId: 'play-1', eventType: 'start_spotify', activityFamily: 'spotify', occurredAt: '2026-08-17T08:04:00Z' },
+      { id: 'paired-finish', sourceRecordId: 'play-1-end', eventType: 'finish_spotify', activityFamily: 'spotify', occurredAt: '2026-08-17T08:19:00Z' },
+      { id: 'lone-start', sourceRecordId: 'play-2', eventType: 'start_spotify', activityFamily: 'spotify', title: 'Started listening to Spotify', occurredAt: '2026-08-17T14:00:00Z' }
+    ], bounds);
+    expect(analysis.sessions.filter((session) => session.category === 'Music' && session.kind === 'paired')).toHaveLength(1);
+    const spotifyMoments = analysis.pointCategories.find((category) => category.label === 'Spotify');
+    expect(spotifyMoments).toBeTruthy();
+    expect(spotifyMoments.count).toBe(1);
+    expect(analysis.moments).toHaveLength(1);
+    expect(analysis.moments[0].id).toBe('lone-start');
+  });
+
+  it('does not pair a finish_spotify that arrives before any start (leaves it out of sessions)', () => {
+    const bounds = getPeriodBounds('day', '2026-08-17');
+    const analysis = buildPeriodAnalysis([
+      { id: 'stray-finish', sourceRecordId: 'play-1-end', eventType: 'finish_spotify', activityFamily: 'spotify', occurredAt: '2026-08-17T08:19:00Z' }
+    ], bounds);
+    expect(analysis.sessions.filter((session) => session.category === 'Music')).toHaveLength(0);
+    expect(analysis.timedSeconds).toBe(0);
+  });
+
   it('keeps every meaningful category represented in the concise activity preview', () => {
     const entries = [
       ...Array.from({ length: 9 }, (_, index) => ({ id: `journal-${index}`, pointCategory: 'Journal' })),
