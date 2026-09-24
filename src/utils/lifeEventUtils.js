@@ -747,7 +747,28 @@ function reportedInterval(event, bounds) {
   const end = explicitEnd || (start && Number.isFinite(duration) && duration > 0
     ? new Date(start.getTime() + (duration * 1000))
     : null);
+  if (getTallyActivityLabel(event) === 'Sleep') return sleepInterval(event, start, end, bounds);
   return clippedInterval(start, end, bounds);
+}
+
+// A night of sleep is never split at midnight. The whole night belongs to the
+// period its wake-up falls in (as Apple Health does), and counts its recorded
+// total sleep - not just the minutes that happen to fall after 12:00 AM. The
+// visible interval stays clipped so the day chart still starts at midnight;
+// attributedSeconds carries the full night into allocateIntervals.
+function sleepInterval(event, start, end, bounds) {
+  if (!start || !end || end <= start) return null;
+  if (bounds && (end <= bounds.start || end > bounds.end)) return null;
+  const visible = clippedInterval(start, end, bounds);
+  if (!visible) return null;
+  const attributedSeconds = getSleepTotalSeconds(event, start, end);
+  return { ...visible, durationSeconds: attributedSeconds, attributedSeconds };
+}
+
+function getSleepTotalSeconds(event, start, end) {
+  const hours = Number(event?.metrics?.totalSleepHours);
+  if (Number.isFinite(hours) && hours > 0) return Math.round(hours * 3600);
+  return (end - start) / 1000;
 }
 
 function makeSession(event, interval, extra = {}) {
@@ -990,7 +1011,12 @@ function allocateIntervals(sessions) {
         });
       });
     });
-    const allocatedSeconds = fragments.reduce((sum, part) => sum + ((part.end - part.start) / 1000), 0);
+    const fragmentSeconds = fragments.reduce((sum, part) => sum + ((part.end - part.start) / 1000), 0);
+    // A whole-night sleep session counts its full recorded total (see
+    // sleepInterval), even though only its in-period part is drawn.
+    const allocatedSeconds = fragmentSeconds > 0 && Number.isFinite(session.attributedSeconds)
+      ? session.attributedSeconds
+      : fragmentSeconds;
     if (allocatedSeconds > 0) accepted.push({ ...session, allocatedSeconds, fragments });
   });
 

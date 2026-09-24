@@ -372,9 +372,54 @@ describe('activity analysis utilities', () => {
 
   it('clips sessions crossing midnight to the selected period', () => {
     const sessions = buildActivitySessions([
-      { id: 'sleep', activityFamily: 'sleep', startAt: '2026-08-11T03:00:00Z', endAt: '2026-08-11T07:00:00Z' }
+      { id: 'reading', activityFamily: 'reading', startAt: '2026-08-11T03:00:00Z', endAt: '2026-08-11T07:00:00Z' }
     ], getPeriodBounds('day', '2026-08-11'));
     expect(sessions[0].durationSeconds).toBe(10800);
+  });
+
+  describe('sleep across midnight', () => {
+    // Real night: 10:42 PM Sep 22 -> 3:56 AM Sep 23 (Toronto), 5.11 h asleep.
+    const night = {
+      id: 'night',
+      eventType: 'sleep_session',
+      title: 'Slept',
+      startAt: '2026-09-23T02:42:07Z',
+      endAt: '2026-09-23T07:56:46Z',
+      metrics: { totalSleepHours: 5.11 }
+    };
+    const sleepSeconds = (analysis) => analysis.categories.find((category) => category.label === 'Sleep')?.seconds || 0;
+
+    it('counts the whole night on the wake-up day using the recorded total sleep', () => {
+      const analysis = buildPeriodAnalysis([night], getPeriodBounds('day', '2026-09-23'));
+      expect(sleepSeconds(analysis)).toBe(18396);
+      expect(analysis.sessions[0].durationSeconds).toBe(18396);
+    });
+
+    it('does not count any of that night on the day it started', () => {
+      const analysis = buildPeriodAnalysis([night], getPeriodBounds('day', '2026-09-22'));
+      expect(sleepSeconds(analysis)).toBe(0);
+    });
+
+    it('still draws the night from midnight on the wake-up day chart', () => {
+      const bounds = getPeriodBounds('day', '2026-09-23');
+      const analysis = buildPeriodAnalysis([night], bounds);
+      expect(analysis.sessions[0].startAt.toISOString()).toBe(bounds.start.toISOString());
+      const row = buildDayActivityChart(analysis, bounds).rows[0];
+      expect(row.offset).toBe(0);
+      expect(row.boundaryStartAt.toISOString()).toBe('2026-09-23T02:42:07.000Z');
+    });
+
+    it('falls back to the in-bed span when no total sleep is recorded', () => {
+      const { metrics, ...withoutMetrics } = night;
+      const analysis = buildPeriodAnalysis([withoutMetrics], getPeriodBounds('day', '2026-09-23'));
+      expect(sleepSeconds(analysis)).toBe(18879);
+    });
+
+    it('counts each night once across a week', () => {
+      const nextNight = { ...night, id: 'next', startAt: '2026-09-24T02:17:44Z', endAt: '2026-09-24T05:58:08Z', metrics: { totalSleepHours: 3.52 } };
+      const analysis = buildPeriodAnalysis([night, nextNight], getPeriodBounds('week', '2026-09-23'));
+      expect(sleepSeconds(analysis)).toBe(18396 + 12672);
+    });
   });
 
   it('excludes point events and prevents nested gym/workout double counting', () => {

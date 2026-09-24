@@ -758,7 +758,8 @@ function timelineSessionRange(entry) {
   const visibleStart = entry.startedBeforeVisibleRange
     ? `Continued from ${timelineBoundaryLabel(entry.boundaryStartAt, entry.dateId)}`
     : clockFormatter.format(entry.at);
-  const visibleDuration = `${formatDuration(entry.durationSeconds)}${entry.startedBeforeVisibleRange ? ' shown in this period' : ''}`;
+  const wholeNight = Number.isFinite(entry.session?.attributedSeconds);
+  const visibleDuration = `${formatDuration(entry.durationSeconds)}${entry.startedBeforeVisibleRange && !wholeNight ? ' shown in this period' : ''}`;
   if (entry.active) return `${visibleStart} – In progress · ${visibleDuration}`;
   if (entry.endAt) return `${visibleStart} – ${timelineBoundaryLabel(entry.boundaryEndAt || entry.endAt, entry.dateId)} · ${visibleDuration}`;
   if (entry.session?.missingBoundary === 'start') return `Finish recorded at ${clockFormatter.format(entry.at)} · Arrival not recorded`;
