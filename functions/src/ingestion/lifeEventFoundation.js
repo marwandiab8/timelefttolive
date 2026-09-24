@@ -420,6 +420,16 @@ async function appendDeadLetter(db, payload, context, error, payloadHash) {
   });
 }
 
+// Most records are immutable once created: a changed payload under the same key
+// is a conflict. A day's step total is the exception - Health keeps syncing more
+// samples into it all day, so the same source record legitimately grows, and
+// keeping the first value would freeze the day at whatever the first export saw.
+const REVISABLE_EVENT_TYPES = new Set(["daily_steps"]);
+
+function isRevisableUpdate(existing, payload) {
+  return REVISABLE_EVENT_TYPES.has(existing.eventType) && existing.eventType === payload.eventType;
+}
+
 async function upsertLifeEventRecord(db, payload) {
   const calendarRef = db.collection("lifeCalendars").doc(payload.calendarId);
   const eventRef = calendarRef.collection("lifeEvents").doc(payload.idempotencyKey);
@@ -447,6 +457,27 @@ async function upsertLifeEventRecord(db, payload) {
         return {
           status: "manual_override",
           duplicate: true,
+          lifeEventId: eventRef.id,
+          idempotencyKey: payload.idempotencyKey,
+          schemaVersion: payload.schemaVersion,
+          receivedAt: data.receivedAt || now
+        };
+      }
+      if (data.contentHash !== payload.contentHash && isRevisableUpdate(data, payload)) {
+        tx.set(eventRef, {
+          id: eventRef.id,
+          ...payload,
+          ingestionStatus: "received",
+          receivedAt: data.receivedAt || now,
+          createdAt: data.createdAt || now,
+          updatedAt: now,
+          revisionCount: (Number(data.revisionCount) || 0) + 1
+        });
+        tx.set(rawRef, buildRawAuditRecord(payload, { ...payload }));
+        return {
+          status: "updated",
+          duplicate: false,
+          updated: true,
           lifeEventId: eventRef.id,
           idempotencyKey: payload.idempotencyKey,
           schemaVersion: payload.schemaVersion,

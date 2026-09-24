@@ -1222,6 +1222,60 @@ test("same idempotency key with different payload returns conflict", async () =>
   assert.equal(second.payload.code, "idempotency_conflict");
 });
 
+test("a newer daily step total for the same day replaces the earlier one", async () => {
+  const db = new FakeFirestore();
+  const token = "t-steps-revise";
+  await setupAuthorized(db, token);
+  const base = {
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "steps:2026-09-23",
+    eventType: "daily_steps",
+    occurredAt: "2026-09-23T12:00:00Z",
+    title: "446 steps",
+    metrics: { steps: 446 }
+  };
+  const first = makeRes();
+  const second = makeRes();
+  await ingestLifeEventSingle(db, makeReq(base, token), first);
+  await ingestLifeEventSingle(db, makeReq({ ...base, title: "4,766 steps", metrics: { steps: 4766 } }, token), second);
+  assert.equal(second.statusCode, 200);
+  assert.equal(second.payload.status, "success");
+  assert.equal(second.payload.duplicate, false);
+  const eventDocs = [...db._store.entries()].filter(([key]) => key.includes("/lifeEvents/"));
+  assert.equal(eventDocs.length, 1);
+  const stored = eventDocs[0][1];
+  assert.equal(stored.title, "4,766 steps");
+  assert.equal(stored.metrics.steps, 4766);
+  assert.equal(stored.revisionCount, 1);
+});
+
+test("an identical daily step total is still a duplicate, not a revision", async () => {
+  const db = new FakeFirestore();
+  const token = "t-steps-same";
+  await setupAuthorized(db, token);
+  const body = {
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "steps:2026-09-22",
+    eventType: "daily_steps",
+    occurredAt: "2026-09-22T12:00:00Z",
+    metrics: { steps: 5218 }
+  };
+  await ingestLifeEventSingle(db, makeReq(body, token), makeRes());
+  const again = makeRes();
+  await ingestLifeEventSingle(db, makeReq(body, token), again);
+  assert.equal(again.payload.duplicate, true);
+});
+
 test("batch endpoint succeeds when all items are valid", async () => {
   const db = new FakeFirestore();
   const token = "t-batch-ok";
