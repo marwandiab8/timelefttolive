@@ -2103,3 +2103,70 @@ test("mapLegacyToLifeEvent includes expected defaults", () => {
   assert.equal(mapped.eventType, "workout");
   assert.equal(mapped.schemaVersion, 1);
 });
+
+test("a legacy item that says how long it lasted becomes a timed session", () => {
+  const context = {
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    timeLeftUserId: "owner-1",
+    connection: {
+      sourceApp: "DartstRacker2026",
+      permissions: { eventClasses: ["completed_activity", "achievement", "system"] }
+    }
+  };
+  const game = {
+    sourceApp: "DartstRacker2026",
+    category: "dartsRecord",
+    eventType: "darts_practice",
+    activityFamily: "darts",
+    title: "Bot practice: 501 vs Club (won)",
+    dateId: "2026-09-27",
+    capturedAt: "2026-09-27T20:46:00Z",
+    sourceDocumentPath: "botGames/g1",
+    durationSeconds: 754,
+    metrics: { darts: 45, average: 61.2 },
+    metadata: { note: "Won 501 against the Club bot." }
+  };
+  const timed = mapLegacyToLifeEvent(game, context);
+  assert.equal(timed.durationSeconds, 754);
+  assert.equal(timed.startAt.toISOString(), "2026-09-27T20:46:00.000Z");
+  assert.equal(timed.endAt.toISOString(), "2026-09-27T20:58:34.000Z");
+  assert.equal(timed.activityFamily, "darts");
+  assert.equal(timed.metrics.darts, 45);
+  assert.equal(timed.metadata.note, "Won 501 against the Club bot.");
+
+  const untimed = mapLegacyToLifeEvent({ ...game, durationSeconds: undefined }, context);
+  assert.equal(untimed.durationSeconds, null);
+  assert.equal(untimed.endAt, null);
+  assert.equal(mapLegacyToLifeEvent({ ...game, durationSeconds: 90000 }, context).durationSeconds, null, "more than a day is ignored");
+  assert.equal(mapLegacyToLifeEvent({ ...game, durationSeconds: -5 }, context).durationSeconds, null);
+});
+
+test("a darts event can be re-sent with more detail, even across the old and new event type", async () => {
+  const db = new FakeFirestore();
+  const token = "t-darts-revise";
+  await setupAuthorized(db, token);
+  const base = {
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "botGames/g1",
+    eventType: "dartsRecord",
+    occurredAt: "2026-09-27T20:46:00Z",
+    title: "Bot practice: 501 vs Club (won)"
+  };
+  await ingestLifeEventSingle(db, makeReq(base, token), makeRes());
+  const second = makeRes();
+  await ingestLifeEventSingle(db, makeReq({ ...base, eventType: "darts_practice", metrics: { darts: 45 } }, token), second);
+  assert.equal(second.statusCode, 200);
+  assert.equal(second.payload.duplicate, false);
+  const eventDocs = [...db._store.entries()].filter(([key]) => key.includes("/lifeEvents/"));
+  assert.equal(eventDocs.length, 1);
+  assert.equal(eventDocs[0][1].eventType, "darts_practice");
+  assert.equal(eventDocs[0][1].metrics.darts, 45);
+  assert.equal(eventDocs[0][1].revisionCount, 1);
+});

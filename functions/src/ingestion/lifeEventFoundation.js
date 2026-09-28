@@ -425,9 +425,15 @@ async function appendDeadLetter(db, payload, context, error, payloadHash) {
 // samples into it all day, so the same source record legitimately grows, and
 // keeping the first value would freeze the day at whatever the first export saw.
 const REVISABLE_EVENT_TYPES = new Set(["daily_steps"]);
+// Darts games are re-sent with more detail (duration, metrics, note) than they first had, and
+// older ones arrived as "dartsRecord" before being sent as "darts_practice".
+const REVISABLE_DARTS_EVENT_TYPES = new Set(["dartsRecord", "darts_practice"]);
 
 function isRevisableUpdate(existing, payload) {
-  return REVISABLE_EVENT_TYPES.has(existing.eventType) && existing.eventType === payload.eventType;
+  if (REVISABLE_EVENT_TYPES.has(existing.eventType) && existing.eventType === payload.eventType) return true;
+  return REVISABLE_DARTS_EVENT_TYPES.has(existing.eventType)
+    && REVISABLE_DARTS_EVENT_TYPES.has(payload.eventType)
+    && existing.sourceApp === payload.sourceApp;
 }
 
 async function upsertLifeEventRecord(db, payload) {
@@ -803,6 +809,13 @@ function mapLegacyToLifeEvent(record, context) {
   const capturedAt = pointCategory
     ? null
     : parseDateInTimezone(mapped.capturedAt, timezone, "capturedAt") || occurredAt;
+  // An item that knows how long it lasted (e.g. a darts game) becomes a timed session from its
+  // capturedAt, so it shows on the Activity wheel; anything else stays a point in time as before.
+  const sentSeconds = Number(record.durationSeconds);
+  const timedSeconds = !pointCategory && capturedAt && Number.isFinite(sentSeconds) && sentSeconds > 0 && sentSeconds <= 86400
+    ? Math.round(sentSeconds)
+    : null;
+  const timedEndAt = timedSeconds ? new Date(capturedAt.getTime() + timedSeconds * 1000) : null;
   const noteText = category === "journal" ? toTrimmedString(mapped.description || mapped.summary) : "";
   const explicitTitle = toTrimmedString(mapped.title);
   const firstNoteLine = noteText.split(/\r?\n/).find((line) => line.trim())?.replace(/\s+/g, " ").trim() || "";
@@ -849,8 +862,8 @@ function mapLegacyToLifeEvent(record, context) {
     title,
     occurredAt,
     startAt: capturedAt,
-    endAt: null,
-    durationSeconds: null,
+    endAt: timedEndAt,
+    durationSeconds: timedSeconds,
     timezone,
     location: normalizeLocation(record.location || {}, "location") || null,
     metrics: normalizeObject(record.metrics || {}, "metrics"),

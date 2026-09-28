@@ -65,6 +65,35 @@ describe('activity analysis utilities', () => {
     expect(APP_TIMEZONE).toBe('America/Toronto');
   });
 
+  it('puts a timed darts game on the wheel as its own Darts slice', () => {
+    const bounds = getPeriodBounds('day', '2026-09-27');
+    const analysis = buildPeriodAnalysis([
+      {
+        id: 'game', sourceRecordId: 'botGames/g1', sourceApp: 'DartstRacker2026', eventType: 'darts_practice', activityFamily: 'darts',
+        categoryId: 'dartsRecord', eventClass: 'completed_activity', title: 'Bot practice: 501 vs Club (won)',
+        startAt: '2026-09-27T20:46:00Z', endAt: '2026-09-27T20:58:34Z', durationSeconds: 754, occurredAt: '2026-09-27T04:00:00Z'
+      }
+    ], bounds);
+    const darts = analysis.categories.find((category) => category.label === 'Darts');
+    expect(darts).toBeTruthy();
+    expect(darts.seconds).toBe(754);
+    expect(darts.icon).toBe('🎯');
+  });
+
+  it('keeps an untimed darts practice off the wheel instead of treating it as still running', () => {
+    const bounds = getPeriodBounds('day', '2026-09-27');
+    const analysis = buildPeriodAnalysis([
+      {
+        id: 'practice', sourceRecordId: 'sessions/s1', sourceApp: 'DartstRacker2026', eventType: 'darts_practice', activityFamily: 'darts',
+        categoryId: 'dartsRecord', eventClass: 'completed_activity', title: 'Darts practice summary',
+        startAt: '2026-09-27T13:05:00Z', endAt: null, durationSeconds: null, occurredAt: '2026-09-27T04:00:00Z'
+      }
+    ], bounds, { now: new Date('2026-09-27T22:00:00Z') });
+    const darts = analysis.categories.find((category) => category.label === 'Darts');
+    expect(darts?.seconds || 0).toBe(0);
+    expect(analysis.timedSeconds || 0).toBe(0);
+  });
+
   it('orders the activity story from morning to night with canonical identity as the stable tie-breaker', () => {
     const bounds = getPeriodBounds('day', '2026-08-17');
     const analysis = buildPeriodAnalysis([

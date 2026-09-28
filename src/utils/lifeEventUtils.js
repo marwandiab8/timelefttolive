@@ -1,7 +1,7 @@
 export const APP_TIMEZONE = 'America/Toronto';
 
 // Allocation hierarchy, highest first: Sleep, Work, Gym/Fitness,
-// Transportation, Meals, Reading, Home, Music, Places, then Other.
+// Transportation, Meals, Darts, Reading, Home, Music, Places, then Other.
 // A parent gym visit therefore owns its minutes while nested workouts remain
 // available in the drill-down without increasing total tracked time.
 const CATEGORY_DEFINITIONS = {
@@ -13,6 +13,7 @@ const CATEGORY_DEFINITIONS = {
   Music: { color: '#db75a6', icon: '♫', priority: 30 },
   Meals: { color: '#ef996c', icon: '◒', priority: 60 },
   Places: { color: '#50b8d8', icon: '⌖', priority: 20 },
+  Darts: { color: '#1f9d55', icon: '🎯', priority: 55 },
   Reading: { color: '#8cad55', icon: '▤', priority: 50 },
   Other: { color: '#8b98a1', icon: '•', priority: 10 }
 };
