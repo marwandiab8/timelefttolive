@@ -65,6 +65,24 @@ describe('activity analysis utilities', () => {
     expect(APP_TIMEZONE).toBe('America/Toronto');
   });
 
+  it('keeps a drive open when a stray finish arrives in the same second as its start', () => {
+    // 2026-09-29: the Shortcut sent start_drive and finish_drive together at 16:40:14; the real finish came at 17:44:58.
+    // Same-second ties sort by id, and the real ids put the start first (18de... < 1d44...), as here.
+    const bounds = getPeriodBounds('day', '2026-09-29');
+    const base = { sourceApp: 'gridlineai', timeLeftUserId: 'u1', eventClass: 'activity_boundary', location: null };
+    const analysis = buildPeriodAnalysis([
+      { ...base, id: '18de471d-start', sourceRecordId: '18de471d-start', eventType: 'start_drive', occurredAt: '2026-09-29T20:40:14Z' },
+      { ...base, id: '1d44cd19-finish', sourceRecordId: '1d44cd19-finish', eventType: 'finish_drive', occurredAt: '2026-09-29T20:40:14Z' },
+      { ...base, id: 'finish-1', sourceRecordId: 'finish-1', eventType: 'finish_drive', occurredAt: '2026-09-29T21:44:58Z' },
+      { ...base, id: 'start-2', sourceRecordId: 'start-2', eventType: 'start_drive', occurredAt: '2026-09-29T21:49:16Z' },
+      { ...base, id: 'finish-2', sourceRecordId: 'finish-2', eventType: 'finish_drive', occurredAt: '2026-09-29T21:51:27Z' },
+    ], bounds);
+    const transport = analysis.categories.find((category) => category.label === 'Transportation');
+    expect(transport).toBeTruthy();
+    // 16:40:14 -> 17:44:58 (3884 s) plus 17:49:16 -> 17:51:27 (131 s)
+    expect(transport.seconds).toBe(3884 + 131);
+  });
+
   it('puts a timed darts game on the wheel as its own Darts slice', () => {
     const bounds = getPeriodBounds('day', '2026-09-27');
     const analysis = buildPeriodAnalysis([

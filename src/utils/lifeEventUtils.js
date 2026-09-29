@@ -883,6 +883,9 @@ export function buildActivitySessions(events, bounds = null, options = {}) {
 
     const starts = openBoundaries.get(descriptor.key) || [];
     const start = starts.pop();
+    // A finish at the same moment as (or before) the open start can't close it - e.g. a Shortcut that fired
+    // start_drive and finish_drive together. Keep the start open for the real finish instead of losing it.
+    if (start && eventTime <= start.eventTime) starts.push(start);
     openBoundaries.set(descriptor.key, starts);
     if (!start || eventTime <= start.eventTime) {
       unmatchedEnds.push({ event, eventTime, descriptor });
