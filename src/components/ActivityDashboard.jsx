@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import BrandLogo from './BrandLogo.jsx';
 import { useAllLifeEvents, useActivityJournalDetails, useConnectedSources, useLifeEvents } from '../hooks/useCalendar.js';
 import { loadAuthorizedActivityImage } from '../services/activityJournal.js';
 import { deleteActivityEntry, editActivityEntry } from '../services/activityEntries.js';
@@ -237,7 +238,7 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
     <main className="activity-dashboard activity-cycle" data-theme={theme} hidden={!active} style={{ '--activity-focus': accent }}>
       <header className="cycle-header">
         <div className="cycle-brand">
-          <p>Time Left To Live</p>
+          <p className="brand-row"><BrandLogo size={28} />Time Left To Live</p>
           <h1>Activity</h1>
         </div>
         <nav className="cycle-view-switcher" aria-label="Activity view">

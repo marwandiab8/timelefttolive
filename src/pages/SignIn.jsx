@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import BrandLogo from '../components/BrandLogo.jsx';
 import {
   firebaseMissingKeys,
   isFirebaseConfigured,
@@ -28,6 +29,7 @@ export default function SignIn() {
     return (
       <main className="auth-page">
         <section className="auth-panel">
+          <BrandLogo size={88} className="auth-logo" />
           <p className="eyebrow">Firebase setup needed</p>
           <h1>Time Left To Live</h1>
           <p>Add your Firebase web config to a local `.env` file. Missing keys: {firebaseMissingKeys.join(', ')}.</p>
@@ -39,6 +41,7 @@ export default function SignIn() {
   return (
     <main className="auth-page">
       <section className="auth-panel">
+        <BrandLogo size={88} className="auth-logo" />
         <p className="eyebrow">Private life calendar</p>
         <h1>Time Left To Live</h1>
         <p className="muted">Sign in to build a week-by-week map of the time you have lived and the time still ahead.</p>
