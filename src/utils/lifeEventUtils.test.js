@@ -83,6 +83,81 @@ describe('activity analysis utilities', () => {
     expect(transport.seconds).toBe(3884 + 131);
   });
 
+  describe('drive boundaries from the CarPlay Shortcut', () => {
+    // 2026-10-03, 6 PM Toronto. Ids decide the order of same-second events, so each stray pair is
+    // checked in both orders.
+    const base = { sourceApp: 'gridlineai', timeLeftUserId: 'u1', eventClass: 'activity_boundary', location: null };
+    const drive = (id, eventType, occurredAt) => ({ ...base, id, sourceRecordId: id, eventType, occurredAt });
+    const bounds = getPeriodBounds('day', '2026-10-03');
+    const now = new Date('2026-10-03T22:00:00Z');
+    const transport = (events) => {
+      const analysis = buildPeriodAnalysis(events, bounds, { includeActive: true, now });
+      return {
+        minutes: Math.round((analysis.categories.find((category) => category.label === 'Transportation')?.seconds || 0) / 60),
+        sessions: analysis.sessions.filter((session) => session.category === 'Transportation')
+      };
+    };
+
+    it('does not keep a start whose finish was lost running until now once a later drive starts', () => {
+      const { minutes, sessions } = transport([
+        drive('s1', 'start_drive', '2026-10-03T13:00:00Z'),
+        drive('s2', 'start_drive', '2026-10-03T17:00:00Z'),
+        drive('f2', 'finish_drive', '2026-10-03T17:30:00Z')
+      ]);
+      expect(minutes).toBe(30);
+      expect(sessions.some((session) => session.active)).toBe(false);
+      const orphan = sessions.find((session) => session.kind === 'incomplete');
+      expect(orphan.incompleteReason).toBe('superseded_by_boundary');
+      expect(getIncompleteSessionMessage(orphan)).toBe('The end was not recorded. A later start of the same activity confirms this one ended.');
+    });
+
+    it('still shows a drive with no later boundary as in progress', () => {
+      const { minutes, sessions } = transport([drive('s1', 'start_drive', '2026-10-03T21:30:00Z')]);
+      expect(minutes).toBe(30);
+      expect(sessions[0].active).toBe(true);
+    });
+
+    it.each([['start first', 'a', 'b'], ['finish first', 'b', 'a']])(
+      'ends the drive at a start+finish pair that arrives at its end (%s)',
+      (_, startId, finishId) => {
+        const { minutes, sessions } = transport([
+          drive('s0', 'start_drive', '2026-10-03T13:00:00Z'),
+          drive(startId, 'start_drive', '2026-10-03T14:00:00Z'),
+          drive(finishId, 'finish_drive', '2026-10-03T14:00:00Z')
+        ]);
+        expect(minutes).toBe(60);
+        expect(sessions.map((session) => session.kind)).toEqual(['paired']);
+      }
+    );
+
+    it.each([['start first', 'a', 'b'], ['finish first', 'b', 'a']])(
+      'keeps a drive whole across a mid-drive CarPlay blip (%s)',
+      (_, startId, finishId) => {
+        const { minutes, sessions } = transport([
+          drive('s0', 'start_drive', '2026-10-03T13:00:00Z'),
+          drive(finishId, 'finish_drive', '2026-10-03T13:20:00Z'),
+          drive(startId, 'start_drive', '2026-10-03T13:20:01Z'),
+          drive('f0', 'finish_drive', '2026-10-03T14:00:00Z')
+        ]);
+        expect(minutes).toBe(60);
+        expect(sessions.every((session) => session.kind === 'paired')).toBe(true);
+      }
+    );
+
+    it.each([['start first', 'a', 'b'], ['finish first', 'b', 'a']])(
+      'starts the drive at a start+finish pair that arrives at its start, without a stray entry (%s)',
+      (_, startId, finishId) => {
+        const { minutes, sessions } = transport([
+          drive(startId, 'start_drive', '2026-10-03T13:00:00Z'),
+          drive(finishId, 'finish_drive', '2026-10-03T13:00:00Z'),
+          drive('f0', 'finish_drive', '2026-10-03T14:00:00Z')
+        ]);
+        expect(minutes).toBe(60);
+        expect(sessions.map((session) => session.kind)).toEqual(['paired']);
+      }
+    );
+  });
+
   it('puts a timed darts game on the wheel as its own Darts slice', () => {
     const bounds = getPeriodBounds('day', '2026-09-27');
     const analysis = buildPeriodAnalysis([

@@ -837,9 +837,26 @@ export function getIncompleteSessionMessage(session) {
     const location = session.supersededByLocation || 'another location';
     return `Departure was not recorded. A later arrival at ${location} confirms this visit ended.`;
   }
+  if (session?.incompleteReason === 'superseded_by_boundary') {
+    return 'The end was not recorded. A later start of the same activity confirms this one ended.';
+  }
   if (session?.missingBoundary === 'start') return 'Arrival was not recorded, so duration cannot be calculated.';
   if (session?.missingBoundary === 'end') return 'Departure was not recorded, so duration cannot be calculated.';
   return '';
+}
+
+// Boundary events this close together are one moment: the iPhone Shortcut stamps times to the
+// second and can fire a drive's start and finish together when CarPlay reconnects.
+const COINCIDENT_BOUNDARY_MS = 5 * 1000;
+
+function groupCoincidentBoundaries(items) {
+  const groups = [];
+  items.forEach((item) => {
+    const group = groups[groups.length - 1];
+    if (group && item.eventTime - group[0].eventTime <= COINCIDENT_BOUNDARY_MS) group.push(item);
+    else groups.push([item]);
+  });
+  return groups;
 }
 
 export function buildActivitySessions(events, bounds = null, options = {}) {
@@ -849,8 +866,7 @@ export function buildActivitySessions(events, bounds = null, options = {}) {
   const safeEvents = resolution.events;
   const sessions = [];
   const seen = new Set();
-  const openBoundaries = new Map();
-  const unmatchedEnds = [];
+  const boundaryEvents = new Map();
   const now = toJsDate(options.now) || new Date();
 
   safeEvents.forEach((event) => {
@@ -874,29 +890,18 @@ export function buildActivitySessions(events, bounds = null, options = {}) {
     const descriptor = boundaryDescriptor(event);
     const eventTime = getEventTime(event);
     if (!descriptor || !eventTime) return;
-    if (descriptor.phase === 'start') {
-      const starts = openBoundaries.get(descriptor.key) || [];
-      starts.push({ event, eventTime });
-      openBoundaries.set(descriptor.key, starts);
-      return;
-    }
+    const items = boundaryEvents.get(descriptor.key) || [];
+    items.push({ event, eventTime, descriptor });
+    boundaryEvents.set(descriptor.key, items);
+  });
 
-    const starts = openBoundaries.get(descriptor.key) || [];
-    const start = starts.pop();
-    // A finish at the same moment as (or before) the open start can't close it - e.g. a Shortcut that fired
-    // start_drive and finish_drive together. Keep the start open for the real finish instead of losing it.
-    if (start && eventTime <= start.eventTime) starts.push(start);
-    openBoundaries.set(descriptor.key, starts);
-    if (!start || eventTime <= start.eventTime) {
-      unmatchedEnds.push({ event, eventTime, descriptor });
-      return;
-    }
-    const identity = `${start.event.id || start.eventTime.getTime()}|${event.id || eventTime.getTime()}`;
+  const pairBoundaries = (start, end) => {
+    const identity = `${start.event.id || start.eventTime.getTime()}|${end.event.id || end.eventTime.getTime()}`;
     if (seen.has(identity)) return;
-    const pairedInterval = clippedInterval(start.eventTime, eventTime, bounds);
+    const pairedInterval = clippedInterval(start.eventTime, end.eventTime, bounds);
     if (!pairedInterval) return;
     const duplicate = sessions.some((session) => (
-      session.category === descriptor.category
+      session.category === end.descriptor.category
       && session.startAt.getTime() === pairedInterval.startAt.getTime()
       && session.endAt.getTime() === pairedInterval.endAt.getTime()
     ));
@@ -907,31 +912,75 @@ export function buildActivitySessions(events, bounds = null, options = {}) {
       kind: 'paired',
       active: false,
       startEvent: start.event,
-      endEvent: event
+      endEvent: end.event
     });
     session.title = getSessionDisplayName(session);
     sessions.push(session);
+  };
+
+  const openBoundaries = new Map();
+  const unmatchedEnds = [];
+  const lastBoundaryAt = new Map();
+  boundaryEvents.forEach((items, key) => {
+    lastBoundaryAt.set(key, items[items.length - 1].eventTime.getTime());
+    const starts = [];
+    groupCoincidentBoundaries(items).forEach((group) => {
+      const start = group.find((item) => item.descriptor.phase === 'start');
+      const end = group.find((item) => item.descriptor.phase === 'end');
+      const open = starts[starts.length - 1];
+      if (start && end) {
+        // A start and a finish together (e.g. CarPlay dropping and reconnecting) mean "the activity
+        // started" when nothing is open, and "the open one ended" when something is. In the second
+        // case the start is kept only if the next boundary is a finish (a mid-drive blip splits the
+        // drive in two without losing time); otherwise it was a stray and is dropped.
+        if (open) {
+          starts.pop();
+          pairBoundaries(open, end);
+          starts.push({ ...start, tentative: true });
+        } else {
+          starts.push(start);
+        }
+        return;
+      }
+      if (start) {
+        if (open?.tentative) starts.pop();
+        starts.push(start);
+        return;
+      }
+      const closing = starts.pop();
+      if (closing) pairBoundaries(closing, end);
+      else unmatchedEnds.push(end);
+    });
+    openBoundaries.set(key, starts.filter((item) => !item.tentative));
   });
 
   const unresolvedStarts = [...openBoundaries.values()].flat();
   const latestActiveByCategory = new Map();
   const supersededStarts = new Map();
+  const supersededByBoundary = new Set();
   unresolvedStarts.forEach((candidate) => {
     const category = getTallyActivityLabel(candidate.event);
     const superseding = findSupersedingArrival(candidate, safeEvents, now);
     if (superseding) supersededStarts.set(candidate.event, superseding);
+    // A later boundary of the same activity (e.g. the next drive's start) proves this one ended
+    // even though its finish never arrived, so it must not be shown as still running.
+    if (lastBoundaryAt.get(candidate.descriptor.key) > candidate.eventTime.getTime()) {
+      supersededByBoundary.add(candidate.event);
+    }
     const eligible = options.includeActive === true
       && ACTIVE_SESSION_CATEGORIES.has(category)
       && candidate.eventTime < now
       && (now.getTime() - candidate.eventTime.getTime()) <= (36 * 3600 * 1000)
       && (!bounds || (now >= bounds.start && now < bounds.end))
-      && !superseding;
+      && !superseding
+      && !supersededByBoundary.has(candidate.event);
     if (!eligible) return;
     const current = latestActiveByCategory.get(category);
     if (!current || candidate.eventTime > current.eventTime) latestActiveByCategory.set(category, candidate);
   });
 
   unresolvedStarts.forEach(({ event, eventTime }) => {
+    const endedByLaterBoundary = supersededByBoundary.has(event);
     const category = getTallyActivityLabel(event);
     const live = latestActiveByCategory.get(category)?.event === event;
     const superseding = supersededStarts.get(event) || null;
@@ -946,7 +995,9 @@ export function buildActivitySessions(events, bounds = null, options = {}) {
       kind: live ? 'active' : 'incomplete',
       active: live,
       missingBoundary: live ? null : 'end',
-      incompleteReason: superseding ? 'superseded_by_arrival' : null,
+      incompleteReason: superseding
+        ? 'superseded_by_arrival'
+        : endedByLaterBoundary ? 'superseded_by_boundary' : null,
       supersededByEvent: superseding?.event || null,
       supersededAt: superseding?.at || null,
       supersededByLocation: superseding?.location || null,
