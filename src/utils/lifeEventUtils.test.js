@@ -83,6 +83,21 @@ describe('activity analysis utilities', () => {
     expect(transport.seconds).toBe(3884 + 131);
   });
 
+  it('does not leave a drive with no end for a stray finish in the same second as a start', () => {
+    // 2026-10-01: the Shortcut again sent finish_drive with start_drive at 04:24:25, and this time the finish sorted first (8bb6... < d7f0...).
+    const base = { sourceApp: 'gridlineai', timeLeftUserId: 'u1', eventClass: 'activity_boundary', location: null };
+    const stray = { ...base, id: '8bb6130e-finish', sourceRecordId: '8bb6130e-finish', eventType: 'finish_drive', occurredAt: '2026-10-01T08:24:25Z' };
+    const start = { ...base, id: 'd7f0fafa-start', sourceRecordId: 'd7f0fafa-start', eventType: 'start_drive', occurredAt: '2026-10-01T08:24:25Z' };
+    const finish = { ...base, id: '6bcbe8c3-finish', sourceRecordId: '6bcbe8c3-finish', eventType: 'finish_drive', occurredAt: '2026-10-01T09:04:02Z' };
+    [[stray, start, finish], [start, stray, finish]].forEach((events) => {
+      const drives = buildActivitySessions(events, null, { now: new Date('2026-10-02T00:00:00Z') })
+        .filter((session) => session.category === 'Transportation');
+      expect(drives).toHaveLength(1);
+      expect(drives[0]).toMatchObject({ kind: 'paired' });
+      expect(drives[0].endAt.toISOString()).toBe('2026-10-01T09:04:02.000Z');
+    });
+  });
+
   it('puts a timed darts game on the wheel as its own Darts slice', () => {
     const bounds = getPeriodBounds('day', '2026-09-27');
     const analysis = buildPeriodAnalysis([

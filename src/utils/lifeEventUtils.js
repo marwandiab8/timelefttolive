@@ -852,6 +852,12 @@ export function buildActivitySessions(events, bounds = null, options = {}) {
   const openBoundaries = new Map();
   const unmatchedEnds = [];
   const now = toJsDate(options.now) || new Date();
+  const startTimes = new Set();
+  safeEvents.forEach((event) => {
+    const descriptor = boundaryDescriptor(event);
+    const eventTime = getEventTime(event);
+    if (descriptor?.phase === 'start' && eventTime) startTimes.add(`${descriptor.key}|${eventTime.getTime()}`);
+  });
 
   safeEvents.forEach((event) => {
     const interval = reportedInterval(event, bounds);
@@ -887,6 +893,8 @@ export function buildActivitySessions(events, bounds = null, options = {}) {
     // start_drive and finish_drive together. Keep the start open for the real finish instead of losing it.
     if (start && eventTime <= start.eventTime) starts.push(start);
     openBoundaries.set(descriptor.key, starts);
+    // That stray finish is noise, not a session whose start went missing, whichever of the pair sorts first.
+    if (startTimes.has(`${descriptor.key}|${eventTime.getTime()}`)) return;
     if (!start || eventTime <= start.eventTime) {
       unmatchedEnds.push({ event, eventTime, descriptor });
       return;
