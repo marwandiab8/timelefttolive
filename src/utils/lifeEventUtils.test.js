@@ -113,6 +113,34 @@ describe('activity analysis utilities', () => {
     expect(darts.icon).toBe('🎯');
   });
 
+  it('counts a place visit as what you do there: its own slice, or Work/Home when that is the activity', () => {
+    const bounds = getPeriodBounds('day', '2026-10-11');
+    const visit = (id, label, activity, startAt, endAt) => {
+      const base = { sourceApp: 'gridlineai', eventClass: 'location', activityFamily: 'location', categoryId: 'other_location', title: `${activity} at ${label}`, location: { label, latitude: 43.5, longitude: -80.2 }, metadata: { placeActivity: activity } };
+      return [
+        { ...base, id: `${id}-in`, sourceRecordId: `${id}-in`, eventType: 'arrive_location', occurredAt: startAt },
+        { ...base, id: `${id}-out`, sourceRecordId: `${id}-out`, eventType: 'leave_location', occurredAt: endAt, startAt, endAt }
+      ];
+    };
+    const analysis = buildPeriodAnalysis([
+      ...visit('layal', "Layal's house", 'Visit', '2026-10-11T19:00:00Z', '2026-10-11T23:30:00Z'),
+      ...visit('costco', 'Costco Guelph', 'Grocery shopping', '2026-10-11T15:00:00Z', '2026-10-11T15:45:00Z'),
+      ...visit('site', '6 Docksteader', 'work', '2026-10-11T12:00:00Z', '2026-10-11T14:00:00Z'),
+      ...visit('bakery', 'Corner bakery', 'picking up bread', '2026-10-11T16:00:00Z', '2026-10-11T16:10:00Z')
+    ], bounds, { now: new Date('2026-10-12T03:00:00Z') });
+    const slices = Object.fromEntries(analysis.categories.map((category) => [category.label, category.seconds / 60]));
+    expect(slices).toEqual({ Visit: 270, Work: 120, 'Grocery shopping': 45, 'Picking up bread': 10 });
+    expect(analysis.categories.find((category) => category.label === 'Visit')).toMatchObject({ color: '#b06ee6', icon: '☺' });
+    expect(analysis.categories.find((category) => category.label === 'Picking up bread').color).toMatch(/^#[0-9a-f]{6}$/);
+    // Arrivals stay Places moments; "Visit at Layal's house" is how the stay reads.
+    expect(analysis.pointCategories.find((category) => category.label === 'Places')).toMatchObject({ count: 4 });
+    expect(getTallyActivityLabel({ eventType: 'leave_location', metadata: { placeActivity: 'Home' } })).toBe('Home');
+  });
+
+  it("keeps a place visit without an activity as before: a name like \"Layal's house\" is never Home", () => {
+    expect(getTallyActivityLabel({ eventType: 'arrive_location', title: 'Arrived at location', location: { label: "Layal's house" } })).toBe('Places');
+  });
+
   it('keeps an untimed darts practice off the wheel instead of treating it as still running', () => {
     const bounds = getPeriodBounds('day', '2026-09-27');
     const analysis = buildPeriodAnalysis([
