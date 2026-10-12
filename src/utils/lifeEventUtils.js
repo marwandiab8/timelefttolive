@@ -683,6 +683,27 @@ export function applyActivityEventPrecedence(events, options = {}) {
     }
   });
 
+  // One night, sent twice: Apple Health can first report a night as ending when you woke up briefly
+  // (4 am) and later as the whole night with the same bedtime. Both reached Time Left as separate
+  // records, so only the latest-ending one for a bedtime counts.
+  const nights = new Map();
+  ordered.forEach((event) => {
+    if (cleanToken(event?.eventType) !== 'sleep_session') return;
+    const start = toJsDate(event?.startAt);
+    const end = toJsDate(event?.endAt);
+    if (!start || !end) return;
+    const key = `${cleanToken(event?.sourceApp)}|${start.getTime()}`;
+    const kept = nights.get(key);
+    if (!kept) {
+      nights.set(key, { event, end });
+    } else if (end > kept.end) {
+      suppressed.set(kept.event, { reason: 'superseded_sleep', authoritativeEvent: event });
+      nights.set(key, { event, end });
+    } else {
+      suppressed.set(event, { reason: 'superseded_sleep', authoritativeEvent: kept.event });
+    }
+  });
+
   const effectiveEvents = ordered
     .filter((event) => !suppressed.has(event))
     .map((event) => {

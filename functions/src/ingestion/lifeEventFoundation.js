@@ -424,7 +424,9 @@ async function appendDeadLetter(db, payload, context, error, payloadHash) {
 // is a conflict. A day's step total is the exception - Health keeps syncing more
 // samples into it all day, so the same source record legitimately grows, and
 // keeping the first value would freeze the day at whatever the first export saw.
-const REVISABLE_EVENT_TYPES = new Set(["daily_steps"]);
+// A night of sleep is revisable too: it is keyed by its bedtime, and a later export can carry the same
+// night ending later (Apple Health first reports it ending at a brief 4 am wake-up).
+const REVISABLE_EVENT_TYPES = new Set(["daily_steps", "sleep_session"]);
 // Darts games are re-sent with more detail (duration, metrics, note) than they first had, and
 // older ones arrived as "dartsRecord" before being sent as "darts_practice".
 const REVISABLE_DARTS_EVENT_TYPES = new Set(["dartsRecord", "darts_practice"]);

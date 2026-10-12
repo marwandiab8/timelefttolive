@@ -141,6 +141,19 @@ describe('activity analysis utilities', () => {
     expect(getTallyActivityLabel({ eventType: 'arrive_location', title: 'Arrived at location', location: { label: "Layal's house" } })).toBe('Places');
   });
 
+  it('counts one night of sleep once when it arrived twice with the same bedtime', () => {
+    const bounds = getPeriodBounds('day', '2026-10-11');
+    const night = (id, endAt, hours) => ({
+      id, sourceRecordId: id, sourceApp: 'gridlineai', eventType: 'sleep_session', eventClass: 'activity_boundary', activityFamily: 'sleep', categoryId: 'sleep',
+      title: 'Slept', occurredAt: '2026-10-11T03:26:42Z', startAt: '2026-10-11T03:26:42Z', endAt, metrics: { totalSleepHours: hours }
+    });
+    const analysis = buildPeriodAnalysis([night('early', '2026-10-11T07:59:57Z', 4.16), night('full', '2026-10-11T11:58:49Z', 8.03)], bounds, { now: new Date('2026-10-12T03:00:00Z') });
+    const sleep = analysis.categories.find((category) => category.label === 'Sleep');
+    expect(sleep.sessions).toHaveLength(1);
+    expect(Math.round(sleep.seconds / 360) / 10).toBe(8.0);
+    expect(applyActivityEventPrecedence([night('early', '2026-10-11T07:59:57Z', 4.16), night('full', '2026-10-11T11:58:49Z', 8.03)]).events.map((event) => event.id)).toEqual(['full']);
+  });
+
   it('keeps an untimed darts practice off the wheel instead of treating it as still running', () => {
     const bounds = getPeriodBounds('day', '2026-09-27');
     const analysis = buildPeriodAnalysis([

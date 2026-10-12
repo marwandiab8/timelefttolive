@@ -1254,6 +1254,36 @@ test("a newer daily step total for the same day replaces the earlier one", async
   assert.equal(stored.revisionCount, 1);
 });
 
+test("a night of sleep sent again with a later wake-up updates the same night", async () => {
+  const db = new FakeFirestore();
+  const token = "t-sleep-revise";
+  await setupAuthorized(db, token);
+  const base = {
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "sleep:2026-10-10 23:26:42 -0400",
+    eventType: "sleep_session",
+    eventClass: "activity_boundary",
+    title: "Slept",
+    occurredAt: "2026-10-11T03:26:42Z",
+    startAt: "2026-10-11T03:26:42Z",
+    endAt: "2026-10-11T07:59:57Z",
+    metrics: { totalSleepHours: 4.16 }
+  };
+  await ingestLifeEventSingle(db, makeReq(base, token), makeRes());
+  const later = makeRes();
+  await ingestLifeEventSingle(db, makeReq({ ...base, endAt: "2026-10-11T11:58:49Z", metrics: { totalSleepHours: 8.03 } }, token), later);
+  assert.equal(later.statusCode, 200);
+  const eventDocs = [...db._store.entries()].filter(([key]) => key.includes("/lifeEvents/"));
+  assert.equal(eventDocs.length, 1, "one night, one record");
+  assert.equal(eventDocs[0][1].metrics.totalSleepHours, 8.03);
+  assert.equal(eventDocs[0][1].revisionCount, 1);
+});
+
 test("an identical daily step total is still a duplicate, not a revision", async () => {
   const db = new FakeFirestore();
   const token = "t-steps-same";
