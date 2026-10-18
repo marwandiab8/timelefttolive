@@ -158,6 +158,21 @@ describe('activity analysis utilities', () => {
     );
   });
 
+  it('does not leave a drive with no end for a stray finish in the same second as a start', () => {
+    // 2026-10-01: the Shortcut again sent finish_drive with start_drive at 04:24:25, and this time the finish sorted first (8bb6... < d7f0...).
+    const base = { sourceApp: 'gridlineai', timeLeftUserId: 'u1', eventClass: 'activity_boundary', location: null };
+    const stray = { ...base, id: '8bb6130e-finish', sourceRecordId: '8bb6130e-finish', eventType: 'finish_drive', occurredAt: '2026-10-01T08:24:25Z' };
+    const start = { ...base, id: 'd7f0fafa-start', sourceRecordId: 'd7f0fafa-start', eventType: 'start_drive', occurredAt: '2026-10-01T08:24:25Z' };
+    const finish = { ...base, id: '6bcbe8c3-finish', sourceRecordId: '6bcbe8c3-finish', eventType: 'finish_drive', occurredAt: '2026-10-01T09:04:02Z' };
+    [[stray, start, finish], [start, stray, finish]].forEach((events) => {
+      const drives = buildActivitySessions(events, null, { now: new Date('2026-10-02T00:00:00Z') })
+        .filter((session) => session.category === 'Transportation');
+      expect(drives).toHaveLength(1);
+      expect(drives[0]).toMatchObject({ kind: 'paired' });
+      expect(drives[0].endAt.toISOString()).toBe('2026-10-01T09:04:02.000Z');
+    });
+  });
+
   it('puts a timed darts game on the wheel as its own Darts slice', () => {
     const bounds = getPeriodBounds('day', '2026-09-27');
     const analysis = buildPeriodAnalysis([
@@ -171,6 +186,47 @@ describe('activity analysis utilities', () => {
     expect(darts).toBeTruthy();
     expect(darts.seconds).toBe(754);
     expect(darts.icon).toBe('🎯');
+  });
+
+  it('counts a place visit as what you do there: its own slice, or Work/Home when that is the activity', () => {
+    const bounds = getPeriodBounds('day', '2026-10-11');
+    const visit = (id, label, activity, startAt, endAt) => {
+      const base = { sourceApp: 'gridlineai', eventClass: 'location', activityFamily: 'location', categoryId: 'other_location', title: `${activity} at ${label}`, location: { label, latitude: 43.5, longitude: -80.2 }, metadata: { placeActivity: activity } };
+      return [
+        { ...base, id: `${id}-in`, sourceRecordId: `${id}-in`, eventType: 'arrive_location', occurredAt: startAt },
+        { ...base, id: `${id}-out`, sourceRecordId: `${id}-out`, eventType: 'leave_location', occurredAt: endAt, startAt, endAt }
+      ];
+    };
+    const analysis = buildPeriodAnalysis([
+      ...visit('layal', "Layal's house", 'Visit', '2026-10-11T19:00:00Z', '2026-10-11T23:30:00Z'),
+      ...visit('costco', 'Costco Guelph', 'Grocery shopping', '2026-10-11T15:00:00Z', '2026-10-11T15:45:00Z'),
+      ...visit('site', '6 Docksteader', 'work', '2026-10-11T12:00:00Z', '2026-10-11T14:00:00Z'),
+      ...visit('bakery', 'Corner bakery', 'picking up bread', '2026-10-11T16:00:00Z', '2026-10-11T16:10:00Z')
+    ], bounds, { now: new Date('2026-10-12T03:00:00Z') });
+    const slices = Object.fromEntries(analysis.categories.map((category) => [category.label, category.seconds / 60]));
+    expect(slices).toEqual({ Visit: 270, Work: 120, 'Grocery shopping': 45, 'Picking up bread': 10 });
+    expect(analysis.categories.find((category) => category.label === 'Visit')).toMatchObject({ color: '#b06ee6', icon: '☺' });
+    expect(analysis.categories.find((category) => category.label === 'Picking up bread').color).toMatch(/^#[0-9a-f]{6}$/);
+    // Arrivals stay Places moments; "Visit at Layal's house" is how the stay reads.
+    expect(analysis.pointCategories.find((category) => category.label === 'Places')).toMatchObject({ count: 4 });
+    expect(getTallyActivityLabel({ eventType: 'leave_location', metadata: { placeActivity: 'Home' } })).toBe('Home');
+  });
+
+  it("keeps a place visit without an activity as before: a name like \"Layal's house\" is never Home", () => {
+    expect(getTallyActivityLabel({ eventType: 'arrive_location', title: 'Arrived at location', location: { label: "Layal's house" } })).toBe('Places');
+  });
+
+  it('counts one night of sleep once when it arrived twice with the same bedtime', () => {
+    const bounds = getPeriodBounds('day', '2026-10-11');
+    const night = (id, endAt, hours) => ({
+      id, sourceRecordId: id, sourceApp: 'gridlineai', eventType: 'sleep_session', eventClass: 'activity_boundary', activityFamily: 'sleep', categoryId: 'sleep',
+      title: 'Slept', occurredAt: '2026-10-11T03:26:42Z', startAt: '2026-10-11T03:26:42Z', endAt, metrics: { totalSleepHours: hours }
+    });
+    const analysis = buildPeriodAnalysis([night('early', '2026-10-11T07:59:57Z', 4.16), night('full', '2026-10-11T11:58:49Z', 8.03)], bounds, { now: new Date('2026-10-12T03:00:00Z') });
+    const sleep = analysis.categories.find((category) => category.label === 'Sleep');
+    expect(sleep.sessions).toHaveLength(1);
+    expect(Math.round(sleep.seconds / 360) / 10).toBe(8.0);
+    expect(applyActivityEventPrecedence([night('early', '2026-10-11T07:59:57Z', 4.16), night('full', '2026-10-11T11:58:49Z', 8.03)]).events.map((event) => event.id)).toEqual(['full']);
   });
 
   it('keeps an untimed darts practice off the wheel instead of treating it as still running', () => {

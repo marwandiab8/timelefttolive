@@ -26,6 +26,25 @@ const POINT_CATEGORY_DEFINITIONS = {
   Moments: { color: '#8b98a1', icon: '•' }
 };
 
+// What you do at a known place (gridlineai's Known Places: "Visit", "Grocery shopping", "Fueling up"...).
+// A place visit carries it in metadata.placeActivity, and its stay is counted as that activity: Work,
+// Home and Gym join those slices, every other activity is a slice of its own. These are the colours and
+// icons of the activities gridlineai offers; any other activity gets a colour from PLACE_ACTIVITY_PALETTE.
+const PLACE_ACTIVITY_PRIORITY = 35; // above Music and Places, below Home: a place visit is a specific "where"
+const PLACE_ACTIVITY_DEFINITIONS = {
+  Visit: { color: '#b06ee6', icon: '☺' },
+  'Grocery shopping': { color: '#e8d44d', icon: '🛒' },
+  Shopping: { color: '#d55fd0', icon: '🛍' },
+  'Fueling up': { color: '#e5484d', icon: '⛽' },
+  'Car service': { color: '#a47148', icon: '🔧' },
+  'Eating out': { color: '#3cc7c7', icon: '🍴' },
+  Appointment: { color: '#6c7ae0', icon: '✚' },
+  Errand: { color: '#c9a227', icon: '✓' },
+  Worship: { color: '#9fb4c7', icon: '✦' }
+};
+const PLACE_ACTIVITY_PALETTE = ['#ff8a5c', '#7bd389', '#ff6fa5', '#5ab0ff', '#c3a6ff', '#ffd166', '#06d6a0', '#ef476f'];
+const placeActivityLabels = new Set();
+
 const MOMENT_CATEGORIES = new Set(['Notes', 'Work Reports', 'Attachments', 'Achievements', 'Moments']);
 const ACTIVE_SESSION_CATEGORIES = new Set(['Work', 'Gym/Fitness', 'Sleep', 'Home', 'Transportation', 'Meals', 'Reading']);
 const GENERIC_TITLES = /^(life event|journal entry|work session|home session|gym session|location session|activity|event|report|file|image)$/i;
@@ -269,7 +288,38 @@ export function getActivityLabel(event) {
   return humanize(raw);
 }
 
+// The activity a place visit carries, as its slice label; '' when the event isn't one.
+function placeActivityCategory(event) {
+  const eventType = cleanToken(event?.eventType);
+  if (eventType !== 'arrive_location' && eventType !== 'leave_location') return '';
+  const raw = String(event?.metadata?.placeActivity || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return '';
+  const token = cleanToken(raw);
+  if (/^(?:work|office)$/.test(token)) return 'Work';
+  if (/^(?:home|house)$/.test(token)) return 'Home';
+  if (/^(?:gym|fitness|gym_fitness)$/.test(token)) return 'Gym/Fitness';
+  const existing = Object.keys(CATEGORY_DEFINITIONS).find((label) => cleanToken(label) === token);
+  if (existing) return existing;
+  const label = raw.charAt(0).toUpperCase() + raw.slice(1);
+  placeActivityLabels.add(label);
+  return label;
+}
+
+function placeActivityDefinition(label) {
+  if (!placeActivityLabels.has(label) && !PLACE_ACTIVITY_DEFINITIONS[label]) return null;
+  const known = PLACE_ACTIVITY_DEFINITIONS[label];
+  const hash = [...label].reduce((sum, ch) => (sum * 31 + ch.charCodeAt(0)) >>> 0, 7);
+  return {
+    color: known?.color || PLACE_ACTIVITY_PALETTE[hash % PLACE_ACTIVITY_PALETTE.length],
+    icon: known?.icon || CATEGORY_DEFINITIONS.Places.icon,
+    priority: PLACE_ACTIVITY_PRIORITY,
+    label
+  };
+}
+
 export function getTallyActivityLabel(event) {
+  const placeActivity = placeActivityCategory(event);
+  if (placeActivity) return placeActivity;
   const eventType = cleanToken(event?.eventType);
   const boundary = /^(?:arrive|leave|start|finish|stop)_(.+)$/.exec(eventType);
   const raw = boundary?.[1] || event?.activityFamily || event?.categoryId || event?.eventClass || eventType;
@@ -296,7 +346,7 @@ export function getTallyActivityLabel(event) {
 }
 
 export function getCategoryDefinition(label) {
-  return CATEGORY_DEFINITIONS[label] || { ...CATEGORY_DEFINITIONS.Other, label };
+  return CATEGORY_DEFINITIONS[label] || placeActivityDefinition(label) || { ...CATEGORY_DEFINITIONS.Other, label };
 }
 
 export function getPointCategoryDefinition(label) {
@@ -314,6 +364,8 @@ function firstMeaningfulString(...values) {
 }
 
 export function getPointCategoryLabel(event) {
+  // Arriving at (or leaving without a timed stay) a place stays a Places moment, whatever you do there.
+  if (placeActivityCategory(event)) return 'Places';
   const category = getTallyActivityLabel(event);
   if (category === 'Music') return 'Spotify';
   if (category === 'Notes') return 'Journal';
@@ -628,6 +680,27 @@ export function applyActivityEventPrecedence(events, options = {}) {
     const eventType = cleanToken(event?.eventType);
     if (GENERIC_LOCATION_EVENT_TYPES.has(eventType) && !getRawLocationLabel(event)) {
       suppressed.set(event, { reason: 'empty_generic_location' });
+    }
+  });
+
+  // One night, sent twice: Apple Health can first report a night as ending when you woke up briefly
+  // (4 am) and later as the whole night with the same bedtime. Both reached Time Left as separate
+  // records, so only the latest-ending one for a bedtime counts.
+  const nights = new Map();
+  ordered.forEach((event) => {
+    if (cleanToken(event?.eventType) !== 'sleep_session') return;
+    const start = toJsDate(event?.startAt);
+    const end = toJsDate(event?.endAt);
+    if (!start || !end) return;
+    const key = `${cleanToken(event?.sourceApp)}|${start.getTime()}`;
+    const kept = nights.get(key);
+    if (!kept) {
+      nights.set(key, { event, end });
+    } else if (end > kept.end) {
+      suppressed.set(kept.event, { reason: 'superseded_sleep', authoritativeEvent: event });
+      nights.set(key, { event, end });
+    } else {
+      suppressed.set(event, { reason: 'superseded_sleep', authoritativeEvent: kept.event });
     }
   });
 

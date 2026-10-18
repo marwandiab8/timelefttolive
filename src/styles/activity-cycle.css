@@ -236,14 +236,42 @@
 }
 
 .cycle-wheel-stage {
+  position: relative;
+  isolation: isolate;
   display: grid;
   min-width: 0;
   min-height: 550px;
   place-items: center;
 }
 
+/* Marwan's K2 logo as a faint watermark (never catches taps): the whole logo in the wheel's open centre,
+   behind the day's totals - or, on a day with no wheel, larger across the empty panel. */
+.life-wheel::before,
+.cycle-wheel-stage:not(:has(.life-wheel))::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  background: url("/brand/k2-logo-watermark.png") center / contain no-repeat;
+  opacity: 0.14;
+  pointer-events: none;
+}
+
+.life-wheel::before {
+  inset: 29.5%; /* the wheel's inner radius is 21 of 50: the logo just fits inside the ring */
+}
+
+.cycle-wheel-stage:not(:has(.life-wheel))::before {
+  inset: 8%;
+  opacity: 0.08;
+}
+
+.activity-cycle[data-theme="light"] .life-wheel::before {
+  opacity: 0.1;
+}
+
 .life-wheel {
   position: relative;
+  isolation: isolate;
   width: clamp(500px, 41vw, 650px);
   max-width: 100%;
   aspect-ratio: 1;

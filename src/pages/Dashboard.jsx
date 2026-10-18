@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import BrandLogo from '../components/BrandLogo.jsx';
 import ActivityDashboard from '../components/ActivityDashboard.jsx';
 import CalendarBreadcrumbs from '../components/CalendarBreadcrumbs.jsx';
 import { DayDrilldownView, MonthDetailView, WeekDetailView, YearDetailView } from '../components/CalendarDrilldown.jsx';
@@ -198,7 +199,7 @@ export default function Dashboard() {
       <main className="app-shell" data-calendar-theme={calendarTheme}>
         <header className="topbar">
           <div>
-            <p className="eyebrow">Time Left To Live</p>
+            <p className="eyebrow brand-row"><BrandLogo size={28} />Time Left To Live</p>
             <h1>{calendar ? 'Edit profile' : 'Create your life calendar'}</h1>
           </div>
           {calendar && <button className="secondary" type="button" onClick={() => setEditingProfile(false)}>Back</button>}
@@ -231,7 +232,7 @@ export default function Dashboard() {
       <main className="app-shell" data-calendar-theme={calendarTheme} hidden={primaryView !== 'calendar'} style={calendarColorVariables(calendar.settings)}>
       <header className="topbar">
         <div className="calendar-heading">
-          <p className="calendar-role">{role === 'owner' ? 'Owner dashboard' : 'Read-only viewer'}</p>
+          <p className="calendar-role brand-row"><BrandLogo size={28} />{role === 'owner' ? 'Owner dashboard' : 'Read-only viewer'}</p>
           <h1>{calendar.firstName} {calendar.lastName}</h1>
           {role === 'owner' && (
             <PrimaryViewSwitcher

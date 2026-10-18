@@ -2989,3 +2989,26 @@ legend {
     text-align: left;
   }
 }
+
+/* K2 logo: on a white disc so it reads on every theme */
+.brand-logo {
+  display: inline-block;
+  flex: none;
+  border-radius: 50%;
+  background: #ffffff;
+  padding: 2px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18);
+  object-fit: contain;
+}
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auth-logo {
+  display: block;
+  margin: 0 auto 14px;
+  padding: 3px;
+}
