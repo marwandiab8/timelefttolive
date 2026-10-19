@@ -117,6 +117,18 @@ describe('activity analysis utilities', () => {
       expect(sessions[0].active).toBe(true);
     });
 
+    it.each([['finish a second later', 'start_drive', 'finish_drive'], ['start a second later', 'finish_drive', 'start_drive']])(
+      'still shows a drive started by a start+finish pair as in progress (%s)',
+      (_, firstType, secondType) => {
+        const { minutes, sessions } = transport([
+          drive('a', firstType, '2026-10-03T21:30:00Z'),
+          drive('b', secondType, '2026-10-03T21:30:01Z')
+        ]);
+        expect(minutes).toBe(30);
+        expect(sessions.map((session) => session.kind)).toEqual(['active']);
+      }
+    );
+
     it.each([['start first', 'a', 'b'], ['finish first', 'b', 'a']])(
       'ends the drive at a start+finish pair that arrives at its end (%s)',
       (_, startId, finishId) => {

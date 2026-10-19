@@ -995,9 +995,12 @@ export function buildActivitySessions(events, bounds = null, options = {}) {
   const unmatchedEnds = [];
   const lastBoundaryAt = new Map();
   boundaryEvents.forEach((items, key) => {
-    lastBoundaryAt.set(key, items[items.length - 1].eventTime.getTime());
+    const groups = groupCoincidentBoundaries(items);
+    // The last moment, not the last event: a finish stamped a second after the start it came with
+    // is the same moment and must not count as a later boundary that ends that start.
+    lastBoundaryAt.set(key, groups[groups.length - 1][0].eventTime.getTime());
     const starts = [];
-    groupCoincidentBoundaries(items).forEach((group) => {
+    groups.forEach((group) => {
       const start = group.find((item) => item.descriptor.phase === 'start');
       const end = group.find((item) => item.descriptor.phase === 'end');
       const open = starts[starts.length - 1];
