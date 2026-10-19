@@ -83,6 +83,93 @@ describe('activity analysis utilities', () => {
     expect(transport.seconds).toBe(3884 + 131);
   });
 
+  describe('drive boundaries from the CarPlay Shortcut', () => {
+    // 2026-10-03, 6 PM Toronto. Ids decide the order of same-second events, so each stray pair is
+    // checked in both orders.
+    const base = { sourceApp: 'gridlineai', timeLeftUserId: 'u1', eventClass: 'activity_boundary', location: null };
+    const drive = (id, eventType, occurredAt) => ({ ...base, id, sourceRecordId: id, eventType, occurredAt });
+    const bounds = getPeriodBounds('day', '2026-10-03');
+    const now = new Date('2026-10-03T22:00:00Z');
+    const transport = (events) => {
+      const analysis = buildPeriodAnalysis(events, bounds, { includeActive: true, now });
+      return {
+        minutes: Math.round((analysis.categories.find((category) => category.label === 'Transportation')?.seconds || 0) / 60),
+        sessions: analysis.sessions.filter((session) => session.category === 'Transportation')
+      };
+    };
+
+    it('does not keep a start whose finish was lost running until now once a later drive starts', () => {
+      const { minutes, sessions } = transport([
+        drive('s1', 'start_drive', '2026-10-03T13:00:00Z'),
+        drive('s2', 'start_drive', '2026-10-03T17:00:00Z'),
+        drive('f2', 'finish_drive', '2026-10-03T17:30:00Z')
+      ]);
+      expect(minutes).toBe(30);
+      expect(sessions.some((session) => session.active)).toBe(false);
+      const orphan = sessions.find((session) => session.kind === 'incomplete');
+      expect(orphan.incompleteReason).toBe('superseded_by_boundary');
+      expect(getIncompleteSessionMessage(orphan)).toBe('The end was not recorded. A later start of the same activity confirms this one ended.');
+    });
+
+    it('still shows a drive with no later boundary as in progress', () => {
+      const { minutes, sessions } = transport([drive('s1', 'start_drive', '2026-10-03T21:30:00Z')]);
+      expect(minutes).toBe(30);
+      expect(sessions[0].active).toBe(true);
+    });
+
+    it.each([['finish a second later', 'start_drive', 'finish_drive'], ['start a second later', 'finish_drive', 'start_drive']])(
+      'still shows a drive started by a start+finish pair as in progress (%s)',
+      (_, firstType, secondType) => {
+        const { minutes, sessions } = transport([
+          drive('a', firstType, '2026-10-03T21:30:00Z'),
+          drive('b', secondType, '2026-10-03T21:30:01Z')
+        ]);
+        expect(minutes).toBe(30);
+        expect(sessions.map((session) => session.kind)).toEqual(['active']);
+      }
+    );
+
+    it.each([['start first', 'a', 'b'], ['finish first', 'b', 'a']])(
+      'ends the drive at a start+finish pair that arrives at its end (%s)',
+      (_, startId, finishId) => {
+        const { minutes, sessions } = transport([
+          drive('s0', 'start_drive', '2026-10-03T13:00:00Z'),
+          drive(startId, 'start_drive', '2026-10-03T14:00:00Z'),
+          drive(finishId, 'finish_drive', '2026-10-03T14:00:00Z')
+        ]);
+        expect(minutes).toBe(60);
+        expect(sessions.map((session) => session.kind)).toEqual(['paired']);
+      }
+    );
+
+    it.each([['start first', 'a', 'b'], ['finish first', 'b', 'a']])(
+      'keeps a drive whole across a mid-drive CarPlay blip (%s)',
+      (_, startId, finishId) => {
+        const { minutes, sessions } = transport([
+          drive('s0', 'start_drive', '2026-10-03T13:00:00Z'),
+          drive(finishId, 'finish_drive', '2026-10-03T13:20:00Z'),
+          drive(startId, 'start_drive', '2026-10-03T13:20:01Z'),
+          drive('f0', 'finish_drive', '2026-10-03T14:00:00Z')
+        ]);
+        expect(minutes).toBe(60);
+        expect(sessions.every((session) => session.kind === 'paired')).toBe(true);
+      }
+    );
+
+    it.each([['start first', 'a', 'b'], ['finish first', 'b', 'a']])(
+      'starts the drive at a start+finish pair that arrives at its start, without a stray entry (%s)',
+      (_, startId, finishId) => {
+        const { minutes, sessions } = transport([
+          drive(startId, 'start_drive', '2026-10-03T13:00:00Z'),
+          drive(finishId, 'finish_drive', '2026-10-03T13:00:00Z'),
+          drive('f0', 'finish_drive', '2026-10-03T14:00:00Z')
+        ]);
+        expect(minutes).toBe(60);
+        expect(sessions.map((session) => session.kind)).toEqual(['paired']);
+      }
+    );
+  });
+
   it('does not leave a drive with no end for a stray finish in the same second as a start', () => {
     // 2026-10-01: the Shortcut again sent finish_drive with start_drive at 04:24:25, and this time the finish sorted first (8bb6... < d7f0...).
     const base = { sourceApp: 'gridlineai', timeLeftUserId: 'u1', eventClass: 'activity_boundary', location: null };
