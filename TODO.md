@@ -2,6 +2,8 @@
 
 ## Deployed (2026-10-24)
 
+Merged (#2, #3) and deployed from `main` at `dceb30c`: every function (the two calendar ones were already current) and hosting, so production matches `main`. Firestore rules are unchanged since `81a9190`, and the two `expiresAt` index overrides added later are already in production.
+
 Production has the new `syncCalendarEventToLifeEvents` trigger (us-central1, given the same 30-day image cleanup policy as northamerica-northeast1) and hosting from `feat/calendar-daily-events`: main-calendar events as all-day Calendar entries in the Activity dashboard. The 12 existing events were added with `npm run sync:calendar-life-events -- --project=timelefttolive --apply` (27 day entries), and a test event confirmed the trigger adds and removes them live. The other functions were not redeployed; they don't need this change. Staging has neither yet.
 
 Later the same day: ongoing events (fbbe19d). Production has the updated trigger, the new `carryOngoingCalendarEvents` (daily at 00:05 Toronto) and the hosting. "With Ashley" was set ongoing: 2,017 daily entries from 2021-04-17 to 2026-10-24, one more each night.
