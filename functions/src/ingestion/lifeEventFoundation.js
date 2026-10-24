@@ -426,7 +426,8 @@ async function appendDeadLetter(db, payload, context, error, payloadHash) {
 // keeping the first value would freeze the day at whatever the first export saw.
 // A night of sleep is revisable too: it is keyed by its bedtime, and a later export can carry the same
 // night ending later (Apple Health first reports it ending at a brief 4 am wake-up).
-const REVISABLE_EVENT_TYPES = new Set(["daily_steps", "sleep_session"]);
+// A main-calendar event's day follows the event (src/calendarLifeEvents.js): renaming it or editing its note updates it.
+const REVISABLE_EVENT_TYPES = new Set(["daily_steps", "sleep_session", "calendar_event"]);
 // Darts games are re-sent with more detail (duration, metrics, note) than they first had, and
 // older ones arrived as "dartsRecord" before being sent as "darts_practice".
 const REVISABLE_DARTS_EVENT_TYPES = new Set(["dartsRecord", "darts_practice"]);

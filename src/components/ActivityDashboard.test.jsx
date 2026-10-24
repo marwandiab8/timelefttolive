@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { getCategoryDefinition } from '../utils/lifeEventUtils.js';
-import { ActivityEntryDialog, LifeWheel, TotalsView, buildDeleteRequest, buildLocationPatch } from './ActivityDashboard.jsx';
+import { ActivityEntryDialog, LifeWheel, TimelineEntryList, TotalsView, buildDeleteRequest, buildLocationPatch } from './ActivityDashboard.jsx';
 
 const allTimeRange = {
   id: 'all',
@@ -216,5 +216,23 @@ describe('LifeWheel', () => {
     render();
     expect(errors).not.toHaveBeenCalled();
     errors.mockRestore();
+  });
+});
+
+describe('main-calendar days in the timeline', () => {
+  it('come first as All day from the main calendar, with no Edit or Delete', () => {
+    const entries = [
+      { id: 'moment:run', type: 'moment', at: new Date('2026-08-18T11:00:00Z'), timeRecorded: true, pointCategory: 'Moments', category: 'Moments',
+        color: '#8b98a1', icon: '•', title: 'Morning run', count: 1, details: {}, sourceApp: 'gridlineai', event: { id: 'run' } },
+      { id: 'moment:cal', type: 'moment', allDay: true, at: null, timeRecorded: false, pointCategory: 'Calendar', category: 'Calendar',
+        color: '#e0565b', icon: '📅', title: 'Dentist', count: 1, details: { note: 'Cleaning' }, sourceApp: 'timelefttolive', event: { id: 'cal-day', eventType: 'calendar_event' } }
+    ];
+    const markup = renderToStaticMarkup(<TimelineEntryList entries={entries} onSelect={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />);
+    expect(markup.indexOf('Dentist')).toBeLessThan(markup.indexOf('Morning run'));
+    expect(markup).toContain('All day');
+    expect(markup).toContain('Main calendar');
+    expect(markup).toContain('Cleaning');
+    expect(markup).not.toContain('Time not recorded');
+    expect(markup.match(/>Edit</g)).toHaveLength(1);
   });
 });

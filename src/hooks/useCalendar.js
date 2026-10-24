@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { eventDocument } from '../utils/calendarEvents.js';
 import {
   addDoc,
   collection,
@@ -435,16 +436,7 @@ export async function saveCalendar(uid, existingId, payload) {
 }
 
 export function saveEvent(calendarId, eventId, payload) {
-  const data = {
-    title: payload.title.trim(),
-    description: payload.description || '',
-    startDate: payload.startDate,
-    endDate: payload.endDate,
-    color: payload.color,
-    relatedPeopleIds: payload.relatedPeopleIds || [],
-    visibility: payload.visibility || 'viewers',
-    updatedAt: serverTimestamp()
-  };
+  const data = { ...eventDocument(payload), updatedAt: serverTimestamp() };
   if (eventId) return updateDoc(doc(db, 'lifeCalendars', calendarId, 'events', eventId), data);
   return addDoc(collection(db, 'lifeCalendars', calendarId, 'events'), { ...data, createdAt: serverTimestamp() });
 }
