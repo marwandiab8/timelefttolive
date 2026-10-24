@@ -1,5 +1,7 @@
 const { onCall, onRequest, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onDocumentWritten } = require("firebase-functions/v2/firestore");
+const { logger } = require("firebase-functions");
 const admin = require("firebase-admin");
 const {
   createSourceIngestionToken,
@@ -17,6 +19,7 @@ const {
   createJournalDetailsHandler
 } = require("./src/activityJournal");
 const { editActivityEntry, deleteActivityEntry } = require("./src/activityEntries");
+const { syncCalendarEventLifeEvents } = require("./src/calendarLifeEvents");
 
 admin.initializeApp();
 
@@ -110,4 +113,20 @@ exports.cleanupLifeEventIngestionArtifacts = onSchedule({
   timeZone: "Etc/UTC"
 }, async () => {
   await cleanupLifeEventArtifacts(admin.firestore());
+});
+
+// Main-calendar events as life events on the days they cover, so they show in the Activity dashboard's day view and in
+// the gridlineai journal's "Day at a glance" (src/calendarLifeEvents.js). Firestore triggers run where the database
+// is: this one is in nam5, the US multi-region, which means us-central1.
+exports.syncCalendarEventToLifeEvents = onDocumentWritten({
+  document: "lifeCalendars/{calendarId}/events/{eventId}",
+  region: "us-central1"
+}, async (event) => {
+  const { calendarId, eventId } = event.params;
+  const after = event.data && event.data.after && event.data.after.exists ? event.data.after.data() : null;
+  const db = admin.firestore();
+  const calendar = await db.collection("lifeCalendars").doc(calendarId).get();
+  const ownerUid = calendar.exists ? (calendar.data() || {}).ownerUid || "" : "";
+  const counts = await syncCalendarEventLifeEvents(db, { calendarId, eventId, event: after, ownerUid });
+  logger.info("Calendar event synced to life events", { calendarId, eventId, deletedEvent: !after, ...counts });
 });
