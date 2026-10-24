@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "dev:emulators": "VITE_USE_FIREBASE_EMULATORS=true VITE_FIREBASE_API_KEY=demo-key VITE_FIREBASE_AUTH_DOMAIN=demo-timelefttolive.firebaseapp.com VITE_FIREBASE_PROJECT_ID=demo-timelefttolive VITE_FIREBASE_STORAGE_BUCKET=demo-timelefttolive.appspot.com VITE_FIREBASE_MESSAGING_SENDER_ID=0 VITE_FIREBASE_APP_ID=1:0:web:demo vite --port 5174 --strictPort",
     "build:staging": "vite build --mode staging && node scripts/verify-staging-build.js",
     "preview": "vite preview",
     "backfill:external": "node scripts/backfillExternalDailyItems.js",

@@ -132,3 +132,31 @@ describe('weeks that do not start on a Sunday', () => {
     expect(isCurrentWeek(week, new Date(2026, 8, 14, 23, 59))).toBe(false);
   });
 });
+
+describe('Today in the calendar', () => {
+  const now = new Date(2026, 9, 24, 15, 30);
+
+  it('goes to this age, the month of it, the life-calendar week and the day', async () => {
+    const { getTodayCalendarView, getLifeYearsWeeks, getMonthsForLifeYear } = await import('./dateUtils.js');
+    const cell = getLifeYearsWeeks('1980-02-28', 85)[46].weeks.find((week) => now >= week.start && now <= week.end);
+    const month = getMonthsForLifeYear('1980-02-28', 46).find((item) => now >= item.rangeStart && now <= item.rangeEnd);
+    expect(getTodayCalendarView('1980-02-28', 85, 'year', now)).toEqual({ view: 'year', age: 46 });
+    expect(getTodayCalendarView('1980-02-28', 85, 'month', now)).toEqual({ view: 'month', age: 46, monthId: month.id });
+    expect(getTodayCalendarView('1980-02-28', 85, 'week', now)).toEqual({ view: 'week', age: 46, weekStart: cell.dateId, weekEnd: formatDateId(cell.end) });
+    expect(getTodayCalendarView('1980-02-28', 85, 'day', now)).toEqual({ view: 'day', age: 46, weekStart: cell.dateId, weekEnd: formatDateId(cell.end), dateId: '2026-10-24' });
+  });
+
+  it('turns the age over on the birthday, and is null outside the calendar', async () => {
+    const { getTodayCalendarView } = await import('./dateUtils.js');
+    expect(getTodayCalendarView('1980-10-25', 85, 'year', now)).toEqual({ view: 'year', age: 45 });
+    expect(getTodayCalendarView('1980-10-24', 85, 'year', now)).toEqual({ view: 'year', age: 46 });
+    expect(getTodayCalendarView('1930-01-01', 85, 'year', now)).toBeNull();
+    expect(getTodayCalendarView('2030-01-01', 85, 'year', now)).toBeNull();
+  });
+
+  it('knows when two places in the calendar are the same', async () => {
+    const { sameCalendarView } = await import('./dateUtils.js');
+    expect(sameCalendarView({ view: 'week', age: 46, weekStart: '2026-10-24', weekEnd: '2026-10-30' }, { view: 'week', age: 46, weekStart: '2026-10-24' })).toBe(true);
+    expect(sameCalendarView({ view: 'life' }, { view: 'week', age: 46, weekStart: '2026-10-24' })).toBe(false);
+  });
+});

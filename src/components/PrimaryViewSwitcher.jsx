@@ -7,7 +7,7 @@ export default function PrimaryViewSwitcher({ currentView, onActivity, onCalenda
         type="button"
         onClick={onCalendar}
       >
-        {currentView === 'activity' && <span aria-hidden="true">←</span>} Calendar
+        Calendar
       </button>
       <button
         aria-current={currentView === 'activity' ? 'page' : undefined}

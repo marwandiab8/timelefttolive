@@ -16,7 +16,7 @@ import { useAuth } from '../hooks/useAuth.jsx';
 import { acceptViewerInvite, useEvents, useOwnedCalendar, useSharedCalendar, useViewerInvites, useViewers } from '../hooks/useCalendar.js';
 import { logOut } from '../services/firebase.js';
 import { useCurrentDay } from '../hooks/useCurrentDay.js';
-import { formatDateId, getLifeStats, parseDateId, withOngoingEvents } from '../utils/dateUtils.js';
+import { formatDateId, getLifeStats, getTodayCalendarView, parseDateId, sameCalendarView, withOngoingEvents } from '../utils/dateUtils.js';
 import { getCustodyStats } from '../utils/custodyUtils.js';
 import { clampHeatmapZoom } from '../utils/heatmapViewport.js';
 import { readCalendarTheme, toggleCalendarTheme, writeCalendarTheme } from '../utils/theme.js';
@@ -58,7 +58,9 @@ export default function Dashboard() {
   const [primaryView, setPrimaryView] = useState(viewFromLocation);
   const [activityMounted, setActivityMounted] = useState(() => viewFromLocation() === 'activity');
   const [selectedWeek, setSelectedWeek] = useState(null);
-  const [calendarView, setCalendarView] = useState({ view: 'life' });
+  // The calendar's level (life, age, month, week, day) is kept in the browser's history entry, so a reload stays put.
+  const [calendarView, setCalendarView] = useState(() => window.history.state?.calendarView || { view: 'life' });
+  const scrollIntentRef = useRef(null);
   const [zoom, setZoom] = useState(readStoredZoom);
   const [fitMode, setFitMode] = useState(readStoredFitMode);
   const [calendarTheme, setCalendarTheme] = useState(readCalendarTheme);
@@ -68,7 +70,41 @@ export default function Dashboard() {
   const custodyStats = useMemo(() => calendar ? getCustodyStats(calendar, parseDateId(currentDay)) : null, [calendar, currentDay]);
   const dataError = owned.error || inviteState.error || shared.error || eventState.error || viewerState.error;
   const pendingInvite = invites.find((invite) => invite.status === 'pending');
-  const breadcrumbs = getBreadcrumbs(calendarView, setCalendarView);
+  // Moving between the calendar's levels is a step in the browser's history, so Back (the browser's, or a phone's
+  // swipe) goes up the way you came and Forward down again. Each step remembers where you were on it: the week you
+  // opened in the life calendar, the scroll position on the others. A new level opens at its top.
+  const navigateCalendar = useCallback((next, { focusWeek = null } = {}) => {
+    if (sameCalendarView(next, calendarView)) {
+      document.querySelector('.app-shell .breadcrumbs')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      return;
+    }
+    const here = window.history.state || {};
+    const week = focusWeek || calendarView.weekStart || here.focusWeek || null;
+    window.history.replaceState({ ...here, calendarView, scrollY: window.scrollY, focusWeek: week }, '');
+    window.history.pushState({ calendarView: next, focusWeek: week }, '', `${window.location.pathname}${window.location.search}`);
+    scrollIntentRef.current = next.view === 'life' ? { focusWeek: week } : { top: true };
+    setCalendarView(next);
+  }, [calendarView]);
+  const breadcrumbs = getBreadcrumbs(calendarView, navigateCalendar);
+
+  // Today goes to today at the level you're on: this week in the life calendar, else this year, month, week or day.
+  // When you're already there, it shows it.
+  function goToToday() {
+    if (calendarView.view === 'life') {
+      heatmapRef.current?.scrollToCurrentWeek();
+      return;
+    }
+    const target = getTodayCalendarView(calendar.birthDate, calendar.targetAge, calendarView.view, parseDateId(currentDay));
+    if (target && !sameCalendarView(target, calendarView)) {
+      navigateCalendar(target);
+      return;
+    }
+    document.querySelector('.app-shell .breadcrumbs')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    document.querySelectorAll('.detail-surface .today').forEach((element) => {
+      element.classList.add('pulse');
+      window.setTimeout(() => element.classList.remove('pulse'), 1400);
+    });
+  }
 
   useEffect(() => {
     if (primaryView === 'calendar') {
@@ -124,16 +160,42 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
-    function handleHistoryChange() {
+    function handleHistoryChange(event) {
       const requestedView = viewFromLocation();
       const nextView = requestedView === 'activity' && role === 'owner' ? 'activity' : 'calendar';
       viewScrollPositions.current[primaryView] = { left: window.scrollX, top: window.scrollY };
       if (nextView === 'activity') setActivityMounted(true);
       setPrimaryView(nextView);
+      // Back or Forward to another level of the calendar: show it as you left it.
+      const state = event.state || {};
+      const nextCalendarView = state.calendarView || { view: 'life' };
+      if (!sameCalendarView(nextCalendarView, calendarView)) {
+        scrollIntentRef.current = { focusWeek: nextCalendarView.view === 'life' ? state.focusWeek : null, scrollY: state.scrollY };
+        setCalendarView(nextCalendarView);
+      }
     }
     window.addEventListener('popstate', handleHistoryChange);
     return () => window.removeEventListener('popstate', handleHistoryChange);
-  }, [primaryView, role]);
+  }, [calendarView, primaryView, role]);
+
+  // After moving to a level: its top, or where you were on it (the week you opened, highlighted, in the life calendar).
+  // Tried again a moment later, as the life calendar lays itself out once it's on screen.
+  useEffect(() => {
+    const intent = scrollIntentRef.current;
+    if (!intent) return undefined;
+    scrollIntentRef.current = null;
+    const show = (announce) => {
+      if (calendarView.view === 'life' && intent.focusWeek && heatmapRef.current?.scrollToWeek(intent.focusWeek, { announce, block: 'center' })) return;
+      if (Number.isFinite(intent.scrollY)) window.scrollTo({ left: 0, top: intent.scrollY, behavior: 'auto' });
+      else document.querySelector('.app-shell .breadcrumbs')?.scrollIntoView({ block: 'start', behavior: 'auto' });
+    };
+    const frame = window.requestAnimationFrame(() => show(true));
+    const settle = window.setTimeout(() => show(false), 160);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(settle);
+    };
+  }, [calendarView]);
 
   useEffect(() => {
     if (role === 'owner' || primaryView !== 'activity') return;
@@ -243,7 +305,7 @@ export default function Dashboard() {
         </div>
         <div className="actions calendar-actions">
           {pendingInvite && <button className="secondary" type="button" onClick={() => acceptViewerInvite(pendingInvite.calendarId, pendingInvite.id, user.uid)}>Accept invite</button>}
-          <button className="secondary" type="button" onClick={() => heatmapRef.current?.scrollToCurrentWeek()}>Today</button>
+          <button className="secondary" type="button" onClick={goToToday}>Today</button>
           {role === 'owner' && <button className="primary" type="button" onClick={() => setShowEvents(true)}>Add event</button>}
           <button className="quiet-button theme-toggle" type="button" aria-pressed={calendarTheme === 'light'} onClick={toggleCalendarBackground}>
             {calendarTheme === 'dark' ? 'Light background' : 'Dark background'}
@@ -277,8 +339,8 @@ export default function Dashboard() {
           ref={heatmapRef}
           calendar={calendar}
           events={events}
-          onSelectWeek={(week) => setCalendarView({ view: 'week', age: week.age, weekStart: week.dateId, weekEnd: formatDateId(week.end) })}
-          onAgeClick={(age) => setCalendarView({ view: 'year', age })}
+          onSelectWeek={(week) => navigateCalendar({ view: 'week', age: week.age, weekStart: week.dateId, weekEnd: formatDateId(week.end) }, { focusWeek: week.dateId })}
+          onAgeClick={(age) => navigateCalendar({ view: 'year', age })}
           zoom={zoom}
           fitMode={fitMode}
           onZoomChange={updateZoom}
@@ -287,15 +349,15 @@ export default function Dashboard() {
       )}
 
       {calendarView.view === 'year' && (
-        <YearDetailView calendar={calendar} age={calendarView.age} events={events} role={role} onNavigate={setCalendarView} />
+        <YearDetailView calendar={calendar} age={calendarView.age} events={events} role={role} onNavigate={navigateCalendar} />
       )}
 
       {calendarView.view === 'month' && (
-        <MonthDetailView calendar={calendar} age={calendarView.age} monthId={calendarView.monthId} events={events} role={role} onNavigate={setCalendarView} />
+        <MonthDetailView calendar={calendar} age={calendarView.age} monthId={calendarView.monthId} events={events} role={role} onNavigate={navigateCalendar} />
       )}
 
       {calendarView.view === 'week' && (
-        <WeekDetailView calendar={calendar} age={calendarView.age} monthId={calendarView.monthId} weekStart={calendarView.weekStart} weekEnd={calendarView.weekEnd} events={events} role={role} onNavigate={setCalendarView} />
+        <WeekDetailView calendar={calendar} age={calendarView.age} monthId={calendarView.monthId} weekStart={calendarView.weekStart} weekEnd={calendarView.weekEnd} events={events} role={role} onNavigate={navigateCalendar} />
       )}
 
       {calendarView.view === 'day' && (
@@ -319,11 +381,11 @@ export default function Dashboard() {
   );
 }
 
-function getBreadcrumbs(view, setCalendarView) {
-  const items = [{ label: 'Life Overview', onClick: () => setCalendarView({ view: 'life' }) }];
-  if (view.age !== undefined) items.push({ label: `Age ${view.age}`, onClick: () => setCalendarView({ view: 'year', age: view.age }) });
-  if (view.monthId) items.push({ label: view.monthId, onClick: () => setCalendarView({ view: 'month', age: view.age, monthId: view.monthId }) });
-  if (view.weekStart) items.push({ label: `Week of ${view.weekStart}`, onClick: () => setCalendarView({ view: 'week', age: view.age, monthId: view.monthId, weekStart: view.weekStart, weekEnd: view.weekEnd }) });
+function getBreadcrumbs(view, navigate) {
+  const items = [{ label: 'Life Overview', onClick: () => navigate({ view: 'life' }) }];
+  if (view.age !== undefined) items.push({ label: `Age ${view.age}`, onClick: () => navigate({ view: 'year', age: view.age }) });
+  if (view.monthId) items.push({ label: view.monthId, onClick: () => navigate({ view: 'month', age: view.age, monthId: view.monthId }) });
+  if (view.weekStart) items.push({ label: `Week of ${view.weekStart}`, onClick: () => navigate({ view: 'week', age: view.age, monthId: view.monthId, weekStart: view.weekStart, weekEnd: view.weekEnd }) });
   if (view.dateId) items.push({ label: view.dateId, onClick: null });
   return items;
 }

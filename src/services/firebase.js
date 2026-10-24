@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import {
   GoogleAuthProvider,
+  connectAuthEmulator,
   getAuth,
   signInWithPopup,
   signInWithEmailAndPassword,
@@ -8,8 +9,8 @@ import {
   sendEmailVerification,
   signOut
 } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
+import { connectFirestoreEmulator, getFirestore } from 'firebase/firestore';
+import { connectStorageEmulator, getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -32,6 +33,13 @@ export const auth = app ? getAuth(app) : null;
 export const db = app ? getFirestore(app) : null;
 export const storage = app ? getStorage(app) : null;
 export const googleProvider = new GoogleAuthProvider();
+
+// Local checks only: `npm run dev:emulators` points the app at the Firebase emulators. Never set in a real build.
+if (app && import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true') {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  connectStorageEmulator(storage, '127.0.0.1', 9199);
+}
 
 export function signInWithGoogle() {
   return signInWithPopup(auth, googleProvider);

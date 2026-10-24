@@ -265,6 +265,32 @@ export function getLifeStats(birthDate, targetAge, now = new Date()) {
   };
 }
 
+// Where "Today" goes from a level of the calendar: this age's year, the month of it, the week of the life calendar
+// (counted from the birthday, like its cells) or the day itself. Null outside the calendar's years.
+export function getTodayCalendarView(birthDate, targetAge, level, now = new Date()) {
+  const today = toLocalDate(now);
+  const birth = toLocalDate(birthDate);
+  if (Number.isNaN(birth.getTime())) return null;
+  let age = today.getFullYear() - birth.getFullYear();
+  if (addYears(birth, age) > today) age -= 1;
+  if (age < 0 || age >= Number(targetAge)) return null;
+  if (level === 'year') return { view: 'year', age };
+  if (level === 'month') {
+    const month = getMonthsForLifeYear(birthDate, age).find((item) => today >= item.rangeStart && today <= item.rangeEnd);
+    return month ? { view: 'month', age, monthId: month.id } : { view: 'year', age };
+  }
+  const yearStart = addYears(birth, age);
+  const weekIndex = Math.min(51, Math.floor(daysBetween(yearStart, today) / 7));
+  const start = addDays(yearStart, weekIndex * 7);
+  const end = weekIndex === 51 ? addDays(addYears(birth, age + 1), -1) : addDays(start, 6);
+  const week = { view: 'week', age, weekStart: formatDateId(start), weekEnd: formatDateId(end) };
+  return level === 'week' ? week : { ...week, view: 'day', dateId: formatDateId(today) };
+}
+
+export function sameCalendarView(left, right) {
+  return ['view', 'age', 'monthId', 'weekStart', 'dateId'].every((key) => (left?.[key] ?? null) === (right?.[key] ?? null));
+}
+
 export function isCurrentWeek(week, now = new Date()) {
   const today = toLocalDate(now);
   return today >= week.start && today <= week.end;
