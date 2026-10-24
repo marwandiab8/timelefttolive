@@ -224,6 +224,14 @@ export function eventIntersectsMonth(event, monthStart, monthEnd) {
   return eventStart <= toLocalDate(monthEnd) && eventEnd >= toLocalDate(monthStart);
 }
 
+// An ongoing event is carried every day until it is stopped, so wherever events are shown it runs through today
+// (from its start, if it starts later).
+export function withOngoingEvents(events, todayId) {
+  return (Array.isArray(events) ? events : []).map((event) => (event?.ongoing
+    ? { ...event, endDate: event.startDate && event.startDate > todayId ? event.startDate : todayId }
+    : event));
+}
+
 export function getEventsForDate(events, dateId) {
   return events.filter((event) => eventIntersectsDate(event, dateId));
 }

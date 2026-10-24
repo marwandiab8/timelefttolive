@@ -12,7 +12,7 @@ A private life-calendar and mortality-awareness dashboard. Users sign in, create
 - Date-range events with visibility and overlap indicators.
 - Viewer invites with read-only access for accepted viewers.
 - Firestore and Storage rules for owner/viewer permissions.
-- Owner-only **Activity dashboard** (`#activity`): a day/week/month/year "life wheel", chronological timeline, all-time totals, work attendance, workout summaries, journal notes and photos, all derived from ingested life events. Entries can be edited or deleted. Main-calendar events show there too, all day, on the days they cover (every day for an event up to a month long, the first and last day of a longer one).
+- Owner-only **Activity dashboard** (`#activity`): a day/week/month/year "life wheel", chronological timeline, all-time totals, work attendance, workout summaries, journal notes and photos, all derived from ingested life events. Entries can be edited or deleted. Main-calendar events show there too, all day, on the days they cover (every day for an event up to a month long, the first and last day of a longer one unless it is set to show every day). An ongoing event ("carry it every day until I stop it") has no end date yet and shows on every day through today; stopping it keeps those days.
 - Life-event ingestion API (`POST /api/v1/life-events` and `:batch`) that other apps (aigridline/GridlineAI, GYM-K2, Darts tracker, MyDoubleProgress, Apple Shortcuts via aigridline) write to with per-connection bearer tokens.
 
 ## Firebase Setup
@@ -163,6 +163,7 @@ All functions live in `functions/` and run in `northamerica-northeast1`, except 
 | `getActivityJournalDetails`, `getActivityMedia` | `POST /api/activity/journal-details`, `GET /api/activity/media` (Firebase ID token as bearer) | Read journal text and photos for the Activity dashboard from the separate `gridlineai` Firebase project (hardcoded in `functions/index.js`) using a second Admin app. |
 | `cleanupLifeEventIngestionArtifacts` | scheduled, every 24h | Deletes expired raw-payload audit records and dead letters. |
 | `syncCalendarEventToLifeEvents` | Firestore trigger on `lifeCalendars/{calendarId}/events/{eventId}` | Keeps a date-only `calendar_event` life event on each day a main-calendar event covers (`functions/src/calendarLifeEvents.js`), so the event shows in the Activity dashboard's day view and in the gridlineai journal's "Day at a glance". A day deleted or edited in the dashboard stays that way. |
+| `carryOngoingCalendarEvents` | scheduled, daily at 00:05 Toronto time | Adds the new day to every ongoing main-calendar event. |
 
 The dashboard and the four activity functions are documented in [docs/activity-dashboard.md](docs/activity-dashboard.md). The ingestion design and contract are in [docs/timelefttolive-life-event-platform.md](docs/timelefttolive-life-event-platform.md) and [docs/timelefttolive-life-event-ingestion-phase-1-handoff.md](docs/timelefttolive-life-event-ingestion-phase-1-handoff.md). Those two describe phase 1 only.
 
