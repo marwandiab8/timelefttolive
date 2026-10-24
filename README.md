@@ -62,6 +62,8 @@ npm ci
 npm run dev
 ```
 
+To click through the app without touching real data, start the Auth, Firestore and Storage emulators for `demo-timelefttolive`, create a user and a calendar in them, and run `npm run dev:emulators` (port 5174). It points the app at the emulators with demo settings; a real build never does.
+
 ## Build
 
 ```bash

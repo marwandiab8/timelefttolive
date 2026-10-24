@@ -74,10 +74,14 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
   // Changes at midnight, so which week is current stays right in a tab left open overnight.
   const today = parseDateId(useCurrentDay());
 
-  const scrollToCurrentWeek = useCallback(({ announce = true, block = 'center' } = {}) => {
-    const current = rowsWithEvents.flatMap((row) => row.weeks).find((week) => isCurrentWeek(week));
-    const element = current && cellRefs.current.get(current.dateId);
-    if (!element) return;
+  // Bring one week's cell to the middle of the screen (and pulse it, unless announce is false): this week, or the
+  // week containing a given day, such as the week you just came back from.
+  const scrollToWeek = useCallback((dateId, { announce = true, block = 'center' } = {}) => {
+    const day = dateId ? parseDateId(dateId) : null;
+    const weeks = rowsWithEvents.flatMap((row) => row.weeks);
+    const target = day ? weeks.find((week) => day >= week.start && day <= week.end) : weeks.find((week) => isCurrentWeek(week));
+    const element = target && cellRefs.current.get(target.dateId);
+    if (!element) return false;
     element.scrollIntoView({
       behavior: isReducedMotionPreferred() ? 'auto' : 'smooth',
       block,
@@ -87,7 +91,9 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
       element.classList.add('pulse');
       window.setTimeout(() => element.classList.remove('pulse'), 1400);
     }
+    return true;
   }, [rowsWithEvents]);
+  const scrollToCurrentWeek = useCallback((options) => scrollToWeek(null, options), [scrollToWeek]);
 
   const captureAnchor = useCallback((clientPoint = {}) => {
     const viewport = scrollRef.current;
@@ -234,10 +240,11 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
       requestZoom(HEATMAP_RESET_ZOOM);
     },
     scrollToCurrentWeek,
+    scrollToWeek,
     zoomBy(direction) {
       requestZoom(stepHeatmapZoom(zoom, direction));
     }
-  }), [activateFit, requestZoom, scrollToCurrentWeek, zoom]);
+  }), [activateFit, requestZoom, scrollToCurrentWeek, scrollToWeek, zoom]);
 
   function handlePointerDown(event) {
     if (event.pointerType !== 'touch') return;
