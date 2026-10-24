@@ -1,5 +1,7 @@
 const { onCall, onRequest, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onDocumentWritten } = require("firebase-functions/v2/firestore");
+const { logger } = require("firebase-functions");
 const admin = require("firebase-admin");
 const {
   createSourceIngestionToken,
@@ -17,6 +19,7 @@ const {
   createJournalDetailsHandler
 } = require("./src/activityJournal");
 const { editActivityEntry, deleteActivityEntry } = require("./src/activityEntries");
+const { syncCalendarEventLifeEvents, carryOngoingCalendarEvents } = require("./src/calendarLifeEvents");
 
 admin.initializeApp();
 
@@ -110,4 +113,36 @@ exports.cleanupLifeEventIngestionArtifacts = onSchedule({
   timeZone: "Etc/UTC"
 }, async () => {
   await cleanupLifeEventArtifacts(admin.firestore());
+});
+
+// Main-calendar events as life events on the days they cover, so they show in the Activity dashboard's day view and in
+// the gridlineai journal's "Day at a glance" (src/calendarLifeEvents.js). Firestore triggers run where the database
+// is: this one is in nam5, the US multi-region, which means us-central1. It reads the event again rather than using
+// the change, so a quick run of edits ends on the latest one; an ongoing event can mean thousands of days.
+exports.syncCalendarEventToLifeEvents = onDocumentWritten({
+  document: "lifeCalendars/{calendarId}/events/{eventId}",
+  region: "us-central1",
+  timeoutSeconds: 300,
+  memory: "512MiB"
+}, async (event) => {
+  const { calendarId, eventId } = event.params;
+  const db = admin.firestore();
+  const calendarRef = db.collection("lifeCalendars").doc(calendarId);
+  const [calendar, current] = await Promise.all([calendarRef.get(), calendarRef.collection("events").doc(eventId).get()]);
+  const ownerUid = calendar.exists ? (calendar.data() || {}).ownerUid || "" : "";
+  const after = current.exists ? current.data() : null;
+  const counts = await syncCalendarEventLifeEvents(db, { calendarId, eventId, event: after, ownerUid });
+  logger.info("Calendar event synced to life events", { calendarId, eventId, deletedEvent: !after, ...counts });
+});
+
+// Ongoing main-calendar events are carried every day until they're stopped: just after midnight, add the new day.
+exports.carryOngoingCalendarEvents = onSchedule({
+  schedule: "5 0 * * *",
+  timeZone: "America/Toronto",
+  region,
+  timeoutSeconds: 300,
+  memory: "512MiB"
+}, async () => {
+  const totals = await carryOngoingCalendarEvents(admin.firestore());
+  logger.info("Ongoing calendar events carried to today", totals);
 });

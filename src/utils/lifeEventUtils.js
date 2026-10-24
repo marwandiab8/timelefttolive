@@ -23,6 +23,7 @@ const POINT_CATEGORY_DEFINITIONS = {
   Journal: { color: '#9a88d4', icon: '✎' },
   'Work Reports': { color: CATEGORY_DEFINITIONS.Work.color, icon: '▤' },
   Achievements: { color: '#efb84e', icon: '★' },
+  Calendar: { color: '#e0565b', icon: '📅' },
   Moments: { color: '#8b98a1', icon: '•' }
 };
 
@@ -194,6 +195,7 @@ function timestampOnDate(value, dateId, timeZone) {
 // user-facing clock time. When the source resolver supplies a real occurrence,
 // sent, or received timestamp on that same local day, use it in that order.
 export function getActivityDisplayTime(event, timeZone = APP_TIMEZONE) {
+  if (isCalendarEvent(event)) return null; // a main-calendar day is all day: never show a clock time for it
   const dateId = eventDateOnlyId(event);
   if (event?._journal && !toJsDate(event._journal.occurredAt) && event._journal.dateId) {
     return timestampOnDate(getEventSentTime(event), dateId, timeZone)
@@ -317,7 +319,13 @@ function placeActivityDefinition(label) {
   };
 }
 
+// A main-calendar event's day (functions/src/calendarLifeEvents.js): date-only, all day, managed in the main calendar.
+export function isCalendarEvent(event) {
+  return cleanToken(event?.eventType) === 'calendar_event';
+}
+
 export function getTallyActivityLabel(event) {
+  if (isCalendarEvent(event)) return 'Calendar';
   const placeActivity = placeActivityCategory(event);
   if (placeActivity) return placeActivity;
   const eventType = cleanToken(event?.eventType);
@@ -372,6 +380,7 @@ export function getPointCategoryLabel(event) {
   if (category === 'Work Reports') return 'Work Reports';
   if (category === 'Achievements') return 'Achievements';
   if (category === 'Attachments') return 'Attachments';
+  if (category === 'Calendar') return 'Calendar';
   if (['Work', 'Gym/Fitness', 'Sleep', 'Home', 'Transportation', 'Meals', 'Places', 'Reading'].includes(category)) return category;
   return 'Moments';
 }
@@ -1479,6 +1488,7 @@ export function buildChronologicalActivityTimeline(analysis, timeZone = APP_TIME
       endAt: null,
       dateId: group.dateId || getDateIdInTimezone(getEventTime(event), timeZone) || 'unknown',
       timeRecorded: Boolean(group.firstAt),
+      allDay: group.pointCategory === 'Calendar',
       durationSeconds: null,
       count: group.count,
       details: group.details || getMeaningfulEventDetails(event),

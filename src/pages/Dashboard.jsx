@@ -16,7 +16,7 @@ import { useAuth } from '../hooks/useAuth.jsx';
 import { acceptViewerInvite, useEvents, useOwnedCalendar, useSharedCalendar, useViewerInvites, useViewers } from '../hooks/useCalendar.js';
 import { logOut } from '../services/firebase.js';
 import { useCurrentDay } from '../hooks/useCurrentDay.js';
-import { formatDateId, getLifeStats, parseDateId } from '../utils/dateUtils.js';
+import { formatDateId, getLifeStats, parseDateId, withOngoingEvents } from '../utils/dateUtils.js';
 import { getCustodyStats } from '../utils/custodyUtils.js';
 import { clampHeatmapZoom } from '../utils/heatmapViewport.js';
 import { readCalendarTheme, toggleCalendarTheme, writeCalendarTheme } from '../utils/theme.js';
@@ -46,8 +46,10 @@ export default function Dashboard() {
   const loading = owned.loading || Boolean(!owned.calendar && acceptedInvite && !shared.calendar);
   const role = owned.calendar ? owned.role : 'viewer';
   const eventState = useEvents(calendar?.id, role);
+  // Recomputed at midnight, so the summary is right in a tab left open overnight, and an ongoing event reaches today.
+  const currentDay = useCurrentDay();
   const viewerState = useViewers(role === 'owner' ? calendar?.id : null);
-  const events = eventState.events;
+  const events = useMemo(() => withOngoingEvents(eventState.events, currentDay), [eventState.events, currentDay]);
   const viewers = viewerState.viewers;
   const [editingProfile, setEditingProfile] = useState(false);
   const [showEvents, setShowEvents] = useState(false);
@@ -62,8 +64,6 @@ export default function Dashboard() {
   const [calendarTheme, setCalendarTheme] = useState(readCalendarTheme);
   const heatmapRef = useRef(null);
   const viewScrollPositions = useRef({ activity: { left: 0, top: 0 }, calendar: { left: 0, top: 0 } });
-  // Recomputed at midnight, so the summary is right in a tab left open overnight.
-  const currentDay = useCurrentDay();
   const stats = useMemo(() => calendar ? getLifeStats(calendar.birthDate, calendar.targetAge, parseDateId(currentDay)) : null, [calendar, currentDay]);
   const custodyStats = useMemo(() => calendar ? getCustodyStats(calendar, parseDateId(currentDay)) : null, [calendar, currentDay]);
   const dataError = owned.error || inviteState.error || shared.error || eventState.error || viewerState.error;

@@ -1,5 +1,11 @@
 # To finish later
 
+## Deployed (2026-10-24)
+
+Production has the new `syncCalendarEventToLifeEvents` trigger (us-central1, given the same 30-day image cleanup policy as northamerica-northeast1) and hosting from `feat/calendar-daily-events`: main-calendar events as all-day Calendar entries in the Activity dashboard. The 12 existing events were added with `npm run sync:calendar-life-events -- --project=timelefttolive --apply` (27 day entries), and a test event confirmed the trigger adds and removes them live. The other functions were not redeployed; they don't need this change. Staging has neither yet.
+
+Later the same day: ongoing events (fbbe19d). Production has the updated trigger, the new `carryOngoingCalendarEvents` (daily at 00:05 Toronto) and the hosting. "With Ashley" was set ongoing: 2,017 daily entries from 2021-04-17 to 2026-10-24, one more each night.
+
 ## Deployed (2026-09-19)
 
 Production (`timelefttolive`) has the functions, hosting, Firestore rules and indexes, and Storage rules from commit `b86b7dc`. Not yet checked with a signed-in browser: the email verification flow and paired-session edit and delete.

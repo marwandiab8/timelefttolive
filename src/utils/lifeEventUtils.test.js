@@ -1166,3 +1166,32 @@ describe('activity analysis utilities', () => {
     expect(toggleActivitySelection('Gym/Fitness', 'Gym/Fitness')).toBeNull();
   });
 });
+
+describe('main-calendar days', () => {
+  const calendarDay = (overrides = {}) => ({
+    id: 'cal-day', sourceApp: 'timelefttolive', sourceRecordId: 'calendar:ev1:2026-08-18', eventType: 'calendar_event', eventClass: 'project',
+    activityFamily: 'calendar', categoryId: 'calendar', title: 'Work trip — day 2 of 3', occurredAt: '2026-08-18T04:00:00Z',
+    receivedAt: '2026-08-18T15:30:00Z', metadata: { dateOnly: true, dateId: '2026-08-18', calendarEventId: 'ev1', note: 'Client visit' },
+    ...overrides
+  });
+
+  it('are their own Calendar category whatever the title says, and never show a clock time', () => {
+    expect(getTallyActivityLabel(calendarDay())).toBe('Calendar');
+    expect(getTallyActivityLabel(calendarDay({ title: 'Home renovation' }))).toBe('Calendar');
+    expect(getActivityDisplayTime(calendarDay())).toBeNull();
+    expect(getMeaningfulEventDetails(calendarDay()).note).toBe('Client visit');
+  });
+
+  it('show on their day as an all-day Calendar moment, beside the timed activities', () => {
+    const bounds = getPeriodBounds('day', '2026-08-18');
+    const analysis = buildPeriodAnalysis([
+      calendarDay(),
+      { id: 'timed', sourceRecordId: 'spotify/timed', eventType: 'start_spotify', occurredAt: '2026-08-18T11:00:00Z' }
+    ], bounds);
+    const timeline = buildChronologicalActivityTimeline(analysis, APP_TIMEZONE);
+    const entry = timeline.entries.find((candidate) => candidate.event.id === 'cal-day');
+    expect(entry).toMatchObject({ type: 'moment', pointCategory: 'Calendar', allDay: true, at: null, dateId: '2026-08-18', title: 'Work trip — day 2 of 3', icon: '📅' });
+    expect(timeline.groups.map((group) => group.dateId)).toEqual(['2026-08-18']);
+    expect(timeline.entries.find((candidate) => candidate.event.id === 'timed').allDay).toBe(false);
+  });
+});

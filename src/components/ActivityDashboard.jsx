@@ -683,11 +683,13 @@ function timelineDateLabel(dateId) {
   return day ? dateFormatter.format(day.start) : 'Date unavailable';
 }
 
-function TimelineEntryList({ entries, onSelect, onEdit, onDelete }) {
-  const timed = entries.filter((entry) => entry.timeRecorded);
-  const untimed = entries.filter((entry) => !entry.timeRecorded);
+export function TimelineEntryList({ entries, onSelect, onEdit, onDelete }) {
+  const allDay = entries.filter((entry) => entry.allDay);
+  const timed = entries.filter((entry) => !entry.allDay && entry.timeRecorded);
+  const untimed = entries.filter((entry) => !entry.allDay && !entry.timeRecorded);
   return (
     <ol className="cycle-linear-timeline">
+      {allDay.map((entry) => <TimelineEntry entry={entry} key={entry.id} onSelect={onSelect} onEdit={onEdit} onDelete={onDelete} />)}
       {timed.map((entry) => <TimelineEntry entry={entry} key={entry.id} onSelect={onSelect} onEdit={onEdit} onDelete={onDelete} />)}
       {untimed.length > 0 && <li className="cycle-time-unrecorded"><span>Time not recorded</span></li>}
       {untimed.map((entry) => <TimelineEntry entry={entry} key={entry.id} onSelect={onSelect} onEdit={onEdit} onDelete={onDelete} />)}
@@ -707,7 +709,8 @@ function TimelineEntry({ entry, onSelect, onEdit, onDelete }) {
   const title = details.track || entry.title;
   const canonicalEvent = entry.type === 'session' ? (entry.startEvent || entry.session?.event) : entry.event;
   const linkedEvent = entry.type === 'session' ? entry.endEvent : null;
-  const managed = canonicalEvent?.id ? {
+  // A main-calendar day is changed in the main calendar, so it has no Edit or Delete here.
+  const managed = canonicalEvent?.id && !entry.allDay ? {
     eventId: canonicalEvent.id,
     linkedEventId: linkedEvent?.id || '',
     event: { ...canonicalEvent, startAt: canonicalEvent.startAt || entry.at, endAt: canonicalEvent.endAt || entry.endAt },
@@ -717,14 +720,16 @@ function TimelineEntry({ entry, onSelect, onEdit, onDelete }) {
   return (
     <li className={`${entry.type} ${entry.nested ? 'nested' : ''}`} style={{ '--timeline-color': entry.color }}>
       <span className="cycle-timeline-marker" aria-hidden="true">{entry.icon}</span>
-      <time dateTime={entry.at?.toISOString()}>{entry.at ? clockFormatter.format(entry.at) : 'No time'}</time>
+      <time dateTime={entry.at?.toISOString()}>{entry.at ? clockFormatter.format(entry.at) : entry.allDay ? 'All day' : 'No time'}</time>
       <article>
         <button type="button" onClick={() => onSelect(selection)} aria-label={`Open ${selection} activity: ${title}`}>
           <div>
             <strong>{title}</strong>
             {secondary && <p>{secondary}</p>}
             {entry.type === 'session' && <small>{timelineSessionRange(entry)}</small>}
-            {entry.type === 'moment' && <small>{entry.sourceApp || 'Moment'}{entry.sentAt && ` · Source sent ${clockFormatter.format(entry.sentAt)}`}</small>}
+            {entry.type === 'moment' && (entry.allDay
+              ? <small>Main calendar</small>
+              : <small>{entry.sourceApp || 'Moment'}{entry.sentAt && ` · Source sent ${clockFormatter.format(entry.sentAt)}`}</small>)}
           </div>
           {entry.type === 'session' ? (
             <b className={entry.active ? 'active' : entry.incomplete ? 'incomplete' : ''}>

@@ -12,7 +12,7 @@ A private life-calendar and mortality-awareness dashboard. Users sign in, create
 - Date-range events with visibility and overlap indicators.
 - Viewer invites with read-only access for accepted viewers.
 - Firestore and Storage rules for owner/viewer permissions.
-- Owner-only **Activity dashboard** (`#activity`): a day/week/month/year "life wheel", chronological timeline, all-time totals, work attendance, workout summaries, journal notes and photos, all derived from ingested life events. Entries can be edited or deleted.
+- Owner-only **Activity dashboard** (`#activity`): a day/week/month/year "life wheel", chronological timeline, all-time totals, work attendance, workout summaries, journal notes and photos, all derived from ingested life events. Entries can be edited or deleted. Main-calendar events show there too, all day, on the days they cover (every day for an event up to a month long, the first and last day of a longer one unless it is set to show every day). An ongoing event ("carry it every day until I stop it") has no end date yet and shows on every day through today; stopping it keeps those days.
 - Life-event ingestion API (`POST /api/v1/life-events` and `:batch`) that other apps (aigridline/GridlineAI, GYM-K2, Darts tracker, MyDoubleProgress, Apple Shortcuts via aigridline) write to with per-connection bearer tokens.
 
 ## Firebase Setup
@@ -152,7 +152,7 @@ Owners can manage source app connections from **External sources**. Day detail g
 
 ## Cloud Functions
 
-All functions live in `functions/` and run in `northamerica-northeast1`.
+All functions live in `functions/` and run in `northamerica-northeast1`, except the Firestore trigger, which runs in `us-central1` because the database is in `nam5`.
 
 | Function | Route / trigger | Purpose |
 | --- | --- | --- |
@@ -162,6 +162,8 @@ All functions live in `functions/` and run in `northamerica-northeast1`.
 | `editActivityEntry`, `deleteActivityEntry` | callable | Owner-only edit and delete of a life event. Deletes write a tombstone so re-ingestion does not bring the entry back. |
 | `getActivityJournalDetails`, `getActivityMedia` | `POST /api/activity/journal-details`, `GET /api/activity/media` (Firebase ID token as bearer) | Read journal text and photos for the Activity dashboard from the separate `gridlineai` Firebase project (hardcoded in `functions/index.js`) using a second Admin app. |
 | `cleanupLifeEventIngestionArtifacts` | scheduled, every 24h | Deletes expired raw-payload audit records and dead letters. |
+| `syncCalendarEventToLifeEvents` | Firestore trigger on `lifeCalendars/{calendarId}/events/{eventId}` | Keeps a date-only `calendar_event` life event on each day a main-calendar event covers (`functions/src/calendarLifeEvents.js`), so the event shows in the Activity dashboard's day view and in the gridlineai journal's "Day at a glance". A day deleted or edited in the dashboard stays that way. |
+| `carryOngoingCalendarEvents` | scheduled, daily at 00:05 Toronto time | Adds the new day to every ongoing main-calendar event. |
 
 The dashboard and the four activity functions are documented in [docs/activity-dashboard.md](docs/activity-dashboard.md). The ingestion design and contract are in [docs/timelefttolive-life-event-platform.md](docs/timelefttolive-life-event-platform.md) and [docs/timelefttolive-life-event-ingestion-phase-1-handoff.md](docs/timelefttolive-life-event-ingestion-phase-1-handoff.md). Those two describe phase 1 only.
 
@@ -172,6 +174,7 @@ The Admin-SDK scripts need Application Default Credentials and an explicit `--pr
 - `npm run backfill:external` only maps a JSON file of records and prints the result; it never writes (see [docs/external-daily-links.md](docs/external-daily-links.md)).
 - `npm run backfill:life-events -- --project=ID [--calendar-id=ID]` backfills legacy external items into canonical `lifeEvents`. It is a dry run unless `--apply` is passed.
 - `npm run enrich:gridline-journals -- --project=ID` enriches journal life events from their legacy records. It is a dry run unless `--apply` is passed, and `--apply` also requires `--confirm-project=ID`.
+- `npm run sync:calendar-life-events -- --project=ID [--calendar-id=ID]` brings every main-calendar event's life events in line, as the trigger does on each write, and removes ones whose event is gone. It is a dry run unless `--apply` is passed.
 - `npm run staging:fixture:create`, `staging:fixture:cleanup` and `staging:smoke-test` only run against the staging project.
 
 ## Notes
