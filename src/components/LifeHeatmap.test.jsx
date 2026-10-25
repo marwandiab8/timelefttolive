@@ -9,7 +9,6 @@ const calendar = {
     pastColor: '#46505c',
     currentWeekColor: '#f4c542',
     futureColor: '#17222c',
-    weekendColor: '#65d6ad',
     defaultEventColor: '#7c9cff'
   }
 };

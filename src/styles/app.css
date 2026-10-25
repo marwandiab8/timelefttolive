@@ -523,11 +523,6 @@ legend {
   background: conic-gradient(from 0deg, #7c9cff 0% 33.3%, #f4a261 33.3% 66.7%, #65d6ad 66.7% 100%);
 }
 
-.swatch-weekend {
-  height: 2px !important;
-  background: var(--life-weekend, #65d6ad);
-}
-
 .legend span {
   display: inline-flex;
   align-items: center;
@@ -688,27 +683,6 @@ legend {
   color: #111;
   font-size: 0.55rem;
   font-weight: 900;
-}
-
-.weekend-strip {
-  position: absolute;
-  left: 20%;
-  right: 20%;
-  bottom: 7px;
-  display: none;
-  grid-template-columns: 1fr 1fr;
-  gap: 2px;
-}
-
-.heatmap-detailed .weekend-strip {
-  display: grid;
-}
-
-.weekend-strip i {
-  height: 2px;
-  background: var(--weekend-color);
-  border-radius: 2px;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
 }
 
 .zoom-toolbar,
