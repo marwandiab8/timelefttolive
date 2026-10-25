@@ -340,6 +340,8 @@ export function getTallyActivityLabel(event) {
   if (/(journal|note|memo|reflection)/.test(combined)) return 'Notes';
   if (/(image|file|attachment|media|photo|picture)/.test(combined)) return 'Attachments';
   if (/(achievement|milestone|personal_?best|darts?_?record|darter_?record)/.test(combined)) return 'Achievements';
+  // Darts games carry the opponent's name in the title, which must not decide the category ("vs Carlos" is not a car).
+  if (cleanToken(event?.activityFamily) === 'darts') return 'Darts';
   if (/(workout|gym|fitness)/.test(combined) || /(goodlife|fitness|gym)/.test(locationToken)) return 'Gym/Fitness';
   if (/(sleep|bedtime|asleep|wake|wakeup)/.test(combined)) return 'Sleep';
   if (/(drive|driving|transport|travel|commute|trip|vehicle|car)/.test(combined)) return 'Transportation';

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '../hooks/useAuth.jsx';
 import {
   createSourceConnection,
+  createSourceIngestionToken,
   deleteSourceConnection,
   updateSourceConnectionStatus,
   useSourceConnections
@@ -20,6 +21,38 @@ export default function ExternalSourcesManager({ calendarId, onClose }) {
     status: 'active'
   });
   const [saving, setSaving] = useState('');
+  // The settings a source app needs to send life events, shown once right after a token is created.
+  const [issued, setIssued] = useState(null);
+  const [tokenMessage, setTokenMessage] = useState('');
+
+  async function handleCreateToken(connection) {
+    if (connection.tokenLastFour && !window.confirm(`Replace the ${connection.sourceApp} token? The current one stops working, so whatever uses it must be given the new one.`)) return;
+    setTokenMessage('Creating token...');
+    setIssued(null);
+    try {
+      const data = await createSourceIngestionToken(calendarId, connection.id);
+      const settings = {
+        endpoint: `${window.location.origin}/api/v1/life-events`,
+        calendarId,
+        connectionId: connection.id,
+        integrationId: data.integrationId,
+        token: data.token
+      };
+      setIssued({ connectionId: connection.id, sourceApp: connection.sourceApp, text: JSON.stringify(settings, null, 2) });
+      setTokenMessage('');
+    } catch (err) {
+      setTokenMessage(err.message);
+    }
+  }
+
+  async function copyIssued() {
+    try {
+      await navigator.clipboard.writeText(issued.text);
+      setTokenMessage('Copied.');
+    } catch {
+      setTokenMessage('Copy failed. Select the text and copy it by hand.');
+    }
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -67,6 +100,17 @@ export default function ExternalSourcesManager({ calendarId, onClose }) {
         </form>
 
         {error && <p className="error">{error}</p>}
+        {tokenMessage && <p className="muted">{tokenMessage}</p>}
+        {issued && (
+          <div className="token-box">
+            <p><strong>{issued.sourceApp} connection settings</strong>. The token is shown only this once. Paste these where the source app keeps its settings (DartConnect Inbox: the script property <code>TIME_LEFT_CONNECTION</code>).</p>
+            <textarea readOnly rows={8} value={issued.text} onFocus={(event) => event.target.select()} />
+            <div className="token-box-actions">
+              <button className="ghost" type="button" onClick={copyIssued}>Copy</button>
+              <button className="ghost" type="button" onClick={() => { setIssued(null); setTokenMessage(''); }}>Done</button>
+            </div>
+          </div>
+        )}
         <div className="list">
           {connections.length === 0 && <p className="muted">No linked sources yet.</p>}
           {connections.map((connection) => (
@@ -75,7 +119,11 @@ export default function ExternalSourcesManager({ calendarId, onClose }) {
                 <strong>{connection.sourceApp}</strong>
                 <p>{connection.sourceFirebaseProjectId || 'No project ID'} · {connection.status}</p>
                 <p className="muted">{(connection.sourceProjectIds || []).join(', ') || 'All projects'}</p>
+                <p className="muted">{connection.tokenLastFour && connection.tokenStatus !== 'revoked' ? `Token ending ${connection.tokenLastFour}` : 'No token'}</p>
               </div>
+              <button className="ghost" type="button" onClick={() => handleCreateToken(connection)}>
+                {connection.tokenLastFour ? 'Replace token' : 'Create token'}
+              </button>
               <button className="ghost" type="button" onClick={() => updateSourceConnectionStatus(calendarId, connection.id, connection.status === 'active' ? 'paused' : 'active')}>
                 {connection.status === 'active' ? 'Pause' : 'Activate'}
               </button>

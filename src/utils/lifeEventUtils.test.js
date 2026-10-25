@@ -645,6 +645,12 @@ describe('activity analysis utilities', () => {
     expect(getTallyActivityLabel({ activityFamily: raw })).toBe(expected);
   });
 
+  it('files darts games under Darts whatever the title says', () => {
+    expect(getTallyActivityLabel({ eventType: 'completed_darts_match', activityFamily: 'darts', title: 'Won 3–2 vs Carlos on DartConnect (501, avg 51.27)' })).toBe('Darts');
+    expect(getTallyActivityLabel({ eventType: 'darts_practice', activityFamily: 'darts', title: 'Darts practice summary' })).toBe('Darts');
+    expect(getTallyActivityLabel({ eventType: 'dartsRecord', activityFamily: 'darts' })).toBe('Achievements');
+  });
+
   it('normalizes aliases and case variants while retaining future meaningful categories', () => {
     expect(getTallyActivityLabel({ eventType: 'COMPLETED_WORKOUT' })).toBe('Gym/Fitness');
     expect(getTallyActivityLabel({ eventType: 'arrive_work' })).toBe('Work');

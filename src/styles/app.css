@@ -1130,6 +1130,25 @@ legend {
   margin: 4px 0 0;
 }
 
+.token-box {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+}
+
+.token-box textarea {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+.token-box-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 .day-card {
   padding: 16px;
 }

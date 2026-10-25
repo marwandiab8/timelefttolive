@@ -8,8 +8,11 @@ import {
   serverTimestamp,
   updateDoc
 } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { useEffect, useState } from 'react';
-import { db } from '../firebase.js';
+import { app, db } from '../firebase.js';
+
+const functions = app ? getFunctions(app, 'northamerica-northeast1') : null;
 
 export function useSourceConnections(calendarId) {
   const [connections, setConnections] = useState([]);
@@ -50,4 +53,12 @@ export function updateSourceConnectionStatus(calendarId, connectionId, status) {
 
 export function deleteSourceConnection(calendarId, connectionId) {
   return deleteDoc(doc(db, 'lifeCalendars', calendarId, 'sourceConnections', connectionId));
+}
+
+// Issues the connection's ingestion token. A new token replaces the old one, which stops working, and this
+// response is the only place the token is ever shown.
+export async function createSourceIngestionToken(calendarId, connectionId) {
+  if (!functions) throw new Error('Tokens are unavailable until Firebase is configured.');
+  const { data } = await httpsCallable(functions, 'createSourceIngestionToken')({ calendarId, connectionId });
+  return data;
 }

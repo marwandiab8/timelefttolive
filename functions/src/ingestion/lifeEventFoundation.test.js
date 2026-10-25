@@ -2200,3 +2200,35 @@ test("a darts event can be re-sent with more detail, even across the old and new
   assert.equal(eventDocs[0][1].metrics.darts, 45);
   assert.equal(eventDocs[0][1].revisionCount, 1);
 });
+
+test("a DartConnect match can be re-sent with a better summary", async () => {
+  const db = new FakeFirestore();
+  const token = "t-dartconnect-revise";
+  await setupAuthorized(db, token);
+  const base = {
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "6add36cebd32629b2fc5a03f",
+    eventType: "completed_darts_match",
+    activityFamily: "darts",
+    startAt: "2026-10-24T18:46:00",
+    endAt: "2026-10-24T19:17:00",
+    timezone: "America/Toronto",
+    title: "Won 3–2 vs Paul Fishhook on DartConnect (501, avg 51.27)"
+  };
+  await ingestLifeEventSingle(db, makeReq(base, token), makeRes());
+  const second = makeRes();
+  await ingestLifeEventSingle(db, makeReq({ ...base, metrics: { legsWon: 3, legsLost: 2 } }, token), second);
+  assert.equal(second.statusCode, 200);
+  assert.equal(second.payload.duplicate, false);
+  const eventDocs = [...db._store.entries()].filter(([key]) => key.includes("/lifeEvents/"));
+  assert.equal(eventDocs.length, 1);
+  assert.equal(eventDocs[0][1].eventClass, "completed_activity");
+  assert.equal(eventDocs[0][1].durationSeconds, 31 * 60);
+  assert.equal(eventDocs[0][1].metrics.legsWon, 3);
+  assert.equal(eventDocs[0][1].revisionCount, 1);
+});

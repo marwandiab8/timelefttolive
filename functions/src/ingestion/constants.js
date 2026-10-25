@@ -4,6 +4,7 @@ const SOURCE_APPS = [
   "aigridline",
   "MyDoubleProgress",
   "DartstRacker2026",
+  "DartConnect",
   "manual"
 ];
 
