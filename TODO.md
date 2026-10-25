@@ -1,5 +1,9 @@
 # To finish later
 
+## Deployed (2026-10-25)
+
+Every function and hosting deployed to production from `feat/dartconnect-source` at `8f9dd7d` (`main` at `f159521` plus that commit), so merge that branch to bring `main` level with production. It adds DartConnect as a source app, **Create token** / **Replace token** in Linked Sources, darts always counting as Darts, and `completed_darts_match` revisions. Checked after the deploy: the served bundle is the new build and `/api/v1/life-events` answers 401 without a token. DartConnect matches arrive from the DartConnect Inbox Apps Script (`~/Documents/dartconnect-inbox`) once its connection token is set up (its README).
+
 ## Deployed (2026-10-24)
 
 Merged (#2, #3) and deployed from `main` at `dceb30c`: every function (the two calendar ones were already current) and hosting, so production matches `main`. Firestore rules are unchanged since `81a9190`, and the two `expiresAt` index overrides added later are already in production.
