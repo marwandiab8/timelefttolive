@@ -396,7 +396,6 @@ function calendarColorVariables(settings = {}) {
   return {
     '--life-past': settings.pastColor || '#46505c',
     '--life-now': settings.currentWeekColor || '#f4c542',
-    '--life-future': settings.futureColor || '#17222c',
-    '--life-weekend': settings.weekendColor || '#65d6ad'
+    '--life-future': settings.futureColor || '#17222c'
   };
 }

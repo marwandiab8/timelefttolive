@@ -33,9 +33,6 @@ const FIT_PADDING = 6;
 const DESKTOP_MINIMUM_WIDTH = 980;
 const MOBILE_MINIMUM_WIDTH = 860;
 const MOBILE_FIT_MINIMUM_ZOOM = 0.7;
-// Weekend marks are the same in every square, so they only appear once the
-// squares are big enough for them to be more than noise.
-const DETAIL_ZOOM = 1.4;
 
 const LifeHeatmap = forwardRef(function LifeHeatmap({
   calendar,
@@ -287,8 +284,6 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
     return 'future';
   }
 
-  const detailed = zoom >= DETAIL_ZOOM;
-
   return (
     <section className="heatmap-section">
       <div className="heatmap-controls">
@@ -297,7 +292,6 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
           <span><i className="swatch-current" />Current</span>
           <span><i className="swatch-future" />Future</span>
           <span><i className="swatch-events" />Events</span>
-          {detailed && <span><i className="swatch-weekend" />Weekend marks</span>}
         </div>
         <HeatmapZoomToolbar
           fitMode={fitMode}
@@ -318,7 +312,7 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
       >
         <div
           ref={heatmapElementRef}
-          className={`heatmap ${detailed ? 'heatmap-detailed' : ''}`}
+          className="heatmap"
           style={{ '--cell-base': `${geometry.baseCellSize}px`, '--heatmap-zoom': zoom }}
         >
           {rowsWithEvents.map((row, rowIndex) => (
@@ -355,15 +349,13 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
                       onClick={() => onSelectWeek({ ...week, events: weekEvents })}
                       style={{
                         '--cell-fill': baseColor,
-                        '--current-color': settings.currentWeekColor,
-                        '--weekend-color': settings.weekendColor
+                        '--current-color': settings.currentWeekColor
                       }}
                     >
                       {week.wedges.length > 0 && (
                         <span aria-hidden="true" className="event-wedges" style={{ background: week.wedgeBackground }} />
                       )}
                       {week.wedgeOverflow > 0 && <span className="event-count">{weekEvents.length}</span>}
-                      <span className="weekend-strip"><i /><i /></span>
                     </button>
                   );
                 })}
