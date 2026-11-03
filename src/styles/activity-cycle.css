@@ -1079,7 +1079,8 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, #f3c95f 25%, transparent);
 }
 
-.cycle-chart-legend {
+/* Outranks .cycle-activity-stream p, which would otherwise make it a block with no gaps. */
+.cycle-activity-stream .cycle-chart-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
@@ -2021,7 +2022,7 @@
     height: 46px;
   }
 
-  .cycle-chart-legend {
+  .cycle-activity-stream .cycle-chart-legend {
     gap: 9px;
   }
 
