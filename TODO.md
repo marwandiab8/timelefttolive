@@ -1,5 +1,9 @@
 # To finish later
 
+## Deployed (2026-11-02)
+
+Hosting deployed to production from `feat/kids-info-schedule` at `aa5b829` (`feat/dartconnect-source` plus the kids panel), so merge both branches to bring `main` level with production. Functions and rules are unchanged. The "Time with my boys" panel now counts each child until his own 18th birthday (it used to count until the youngest's for all of them), reads the schedule's start date both ways, says who has them this week, and shows a card per child with grade (moves up each September), school and free-form details. Checked after the deploy, signed in with the real profile: this week (Nov 2 to 8) with him, other parent from Nov 9; David 44 weeks, Myles 65, Joseph 117, Keaton 129.
+
 ## Deployed (2026-10-25)
 
 Every function and hosting deployed to production from `feat/dartconnect-source` at `8f9dd7d` (`main` at `f159521` plus that commit), so merge that branch to bring `main` level with production. It adds DartConnect as a source app, **Create token** / **Replace token** in Linked Sources, darts always counting as Darts, and `completed_darts_match` revisions. Checked after the deploy: the served bundle is the new build and `/api/v1/life-events` answers 401 without a token. DartConnect matches arrive from the DartConnect Inbox Apps Script (`~/Documents/dartconnect-inbox`) once its connection token is set up (its README).
