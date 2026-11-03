@@ -991,6 +991,61 @@ describe('activity analysis utilities', () => {
     expect(analysis.timedSeconds).toBe(0);
   });
 
+  it('runs a Spotify stretch from its first start to its last finish, wherever the finish was sent from', () => {
+    // Oct 26 2026: opened at 6:14 near Orangeville, closed 80 s later, music stopped at 7:10 on arrival in Brampton.
+    const bounds = getPeriodBounds('day', '2026-10-26');
+    const analysis = buildPeriodAnalysis([
+      { id: 'open', eventType: 'start_spotify', activityFamily: 'spotify', location: { label: 'Orangeville' }, occurredAt: '2026-10-26T10:14:44Z' },
+      { id: 'closed', eventType: 'finish_spotify', activityFamily: 'spotify', location: { label: 'Orangeville' }, occurredAt: '2026-10-26T10:16:07Z' },
+      { id: 'stopped', eventType: 'finish_spotify', activityFamily: 'spotify', location: { label: 'Brampton' }, occurredAt: '2026-10-26T11:10:23Z' }
+    ], bounds);
+    const music = analysis.sessions.filter((session) => session.category === 'Music');
+    expect(music).toHaveLength(1);
+    expect(music[0].startAt.toISOString()).toBe('2026-10-26T10:14:44.000Z');
+    expect(music[0].endAt.toISOString()).toBe('2026-10-26T11:10:23.000Z');
+    expect(analysis.categories.find((category) => category.label === 'Music').seconds).toBe(3339);
+    expect(analysis.moments).toHaveLength(0);
+  });
+
+  it('keeps a stretch going when Spotify is reopened before any finish', () => {
+    const bounds = getPeriodBounds('day', '2026-10-27');
+    const analysis = buildPeriodAnalysis([
+      { id: 'first', eventType: 'start_spotify', activityFamily: 'spotify', occurredAt: '2026-10-27T09:16:17Z' },
+      { id: 'reopened', eventType: 'start_spotify', activityFamily: 'spotify', occurredAt: '2026-10-27T10:12:48Z' },
+      { id: 'closed', eventType: 'finish_spotify', activityFamily: 'spotify', occurredAt: '2026-10-27T10:12:56Z' }
+    ], bounds);
+    const music = analysis.sessions.filter((session) => session.category === 'Music');
+    expect(music).toHaveLength(1);
+    expect(music[0].durationSeconds).toBe(3399);
+    expect(analysis.moments).toHaveLength(0);
+  });
+
+  it('never matches a Spotify start with a finish hours later, so a day cannot fill with music', () => {
+    // A start whose own finish never arrived used to pair with the next morning's extra finish: 18.7 hours on Oct 27.
+    const bounds = getPeriodBounds('day', '2026-10-27');
+    const analysis = buildPeriodAnalysis([
+      { id: 'lone', eventType: 'start_spotify', activityFamily: 'spotify', occurredAt: '2026-10-27T09:16:17Z' },
+      { id: 'next-start', eventType: 'start_spotify', activityFamily: 'spotify', occurredAt: '2026-10-28T09:15:05Z' },
+      { id: 'next-closed', eventType: 'finish_spotify', activityFamily: 'spotify', occurredAt: '2026-10-28T09:15:20Z' },
+      { id: 'next-stopped', eventType: 'finish_spotify', activityFamily: 'spotify', occurredAt: '2026-10-28T09:17:26Z' }
+    ], bounds);
+    expect(analysis.categories.find((category) => category.label === 'Music')).toBeUndefined();
+    expect(analysis.moments.map((event) => event.id)).toEqual(['lone']);
+    const all = buildPeriodAnalysis(analysis.sourceEvents, null);
+    expect(all.sessions.filter((session) => session.category === 'Music').map((session) => session.durationSeconds)).toEqual([141]);
+  });
+
+  it('starts a new Spotify stretch at a start after a finish, without counting the gap', () => {
+    const analysis = buildPeriodAnalysis([
+      { id: 'a', eventType: 'start_spotify', activityFamily: 'spotify', occurredAt: '2026-10-24T17:51:18Z' },
+      { id: 'b', eventType: 'finish_spotify', activityFamily: 'spotify', occurredAt: '2026-10-24T17:54:21Z' },
+      { id: 'c', eventType: 'finish_spotify', activityFamily: 'spotify', occurredAt: '2026-10-24T18:00:50Z' },
+      { id: 'd', eventType: 'start_spotify', activityFamily: 'spotify', occurredAt: '2026-10-24T19:40:16Z' },
+      { id: 'e', eventType: 'finish_spotify', activityFamily: 'spotify', occurredAt: '2026-10-24T20:09:01Z' }
+    ], getPeriodBounds('day', '2026-10-24'));
+    expect(analysis.sessions.filter((session) => session.category === 'Music').map((session) => session.durationSeconds)).toEqual([572, 1725]);
+  });
+
   it('gives a Spotify session its own ring time even while it happens entirely inside a Work session', () => {
     const bounds = getPeriodBounds('day', '2026-09-22');
     const analysis = buildPeriodAnalysis([

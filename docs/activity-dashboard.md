@@ -106,7 +106,14 @@ Generic CarPlay-style `arrive_location` / `leave_location` records are observati
 | `active` | An unmatched start that is still in progress. Only Work, Gym/Fitness, Sleep, Home, Transportation, Meals and Reading can be active, only if it started within the last 36 hours, only for the period that contains "now", and only the latest per category. Its duration runs to the current time. |
 | `incomplete` | An unmatched start or unmatched end. It has no duration and is excluded from time totals. If a later arrival at a different place proves the visit ended, it is labelled "Ended elsewhere". |
 
-Spotify start events are never treated as open-ended boundaries; without a supplied duration they remain moments.
+Spotify start events are never treated as open-ended boundaries. Spotify events come from iPhone Shortcuts and mark Spotify being opened and closed, not each track, so one stretch of listening is usually several of them. `pairMusicBoundaries` turns each stretch into one `paired` Music session, from its first `start_spotify` to its last `finish_spotify`:
+
+- a start after a finish begins a new stretch, and the gap between them is not counted;
+- a start before any finish (Spotify reopened) keeps the stretch going;
+- anything more than 2 hours after the stretch's previous event ends it, so a start is never matched with a finish hours or days later;
+- location is ignored, because the music plays on while you move (a drive often ends with a finish sent from somewhere else).
+
+A stretch with no finish adds no time, and its starts remain moments. The time counted is when Spotify was in use as the Shortcuts saw it; music left playing after the last finish is not seen.
 
 ### 4. Allocation, so time is never double counted
 
