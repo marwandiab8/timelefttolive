@@ -1,5 +1,12 @@
 # To finish later
 
+## Deployed (2026-11-02, evening)
+
+Hosting deployed to production from `feat/still-ahead` at `400d2bc`, which is `feat/kids-info-schedule` plus `10bb7a8` (`fix/spotify-listening-time`) and the Still ahead feature. Merge in that order (`feat/dartconnect-source`, `feat/kids-info-schedule`, `fix/spotify-listening-time`, `feat/still-ahead`) to bring `main` level with production. Functions and rules are unchanged.
+
+- Spotify minutes are counted as listening stretches (first start to last finish, a new stretch after a finish, 2-hour gap limit, location ignored). Before, a start could pair with a stray finish a day later (Oct 27 showed 18.7 h, the all-time total about 25,000 h) while drives counted seconds. Checked live: Oct 26 Music shows 1h 35m.
+- Still ahead: weekends, summers, Christmases and birthdays before the target age under the summary, and per child before 18 with whose week the next birthday falls in. Checked live with the real profile: 1,999 / 38 / 39 / 39.
+
 ## Deployed (2026-11-02)
 
 Hosting deployed to production from `feat/kids-info-schedule` at `aa5b829` (`feat/dartconnect-source` plus the kids panel), so merge both branches to bring `main` level with production. Functions and rules are unchanged. The "Time with my boys" panel now counts each child until his own 18th birthday (it used to count until the youngest's for all of them), reads the schedule's start date both ways, says who has them this week, and shows a card per child with grade (moves up each September), school and free-form details. Checked after the deploy, signed in with the real profile: this week (Nov 2 to 8) with him, other parent from Nov 9; David 44 weeks, Myles 65, Joseph 117, Keaton 129.
