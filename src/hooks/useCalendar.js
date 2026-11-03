@@ -18,6 +18,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../services/firebase.js';
 import { addYears, formatDateId } from '../utils/dateUtils.js';
+import { normalizeChild } from '../utils/childInfo.js';
 import { defaultCustodySchedule } from '../utils/custodyUtils.js';
 import { loadActivityJournalDetails } from '../services/activityJournal.js';
 
@@ -33,11 +34,7 @@ export function normalizeCalendarPayload(payload, uid) {
   const targetAge = Number(payload.targetAge || 80);
   const children = (payload.children || [])
     .filter((child) => child.name?.trim() || child.birthDate)
-    .map((child) => ({
-      id: child.id || crypto.randomUUID(),
-      name: child.name.trim(),
-      birthDate: child.birthDate
-    }));
+    .map((child) => normalizeChild(child));
   const custodySchedule = {
     ...defaultCustodySchedule,
     ...(payload.custodySchedule || {}),
