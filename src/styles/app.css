@@ -437,20 +437,163 @@ legend {
   font-weight: 600;
 }
 
-.family-time-panel {
+.whats-left {
   max-width: 44rem;
+  margin: -12px 0 36px;
+}
+
+.whats-left-label {
+  margin: 0 0 10px;
+  color: #e5b95f;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.whats-left ul {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
+  flex-wrap: wrap;
+  gap: 12px 36px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.whats-left li {
+  display: grid;
+  gap: 2px;
+}
+
+.whats-left strong {
+  font-family: var(--display);
+  font-size: 1.9rem;
+  font-variant-numeric: lining-nums tabular-nums;
+  font-weight: 500;
+  line-height: 1.05;
+}
+
+.whats-left span {
+  color: #8d9a9a;
+  font-size: 0.82rem;
+}
+
+.family-time-panel {
+  max-width: 76rem;
   margin: 0 0 36px;
   padding: 2px 0 2px 18px;
   border-left: 3px solid color-mix(in srgb, var(--life-now, #f4c542) 70%, transparent);
 }
 
-.family-time-panel button {
+.family-time-head {
+  max-width: 44rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.family-time-head button {
   flex: none;
   white-space: nowrap;
+}
+
+.kid-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr));
+  gap: 12px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.kid-card {
+  padding: 14px 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  color: var(--card-text);
+}
+
+.family-time-panel .kid-card h3 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.family-time-panel .kid-meta,
+.family-time-panel .kid-note,
+.family-time-panel .kid-ahead {
+  color: var(--card-muted);
+  font-size: 0.86rem;
+}
+
+.family-time-panel .kid-meta {
+  margin: 2px 0 10px;
+}
+
+.family-time-panel .kid-ahead {
+  margin-top: 8px;
+}
+
+.family-time-panel .kid-weeks strong {
+  font-family: var(--display);
+  font-size: 1.7rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.kid-details {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--card-border);
+  font-size: 0.9rem;
+}
+
+.kid-details dt {
+  color: var(--card-accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.kid-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.child-entry {
+  display: grid;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.child-entry:first-of-type {
+  padding-top: 0;
+}
+
+.child-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 12px;
+}
+
+.child-details {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.child-details .inline-row {
+  width: 100%;
+}
+
+.field-hint {
+  margin: 0;
+  color: #aeb8b8;
+  font-size: 0.84rem;
 }
 
 .family-time-label {
@@ -1130,6 +1273,25 @@ legend {
   margin: 4px 0 0;
 }
 
+.token-box {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+}
+
+.token-box textarea {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+.token-box-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 .day-card {
   padding: 16px;
 }
@@ -1337,8 +1499,21 @@ legend {
   border-left-color: rgba(161, 111, 20, 0.6);
 }
 
-.app-shell[data-calendar-theme="light"] .family-time-label {
+.app-shell[data-calendar-theme="light"] .family-time-label,
+.app-shell[data-calendar-theme="light"] .whats-left-label {
   color: #8a5f0a;
+}
+
+.app-shell[data-calendar-theme="light"] .whats-left span {
+  color: #4f625b;
+}
+
+.app-shell[data-calendar-theme="light"] .field-hint {
+  color: #4f625b;
+}
+
+.app-shell[data-calendar-theme="light"] .child-entry {
+  border-bottom-color: rgba(30, 57, 48, 0.14);
 }
 
 .app-shell[data-calendar-theme="light"] .secondary {

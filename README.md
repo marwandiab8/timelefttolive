@@ -8,12 +8,13 @@ A private life-calendar and mortality-awareness dashboard. Users sign in, create
 - Owner-owned Firestore calendar data.
 - Full-width 52-week life heatmap: weeks lived are solid, weeks ahead are outlines, the current week is highlighted, a gap follows every tenth year, each week's square is split into coloured wedges, one per event (up to four, then a count). A summary above it leads with the weeks you have left.
 - Click any week to see the seven individual dates inside that week.
+- **Still ahead**, under the summary: the weekends, summers, Christmases and birthdays left before your target age. **Time with my boys**: who has them this week under the every-other-week schedule, and a card per child with age, grade (moves up each September), school, your notes, weeks left with you before 18, the summers, Christmases and birthdays left before 18, and whose week the next birthday falls in.
 - Daily journals, tags, links, file/image uploads, and external Firebase record metadata links.
 - Date-range events with visibility and overlap indicators.
 - Viewer invites with read-only access for accepted viewers.
 - Firestore and Storage rules for owner/viewer permissions.
 - Owner-only **Activity dashboard** (`#activity`): a day/week/month/year "life wheel", chronological timeline, all-time totals, work attendance, workout summaries, journal notes and photos, all derived from ingested life events. Entries can be edited or deleted. Main-calendar events show there too, all day, on the days they cover (every day for an event up to a month long, the first and last day of a longer one unless it is set to show every day). An ongoing event ("carry it every day until I stop it") has no end date yet and shows on every day through today; stopping it keeps those days.
-- Life-event ingestion API (`POST /api/v1/life-events` and `:batch`) that other apps (aigridline/GridlineAI, GYM-K2, Darts tracker, MyDoubleProgress, Apple Shortcuts via aigridline) write to with per-connection bearer tokens.
+- Life-event ingestion API (`POST /api/v1/life-events` and `:batch`) that other apps (aigridline/GridlineAI, GYM-K2, Darts tracker, MyDoubleProgress, Apple Shortcuts via aigridline, and DartConnect online matches through the DartConnect Inbox Apps Script in `~/Documents/dartconnect-inbox`) write to with per-connection bearer tokens. **Linked Sources** creates a connection and its token (**Create token** / **Replace token**); the token is shown once, with the endpoint and IDs, ready to paste into the source app. Darts life events (`activityFamily: darts`) always count as Darts in the Activity dashboard, whatever their title says.
 
 ## Firebase Setup
 

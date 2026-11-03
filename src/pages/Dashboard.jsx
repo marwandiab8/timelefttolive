@@ -5,6 +5,7 @@ import CalendarBreadcrumbs from '../components/CalendarBreadcrumbs.jsx';
 import { DayDrilldownView, MonthDetailView, WeekDetailView, YearDetailView } from '../components/CalendarDrilldown.jsx';
 import EmailVerificationNotice from '../components/EmailVerificationNotice.jsx';
 import EventManager from '../components/EventManager.jsx';
+import FamilyTimePanel from '../components/FamilyTimePanel.jsx';
 import LifeSummary from '../components/LifeSummary.jsx';
 import ExternalSourcesManager from '../components/ExternalSourcesManager.jsx';
 import LifeHeatmap from '../components/LifeHeatmap.jsx';
@@ -12,12 +13,12 @@ import PrimaryViewSwitcher from '../components/PrimaryViewSwitcher.jsx';
 import ProfileForm from '../components/ProfileForm.jsx';
 import ViewerManager from '../components/ViewerManager.jsx';
 import WeekDetailPanel from '../components/WeekDetailPanel.jsx';
+import WhatsLeft from '../components/WhatsLeft.jsx';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { acceptViewerInvite, useEvents, useOwnedCalendar, useSharedCalendar, useViewerInvites, useViewers } from '../hooks/useCalendar.js';
 import { logOut } from '../services/firebase.js';
 import { useCurrentDay } from '../hooks/useCurrentDay.js';
 import { formatDateId, getLifeStats, getTodayCalendarView, parseDateId, sameCalendarView, withOngoingEvents } from '../utils/dateUtils.js';
-import { getCustodyStats } from '../utils/custodyUtils.js';
 import { clampHeatmapZoom } from '../utils/heatmapViewport.js';
 import { readCalendarTheme, toggleCalendarTheme, writeCalendarTheme } from '../utils/theme.js';
 
@@ -67,7 +68,6 @@ export default function Dashboard() {
   const heatmapRef = useRef(null);
   const viewScrollPositions = useRef({ activity: { left: 0, top: 0 }, calendar: { left: 0, top: 0 } });
   const stats = useMemo(() => calendar ? getLifeStats(calendar.birthDate, calendar.targetAge, parseDateId(currentDay)) : null, [calendar, currentDay]);
-  const custodyStats = useMemo(() => calendar ? getCustodyStats(calendar, parseDateId(currentDay)) : null, [calendar, currentDay]);
   const dataError = owned.error || inviteState.error || shared.error || eventState.error || viewerState.error;
   const pendingInvite = invites.find((invite) => invite.status === 'pending');
   // Moving between the calendar's levels is a step in the browser's history, so Back (the browser's, or a phone's
@@ -318,18 +318,9 @@ export default function Dashboard() {
       </header>
 
       <LifeSummary stats={stats} />
-      {custodyStats && (
-        <section className="family-time-panel">
-          <div>
-            <p className="family-time-label">Time with my boys</p>
-            <h2>{custodyStats.weeksRemaining.toLocaleString()} weeks together</h2>
-            <p className="muted">
-              About {custodyStats.daysRemaining.toLocaleString()} days with {custodyStats.childNames.join(', ')}
-              {' '}through {custodyStats.throughDate}, based on your every-other-week schedule.
-            </p>
-          </div>
-          <button className="secondary" type="button" onClick={() => setEditingProfile(true)}>Edit schedule</button>
-        </section>
+      <WhatsLeft calendar={calendar} today={currentDay} />
+      {calendar.children?.length > 0 && (
+        <FamilyTimePanel calendar={calendar} today={currentDay} canEdit={role === 'owner'} onEdit={() => setEditingProfile(true)} />
       )}
       {dataError && <p className="error">{dataError}</p>}
       <CalendarBreadcrumbs items={breadcrumbs} />

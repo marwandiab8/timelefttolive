@@ -340,6 +340,8 @@ export function getTallyActivityLabel(event) {
   if (/(journal|note|memo|reflection)/.test(combined)) return 'Notes';
   if (/(image|file|attachment|media|photo|picture)/.test(combined)) return 'Attachments';
   if (/(achievement|milestone|personal_?best|darts?_?record|darter_?record)/.test(combined)) return 'Achievements';
+  // Darts games carry the opponent's name in the title, which must not decide the category ("vs Carlos" is not a car).
+  if (cleanToken(event?.activityFamily) === 'darts') return 'Darts';
   if (/(workout|gym|fitness)/.test(combined) || /(goodlife|fitness|gym)/.test(locationToken)) return 'Gym/Fitness';
   if (/(sleep|bedtime|asleep|wake|wakeup)/.test(combined)) return 'Sleep';
   if (/(drive|driving|transport|travel|commute|trip|vehicle|car)/.test(combined)) return 'Transportation';
@@ -764,52 +766,61 @@ function boundaryDescriptor(event) {
   return { phase, category, key: `${subject}|${category}|${location}`, rawActivity: activity };
 }
 
-// Additive, opt-in pairing for Music events only: matches a start_spotify to the
-// next finish_spotify (or stop_spotify) for the same subject/location, in time
-// order, exactly like the generic boundary matching above - but never leaves an
-// unmatched start behind as an "incomplete" session. A lone start (the common
-// case for all pre-existing data, since finish_spotify didn't exist until this
-// was added) is left completely untouched here, so it keeps flowing through
-// boundaryDescriptor's null-for-Music path into the Moments/point-category
-// list exactly as it always has.
+// Spotify events come from iPhone Shortcuts and mark Spotify being opened and closed, not each track, so one stretch
+// of listening is usually several of them: a start, a finish seconds later when the app is closed, perhaps another
+// start when it is reopened, and a last finish when the music stops, often somewhere else after a drive. A stretch
+// runs from its first start to its last finish. A start after a finish begins a new stretch, and anything more than
+// MUSIC_STRETCH_GAP_MS after the stretch's previous event ends it, so a start is never matched with a finish hours or
+// days later. Location is ignored, since the music plays on while you move. A stretch with no finish adds no time: its
+// starts stay moments, as a lone start always has.
+const MUSIC_STRETCH_GAP_MS = 2 * 3600 * 1000;
+
 function pairMusicBoundaries(events, bounds) {
-  const openStarts = new Map();
+  const open = new Map();
   const sessions = [];
+  const close = (key) => {
+    const stretch = open.get(key);
+    open.delete(key);
+    if (!stretch?.finish) return;
+    const interval = clippedInterval(stretch.start.eventTime, stretch.finish.eventTime, bounds);
+    if (!interval) return;
+    const identity = `${stretch.start.event.id || stretch.start.eventTime.getTime()}|${stretch.finish.event.id || stretch.finish.eventTime.getTime()}`;
+    const session = makeSession(stretch.start.event, interval, {
+      id: `spotify-paired-${identity}`,
+      kind: 'paired',
+      active: false,
+      startEvent: stretch.start.event,
+      endEvent: stretch.finish.event,
+      musicEvents: stretch.events
+    });
+    session.title = getSessionDisplayName(session);
+    sessions.push(session);
+  };
+
   sortLifeEvents(events).forEach((event) => {
     if (getTallyActivityLabel(event) !== 'Music') return;
     const eventType = cleanToken(event?.eventType);
     const eventTime = getEventTime(event);
     if (!eventTime) return;
-    const location = cleanToken(getLocationLabel(event) || event?.location?.placeId);
-    const subject = cleanToken(event?.sourceUserId || event?.timeLeftUserId);
-    const key = `${subject}|Music|${location}`;
-
-    if (/^(arrive|start)_/.test(eventType)) {
-      const starts = openStarts.get(key) || [];
-      starts.push({ event, eventTime });
-      openStarts.set(key, starts);
-      return;
+    const isStart = /^(arrive|start)_/.test(eventType);
+    if (!isStart && !/^(leave|finish|stop)_/.test(eventType)) return;
+    const key = cleanToken(event?.sourceUserId || event?.timeLeftUserId);
+    let stretch = open.get(key);
+    if (stretch && (eventTime - stretch.lastAt > MUSIC_STRETCH_GAP_MS || (isStart && stretch.finish))) {
+      close(key);
+      stretch = null;
     }
-    if (!/^(leave|finish|stop)_/.test(eventType)) return;
-
-    const starts = openStarts.get(key) || [];
-    const start = starts.pop();
-    openStarts.set(key, starts);
-    if (!start || eventTime <= start.eventTime) return;
-
-    const interval = clippedInterval(start.eventTime, eventTime, bounds);
-    if (!interval) return;
-    const identity = `${start.event.id || start.eventTime.getTime()}|${event.id || eventTime.getTime()}`;
-    const session = makeSession(start.event, interval, {
-      id: `spotify-paired-${identity}`,
-      kind: 'paired',
-      active: false,
-      startEvent: start.event,
-      endEvent: event
-    });
-    session.title = getSessionDisplayName(session);
-    sessions.push(session);
+    if (!stretch) {
+      if (!isStart) return;
+      stretch = { start: { event, eventTime }, finish: null, events: [] };
+      open.set(key, stretch);
+    } else if (!isStart) {
+      stretch.finish = { event, eventTime };
+    }
+    stretch.events.push(event);
+    stretch.lastAt = eventTime;
   });
+  [...open.keys()].forEach(close);
   return sessions;
 }
 
@@ -1291,13 +1302,13 @@ export function buildPeriodAnalysis(events, bounds = null, options = {}) {
     const end = getEventEndTime(event) || start;
     return start && end && end >= bounds.start && start < bounds.end;
   });
-  // A start/finish pair that pairMusicBoundaries turned into a real session is now
-  // represented by that session (with real duration); it must not also linger in
-  // the Moments/point-category list as two redundant instantaneous entries.
+  // Every Spotify event of a stretch that pairMusicBoundaries turned into a real session is now
+  // represented by that session (with real duration); none may also linger in
+  // the Moments/point-category list as redundant instantaneous entries.
   const pairedMusicEventIds = new Set(
     sessions
       .filter((session) => session.category === 'Music' && session.kind === 'paired')
-      .flatMap((session) => [session.startEvent, session.endEvent])
+      .flatMap((session) => session.musicEvents || [session.startEvent, session.endEvent])
       .filter(Boolean)
       .map((event) => event.id || event)
   );

@@ -241,6 +241,14 @@ export function isDateInRange(date, start, end) {
   return local >= toLocalDate(start) && local <= toLocalDate(end);
 }
 
+export function getAge(birthDate, now = new Date()) {
+  const birth = toLocalDate(birthDate);
+  const today = toLocalDate(now);
+  return Math.max(0, today.getFullYear() - birth.getFullYear() - (
+    today < new Date(today.getFullYear(), birth.getMonth(), birth.getDate()) ? 1 : 0
+  ));
+}
+
 export function getLifeStats(birthDate, targetAge, now = new Date()) {
   const birth = toLocalDate(birthDate);
   const today = toLocalDate(now);
@@ -248,9 +256,7 @@ export function getLifeStats(birthDate, targetAge, now = new Date()) {
   const totalDays = Math.max(1, daysBetween(birth, targetEndDate));
   const livedDays = Math.min(Math.max(daysBetween(birth, today), 0), totalDays);
   const remainingDays = Math.max(daysBetween(today, targetEndDate), 0);
-  const currentAge = Math.max(0, today.getFullYear() - birth.getFullYear() - (
-    today < new Date(today.getFullYear(), birth.getMonth(), birth.getDate()) ? 1 : 0
-  ));
+  const currentAge = getAge(birth, today);
 
   return {
     targetEndDate: formatDateId(targetEndDate),

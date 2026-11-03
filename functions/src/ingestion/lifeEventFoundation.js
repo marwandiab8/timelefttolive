@@ -429,8 +429,9 @@ async function appendDeadLetter(db, payload, context, error, payloadHash) {
 // A main-calendar event's day follows the event (src/calendarLifeEvents.js): renaming it or editing its note updates it.
 const REVISABLE_EVENT_TYPES = new Set(["daily_steps", "sleep_session", "calendar_event"]);
 // Darts games are re-sent with more detail (duration, metrics, note) than they first had, and
-// older ones arrived as "dartsRecord" before being sent as "darts_practice".
-const REVISABLE_DARTS_EVENT_TYPES = new Set(["dartsRecord", "darts_practice"]);
+// older ones arrived as "dartsRecord" before being sent as "darts_practice". DartConnect matches
+// (the DartConnect Inbox Apps Script) can be re-sent the same way when their summary improves.
+const REVISABLE_DARTS_EVENT_TYPES = new Set(["dartsRecord", "darts_practice", "completed_darts_match"]);
 
 function isRevisableUpdate(existing, payload) {
   if (REVISABLE_EVENT_TYPES.has(existing.eventType) && existing.eventType === payload.eventType) return true;

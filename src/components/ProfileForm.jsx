@@ -1,8 +1,8 @@
 import { useState } from 'react';
+import { describeCustodyStatus } from './FamilyTimePanel.jsx';
 import { defaultSettings, saveCalendar } from '../hooks/useCalendar.js';
-import { defaultCustodySchedule } from '../utils/custodyUtils.js';
-
-const blankChild = () => ({ id: crypto.randomUUID(), name: '', birthDate: '' });
+import { addChildDetail, blankChild, childForForm, FINISHED_SCHOOL, GRADES, gradeLabel } from '../utils/childInfo.js';
+import { defaultCustodySchedule, getCustodyWeekStatus } from '../utils/custodyUtils.js';
 
 export default function ProfileForm({ user, calendar, onSaved }) {
   const [form, setForm] = useState({
@@ -11,7 +11,7 @@ export default function ProfileForm({ user, calendar, onSaved }) {
     birthDate: calendar?.birthDate || '',
     targetAge: calendar?.targetAge || 90,
     spouse: calendar?.spouse || { name: '', birthDate: '' },
-    children: calendar?.children?.length ? calendar.children : [],
+    children: (calendar?.children || []).map((child) => childForForm(child)),
     custodySchedule: { ...defaultCustodySchedule, ...(calendar?.custodySchedule || {}) },
     settings: { ...defaultSettings, ...(calendar?.settings || {}) }
   });
@@ -26,6 +26,22 @@ export default function ProfileForm({ user, calendar, onSaved }) {
     setForm((current) => ({
       ...current,
       children: current.children.map((child, childIndex) => childIndex === index ? { ...child, [field]: value } : child)
+    }));
+  }
+
+  function updateChildDetail(index, detailIndex, field, value) {
+    setForm((current) => ({
+      ...current,
+      children: current.children.map((child, childIndex) => childIndex === index
+        ? { ...child, details: child.details.map((detail, itemIndex) => itemIndex === detailIndex ? { ...detail, [field]: value } : detail) }
+        : child)
+    }));
+  }
+
+  function changeChild(index, change) {
+    setForm((current) => ({
+      ...current,
+      children: current.children.map((child, childIndex) => childIndex === index ? change(child) : child)
     }));
   }
 
@@ -60,7 +76,7 @@ export default function ProfileForm({ user, calendar, onSaved }) {
       return setError('Each child needs both a name and birth date.');
     }
     if (form.custodySchedule.enabled && !form.custodySchedule.nextStartDate) {
-      return setError('Enter the start date of the next week you have the kids.');
+      return setError('Enter the day one of your weeks with the kids starts.');
     }
     if (form.custodySchedule.enabled && form.custodySchedule.childIds.length === 0) {
       return setError('Choose which children the parenting-time schedule applies to.');
@@ -79,6 +95,12 @@ export default function ProfileForm({ user, calendar, onSaved }) {
     }
   }
 
+  // What the start date works out to today, so a wrong week shows before it is saved.
+  const status = describeCustodyStatus(getCustodyWeekStatus({ ...form.custodySchedule, enabled: true }));
+  const schedulePreview = status
+    ? `${status.headline}. ${status.sentence}`
+    : 'Any day one of your weeks with them began or will begin. The schedule repeats from it.';
+
   return (
     <form className="form-grid" onSubmit={handleSubmit}>
       <label>First name<input value={form.firstName} onChange={(event) => updateField('firstName', event.target.value)} required /></label>
@@ -95,10 +117,35 @@ export default function ProfileForm({ user, calendar, onSaved }) {
       <fieldset className="wide">
         <legend>Children</legend>
         {form.children.map((child, index) => (
-          <div className="inline-row" key={child.id}>
-            <input value={child.name} onChange={(event) => updateChild(index, 'name', event.target.value)} placeholder="Name" />
-            <input value={child.birthDate} onChange={(event) => updateChild(index, 'birthDate', event.target.value)} type="date" />
-            <button type="button" className="ghost" onClick={() => updateField('children', form.children.filter((item) => item.id !== child.id))}>Remove</button>
+          <div className="child-entry" key={child.id}>
+            <div className="inline-row">
+              <input value={child.name} onChange={(event) => updateChild(index, 'name', event.target.value)} placeholder="Name" aria-label="Name" />
+              <input value={child.birthDate} onChange={(event) => updateChild(index, 'birthDate', event.target.value)} type="date" aria-label="Date of birth" />
+              <button type="button" className="ghost" onClick={() => updateField('children', form.children.filter((item) => item.id !== child.id))}>Remove</button>
+            </div>
+            <div className="child-info-grid">
+              <label>Grade this school year
+                <select value={child.grade} onChange={(event) => updateChild(index, 'grade', event.target.value)}>
+                  <option value="">Not set</option>
+                  {GRADES.map((grade) => <option key={grade} value={grade}>{gradeLabel(grade)}</option>)}
+                  <option value={FINISHED_SCHOOL}>{gradeLabel(FINISHED_SCHOOL)}</option>
+                </select>
+              </label>
+              <label>School
+                <input value={child.school} onChange={(event) => updateChild(index, 'school', event.target.value)} />
+              </label>
+            </div>
+            <div className="child-details">
+              <p className="field-hint">Anything else about {child.name || 'them'}: a label and what to remember. The grade moves up by itself each September.</p>
+              {child.details.map((detail, detailIndex) => (
+                <div className="inline-row" key={detail.id}>
+                  <input value={detail.label} onChange={(event) => updateChildDetail(index, detailIndex, 'label', event.target.value)} placeholder="Label, like Teacher or Allergies" aria-label="Label" />
+                  <input value={detail.value} onChange={(event) => updateChildDetail(index, detailIndex, 'value', event.target.value)} placeholder="Details" aria-label="Details" />
+                  <button type="button" className="ghost" onClick={() => changeChild(index, (item) => ({ ...item, details: item.details.filter((entry) => entry.id !== detail.id) }))}>Remove</button>
+                </div>
+              ))}
+              <button type="button" className="ghost" onClick={() => changeChild(index, addChildDetail)}>Add a detail</button>
+            </div>
           </div>
         ))}
         <button type="button" className="secondary" onClick={() => updateField('children', [...form.children, blankChild()])}>Add child</button>
@@ -114,12 +161,13 @@ export default function ProfileForm({ user, calendar, onSaved }) {
           />
           Track every-other-week parenting time
         </label>
-        <label>Next week with them starts
+        <label>A week with them starts on
           <input
             value={form.custodySchedule.nextStartDate}
             onChange={(event) => updateCustody('nextStartDate', event.target.value)}
             type="date"
           />
+          <span className="field-hint">{schedulePreview}</span>
         </label>
         <label>Every
           <input

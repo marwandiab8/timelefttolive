@@ -4,6 +4,7 @@ export const SOURCE_APPS = [
   'aigridline',
   'MyDoubleProgress',
   'DartstRacker2026',
+  'DartConnect',
   'manual'
 ];
 
@@ -27,6 +28,7 @@ export const SOURCE_APP_LABELS = {
   aigridline: 'aigridline',
   MyDoubleProgress: 'MyDoubleProgress',
   DartstRacker2026: 'DartstRacker2026',
+  DartConnect: 'DartConnect',
   manual: 'Manual'
 };
 
