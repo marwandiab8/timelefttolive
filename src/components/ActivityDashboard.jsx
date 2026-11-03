@@ -720,7 +720,7 @@ function TimelineEntry({ entry, onSelect, onEdit, onDelete }) {
   return (
     <li className={`${entry.type} ${entry.nested ? 'nested' : ''}`} style={{ '--timeline-color': entry.color }}>
       <span className="cycle-timeline-marker" aria-hidden="true">{entry.icon}</span>
-      <time dateTime={entry.at?.toISOString()}>{entry.at ? clockFormatter.format(entry.at) : entry.allDay ? 'All day' : 'No time'}</time>
+      <time dateTime={(entry.displayStartAt || entry.at)?.toISOString()}>{entry.at ? clockFormatter.format(entry.displayStartAt || entry.at) : entry.allDay ? 'All day' : 'No time'}</time>
       <article>
         <button type="button" onClick={() => onSelect(selection)} aria-label={`Open ${selection} activity: ${title}`}>
           <div>
@@ -740,7 +740,7 @@ function TimelineEntry({ entry, onSelect, onEdit, onDelete }) {
         {managed && <div className="cycle-entry-actions"><button type="button" onClick={() => onEdit(managed)}>Edit</button><button type="button" className="danger" onClick={() => onDelete(managed)}>Delete</button></div>}
         {entry.type === 'session' && (
           <div className="cycle-timeline-boundaries">
-            {entry.startedBeforeVisibleRange && <span><b>Continued into this period</b> The chart begins at the selected period boundary; the actual arrival is shown below.</span>}
+            {entry.startedBeforeVisibleRange && !entry.wholeNight && <span><b>Continued into this period</b> The chart begins at the selected period boundary; the actual arrival is shown below.</span>}
             {entry.startEvent && <span><b>{getEventDisplayTitle(entry.startEvent)}</b> {timelineBoundaryLabel(entry.boundaryStartAt, entry.dateId)}{entry.startSentAt && <small> · sent {clockFormatter.format(entry.startSentAt)}</small>}</span>}
             {entry.endEvent && <span><b>{getEventDisplayTitle(entry.endEvent)}</b> {timelineBoundaryLabel(entry.boundaryEndAt, entry.dateId)}{entry.endSentAt && <small> · sent {clockFormatter.format(entry.endSentAt)}</small>}</span>}
             {entry.active && <span><b>Status</b> In progress</span>}
@@ -761,11 +761,13 @@ function timelineBoundaryLabel(value, visibleDateId) {
 }
 
 function timelineSessionRange(entry) {
+  // A night is the wake-up day's own, from bedtime, so it never "continues" from the day before.
   const visibleStart = entry.startedBeforeVisibleRange
-    ? `Continued from ${timelineBoundaryLabel(entry.boundaryStartAt, entry.dateId)}`
+    ? entry.wholeNight
+      ? timelineBoundaryLabel(entry.boundaryStartAt, entry.dateId)
+      : `Continued from ${timelineBoundaryLabel(entry.boundaryStartAt, entry.dateId)}`
     : clockFormatter.format(entry.at);
-  const wholeNight = Number.isFinite(entry.session?.attributedSeconds);
-  const visibleDuration = `${formatDuration(entry.durationSeconds)}${entry.startedBeforeVisibleRange && !wholeNight ? ' shown in this period' : ''}`;
+  const visibleDuration = `${formatDuration(entry.durationSeconds)}${entry.startedBeforeVisibleRange && !entry.wholeNight ? ' shown in this period' : ''}`;
   if (entry.active) return `${visibleStart} – In progress · ${visibleDuration}`;
   if (entry.endAt) return `${visibleStart} – ${timelineBoundaryLabel(entry.boundaryEndAt || entry.endAt, entry.dateId)} · ${visibleDuration}`;
   if (entry.session?.missingBoundary === 'start') return `Finish recorded at ${clockFormatter.format(entry.at)} · Arrival not recorded`;
@@ -780,12 +782,21 @@ function DayActivityOverview({ chart, onSelect }) {
         <div><p className="cycle-eyebrow">Your day in time</p><h3>24-hour timeline</h3></div>
         <span>{formatDuration(chart.trackedSeconds)} reliably tracked</span>
       </header>
-      <div className="cycle-day-axis" aria-hidden="true"><span>12 AM</span><span>6 AM</span><span>Noon</span><span>6 PM</span><span>12 AM</span></div>
+      <div className="cycle-day-axis" aria-hidden="true">
+        {chart.ticks.map((tick, index) => (
+          <span
+            className={index === 0 ? 'first' : index === chart.ticks.length - 1 ? 'last' : ''}
+            key={tick.hour}
+            style={{ left: `${tick.offset}%` }}
+          >{tick.label}</span>
+        ))}
+      </div>
       <div className="cycle-day-rows">
         {chart.rows.map((row) => (
           <article className={row.nested ? 'nested' : ''} key={row.id}>
             <div><strong>{row.nested ? `↳ ${row.title}` : row.title}</strong><span>{row.active ? 'In progress' : row.incomplete ? row.status : formatDuration(row.durationSeconds)}</span></div>
             <div className="cycle-day-track">
+              <DayTrackGuides chart={chart} />
               {chart.currentOffset !== null && <i className="current-time" style={{ left: `${chart.currentOffset}%` }} />}
               {row.hasReliableInterval ? (
                 <button
@@ -813,6 +824,7 @@ function DayActivityOverview({ chart, onSelect }) {
           <article className="moments">
             <div><strong>Moments</strong><span>{chart.moments.length} recorded</span></div>
             <div className="cycle-day-track">
+              <DayTrackGuides chart={chart} />
               {chart.currentOffset !== null && <i className="current-time" style={{ left: `${chart.currentOffset}%` }} />}
               {chart.moments.map((moment) => (
                 <button
@@ -829,8 +841,20 @@ function DayActivityOverview({ chart, onSelect }) {
           </article>
         )}
       </div>
-      <p className="cycle-chart-legend"><span><i className="session" /> Timed session</span><span><i className="moment" /> Point activity</span><span><i className="current" /> Current Toronto time</span></p>
+      <p className="cycle-chart-legend"><span><i className="session" /> Timed session</span><span><i className="moment" /> Point activity</span><span><i className="current" /> Current Toronto time</span>{chart.dayStartOffset > 0 && <span><i className="before-day" /> Evening before</span>}</p>
     </section>
+  );
+}
+
+// Hour lines, and the evening before shaded up to midnight when last night is drawn from bedtime.
+function DayTrackGuides({ chart }) {
+  return (
+    <>
+      {chart.dayStartOffset > 0 && <i className="cycle-day-before" style={{ width: `${chart.dayStartOffset}%` }} />}
+      {chart.ticks.slice(1, -1).map((tick) => (
+        <i className={`cycle-day-gridline ${tick.dayStart ? 'midnight' : ''}`} key={tick.hour} style={{ left: `${tick.offset}%` }} />
+      ))}
+    </>
   );
 }
 
