@@ -1,8 +1,10 @@
 import { currentGrade, gradeLabel } from '../utils/childInfo.js';
-import { getCustodyStats } from '../utils/custodyUtils.js';
-import { getAge, parseDateId } from '../utils/dateUtils.js';
+import { defaultCustodySchedule, getCustodyStats, getCustodyWeekStatus } from '../utils/custodyUtils.js';
+import { formatDateId, getAge, parseDateId } from '../utils/dateUtils.js';
+import { getChildAhead, getNextBirthday } from '../utils/whatsLeft.js';
 
 const number = (value) => Number(value).toLocaleString();
+const counted = (count, one, many) => `${number(count)}\u00a0${count === 1 ? one : many}`;
 const dayLabel = (dateId) => parseDateId(dateId).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 const dateLabel = (dateId) => parseDateId(dateId).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 
@@ -25,8 +27,11 @@ export function describeCustodyStatus(status, day = dayLabel) {
   };
 }
 
-/** One child's card: who they are, what's noted about them, and, if they are on the schedule, the time left. */
-export function describeChild(child, time, untilAge, now, date = dateLabel) {
+/**
+ * One child's card: who they are, what's noted about them, what is still ahead before `untilAge`, their next birthday
+ * (and whose week it falls in, when `custody` is given), and, if they are on the schedule, the time left with you.
+ */
+export function describeChild(child, { time, untilAge, custody }, now, date = dateLabel) {
   const meta = [
     child.birthDate ? `Age ${getAge(child.birthDate, now)}` : '',
     gradeLabel(currentGrade(child, now)),
@@ -42,10 +47,25 @@ export function describeChild(child, time, untilAge, now, date = dateLabel) {
       note: `${number(time.daysRemaining)} ${time.daysRemaining === 1 ? 'day' : 'days'}, until ${untilAge} on ${date(time.untilDate)}.`
     };
   }
+  let ahead = '';
+  let nextBirthday = '';
+  if (child.birthDate) {
+    if (getAge(child.birthDate, now) < untilAge) {
+      const left = getChildAhead(child, untilAge, now);
+      ahead = `Before ${untilAge}: ${counted(left.summers, 'summer', 'summers')} · ${counted(left.christmases, 'Christmas', 'Christmases')} · ${counted(left.birthdays, 'birthday', 'birthdays')}`;
+    }
+    const birthday = getNextBirthday(child.birthDate, now);
+    const when = birthday.dateId === formatDateId(now) ? 'today' : `on ${date(birthday.dateId)}`;
+    const status = custody ? getCustodyWeekStatus(custody, parseDateId(birthday.dateId)) : null;
+    const week = status ? (status.withYou ? ', in your week' : ", in their other parent's week") : '';
+    nextBirthday = `Turns ${birthday.age} ${when}${week}.`;
+  }
   return {
     id: child.id,
     name: child.name || 'Unnamed child',
     meta,
+    ahead,
+    nextBirthday,
     weeks,
     details: (child.details || []).filter((detail) => detail.label || detail.value)
   };
@@ -56,7 +76,12 @@ export default function FamilyTimePanel({ calendar, today, canEdit, onEdit }) {
   const stats = getCustodyStats(calendar, now);
   const status = describeCustodyStatus(stats?.status);
   const times = new Map((stats?.children || []).map((time) => [time.id, time]));
-  const children = (calendar.children || []).map((child) => describeChild(child, times.get(child.id), stats?.untilAge, now));
+  const untilAge = Number(calendar.custodySchedule?.countUntilChildAge || defaultCustodySchedule.countUntilChildAge);
+  const children = (calendar.children || []).map((child) => describeChild(child, {
+    time: times.get(child.id),
+    untilAge,
+    custody: times.has(child.id) ? calendar.custodySchedule : null
+  }, now));
 
   return (
     <section className="family-time-panel" aria-label="Time with my boys">
@@ -78,6 +103,13 @@ export default function FamilyTimePanel({ calendar, today, canEdit, onEdit }) {
                 <p className="kid-weeks"><strong>{child.weeks.number}</strong> {child.weeks.unit}</p>
                 <p className="kid-note">{child.weeks.note}</p>
               </>
+            )}
+            {(child.ahead || child.nextBirthday) && (
+              <p className="kid-ahead">
+                {child.ahead}
+                {child.ahead && child.nextBirthday && <br />}
+                {child.nextBirthday}
+              </p>
             )}
             {child.details.length > 0 && (
               <dl className="kid-details">

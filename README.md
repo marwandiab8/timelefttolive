@@ -8,6 +8,7 @@ A private life-calendar and mortality-awareness dashboard. Users sign in, create
 - Owner-owned Firestore calendar data.
 - Full-width 52-week life heatmap: weeks lived are solid, weeks ahead are outlines, the current week is highlighted, a gap follows every tenth year, each week's square is split into coloured wedges, one per event (up to four, then a count). A summary above it leads with the weeks you have left.
 - Click any week to see the seven individual dates inside that week.
+- **Still ahead**, under the summary: the weekends, summers, Christmases and birthdays left before your target age. **Time with my boys**: who has them this week under the every-other-week schedule, and a card per child with age, grade (moves up each September), school, your notes, weeks left with you before 18, the summers, Christmases and birthdays left before 18, and whose week the next birthday falls in.
 - Daily journals, tags, links, file/image uploads, and external Firebase record metadata links.
 - Date-range events with visibility and overlap indicators.
 - Viewer invites with read-only access for accepted viewers.

@@ -13,6 +13,7 @@ import PrimaryViewSwitcher from '../components/PrimaryViewSwitcher.jsx';
 import ProfileForm from '../components/ProfileForm.jsx';
 import ViewerManager from '../components/ViewerManager.jsx';
 import WeekDetailPanel from '../components/WeekDetailPanel.jsx';
+import WhatsLeft from '../components/WhatsLeft.jsx';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { acceptViewerInvite, useEvents, useOwnedCalendar, useSharedCalendar, useViewerInvites, useViewers } from '../hooks/useCalendar.js';
 import { logOut } from '../services/firebase.js';
@@ -317,6 +318,7 @@ export default function Dashboard() {
       </header>
 
       <LifeSummary stats={stats} />
+      <WhatsLeft calendar={calendar} today={currentDay} />
       {calendar.children?.length > 0 && (
         <FamilyTimePanel calendar={calendar} today={currentDay} canEdit={role === 'owner'} onEdit={() => setEditingProfile(true)} />
       )}

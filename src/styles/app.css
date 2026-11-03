@@ -437,6 +437,45 @@ legend {
   font-weight: 600;
 }
 
+.whats-left {
+  max-width: 44rem;
+  margin: -12px 0 36px;
+}
+
+.whats-left-label {
+  margin: 0 0 10px;
+  color: #e5b95f;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.whats-left ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 36px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.whats-left li {
+  display: grid;
+  gap: 2px;
+}
+
+.whats-left strong {
+  font-family: var(--display);
+  font-size: 1.9rem;
+  font-variant-numeric: lining-nums tabular-nums;
+  font-weight: 500;
+  line-height: 1.05;
+}
+
+.whats-left span {
+  color: #8d9a9a;
+  font-size: 0.82rem;
+}
+
 .family-time-panel {
   max-width: 76rem;
   margin: 0 0 36px;
@@ -483,13 +522,18 @@ legend {
 }
 
 .family-time-panel .kid-meta,
-.family-time-panel .kid-note {
+.family-time-panel .kid-note,
+.family-time-panel .kid-ahead {
   color: var(--card-muted);
   font-size: 0.86rem;
 }
 
 .family-time-panel .kid-meta {
   margin: 2px 0 10px;
+}
+
+.family-time-panel .kid-ahead {
+  margin-top: 8px;
 }
 
 .family-time-panel .kid-weeks strong {
@@ -1455,8 +1499,13 @@ legend {
   border-left-color: rgba(161, 111, 20, 0.6);
 }
 
-.app-shell[data-calendar-theme="light"] .family-time-label {
+.app-shell[data-calendar-theme="light"] .family-time-label,
+.app-shell[data-calendar-theme="light"] .whats-left-label {
   color: #8a5f0a;
+}
+
+.app-shell[data-calendar-theme="light"] .whats-left span {
+  color: #4f625b;
 }
 
 .app-shell[data-calendar-theme="light"] .field-hint {
