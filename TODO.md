@@ -1,5 +1,13 @@
 # To finish later
 
+## Deployed (2026-11-03)
+
+Hosting deployed to production from `fix/sleep-night-on-day-chart` at `1590098` (`main` at `653bf65` plus two commits), so merge that branch to bring `main` level with production. Functions and rules are unchanged.
+
+- The day's 24-hour timeline draws the night that ended that morning from its bedtime. The chart then starts in 6-hour steps before midnight (6 PM for a usual night, noon at the earliest), with the evening before shaded and a line at midnight; the night's time and range in the list start at bedtime too. Anything else carried over from the day before still starts at midnight. Axis labels and hour lines are placed by the clock (right on the 25-hour day the clocks go back).
+- The chart legend had no spacing (`.cycle-activity-stream p` outranked it); fixed.
+- Checked live, desktop and phone width: Nov 3 shows Sleep from 10:51 PM to 3:37 AM, 3h 58m.
+
 ## Deployed (2026-11-02, evening)
 
 Hosting deployed to production from `feat/still-ahead` at `400d2bc`, which is `feat/kids-info-schedule` plus `10bb7a8` (`fix/spotify-listening-time`) and the Still ahead feature. Merge in that order (`feat/dartconnect-source`, `feat/kids-info-schedule`, `fix/spotify-listening-time`, `feat/still-ahead`) to bring `main` level with production. Functions and rules are unchanged.
