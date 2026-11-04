@@ -849,15 +849,16 @@ function reportedInterval(event, bounds) {
 // period its wake-up falls in (as Apple Health does), and counts its recorded
 // total sleep - not just the minutes that happen to fall after 12:00 AM. The
 // interval stays clipped to the period for allocation; attributedSeconds
-// carries the full night into allocateIntervals, and the day chart draws it
-// from bedtime (buildDayActivityChart).
+// carries the full night into allocateIntervals, nightStartAt keeps the real
+// bedtime for anything that shows the night's times (the wheel, the session
+// lists), and the day chart draws it from bedtime (buildDayActivityChart).
 function sleepInterval(event, start, end, bounds) {
   if (!start || !end || end <= start) return null;
   if (bounds && (end <= bounds.start || end > bounds.end)) return null;
   const visible = clippedInterval(start, end, bounds);
   if (!visible) return null;
   const attributedSeconds = getSleepTotalSeconds(event, start, end);
-  return { ...visible, durationSeconds: attributedSeconds, attributedSeconds };
+  return { ...visible, durationSeconds: attributedSeconds, attributedSeconds, nightStartAt: start };
 }
 
 function getSleepTotalSeconds(event, start, end) {

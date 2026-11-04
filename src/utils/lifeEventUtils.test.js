@@ -585,6 +585,14 @@ describe('activity analysis utilities', () => {
       expect(analysis.sessions[0].durationSeconds).toBe(18396);
     });
 
+    it('keeps the bedtime on the wake-up day session, for showing the night\'s times', () => {
+      const bounds = getPeriodBounds('day', '2026-09-23');
+      const [session] = buildPeriodAnalysis([night], bounds).sessions;
+      expect(session.startAt.toISOString()).toBe(bounds.start.toISOString());
+      expect(session.nightStartAt.toISOString()).toBe('2026-09-23T02:42:07.000Z');
+      expect(session.endAt.toISOString()).toBe('2026-09-23T07:56:46.000Z');
+    });
+
     it('does not count any of that night on the day it started', () => {
       const analysis = buildPeriodAnalysis([night], getPeriodBounds('day', '2026-09-22'));
       expect(sleepSeconds(analysis)).toBe(0);

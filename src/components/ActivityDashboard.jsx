@@ -486,7 +486,7 @@ export function LifeWheel({ analysis, categoryAnalysis, now, onSelect, period, p
             <h2>{categoryAnalysis.label}</h2>
             {centerSession?.location && <p>{centerSession.location}</p>}
             {centerSession ? (
-              <time>{clockFormatter.format(centerSession.startAt)} – {centerSession.active ? 'In progress' : clockFormatter.format(centerSession.endAt)}</time>
+              <time>{clockFormatter.format(sessionShownStart(centerSession))} – {centerSession.active ? 'In progress' : clockFormatter.format(centerSession.endAt)}</time>
             ) : (
               <p>{categoryAnalysis.sessionCount} {categoryAnalysis.sessionCount === 1 ? 'session' : 'sessions'}</p>
             )}
@@ -1508,9 +1508,15 @@ function Metric({ label, value, detail }) {
   return <article><span>{label}</span><strong>{value}</strong>{detail && <small>{detail}</small>}</article>;
 }
 
+// A night of sleep is shown from its bedtime even when that was the evening
+// before, because the whole night counts on the day it ends (sleepInterval).
+function sessionShownStart(session) {
+  return session.nightStartAt || session.startAt;
+}
+
 function formatSessionRange(session) {
   if (session.missingBoundary === 'start') return `Arrival not recorded – ${clockFormatter.format(session.startAt)}`;
-  return `${clockFormatter.format(session.startAt)} – ${session.active ? 'In progress' : session.endAt ? clockFormatter.format(session.endAt) : 'Departure not recorded'}`;
+  return `${clockFormatter.format(sessionShownStart(session))} – ${session.active ? 'In progress' : session.endAt ? clockFormatter.format(session.endAt) : 'Departure not recorded'}`;
 }
 
 function formatWorkoutRange(workout) {
@@ -1536,7 +1542,7 @@ function buildTrendRows(period, analysis, bounds, categoryLabel) {
   if (period === 'day') {
     const periodMs = bounds.end - bounds.start;
     return sessions.map((session) => ({
-      label: clockFormatter.format(session.startAt),
+      label: clockFormatter.format(sessionShownStart(session)),
       title: session.title,
       range: formatSessionRange(session),
       seconds: session.allocatedSeconds,
