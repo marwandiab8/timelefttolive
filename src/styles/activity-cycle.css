@@ -935,20 +935,28 @@
   font-size: 0.78rem;
 }
 
+/* Labels sit at their hour (left set inline); the first and last hug the ends. */
 .cycle-day-axis {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  position: relative;
+  height: 1.3em;
   margin: 26px 0 10px 216px;
   color: var(--cycle-muted);
   font-size: 0.68rem;
 }
 
-.cycle-day-axis span:not(:first-child):not(:last-child) {
-  text-align: center;
+.cycle-day-axis span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
 }
 
-.cycle-day-axis span:last-child {
-  text-align: right;
+.cycle-day-axis span.first {
+  transform: none;
+}
+
+.cycle-day-axis span.last {
+  transform: translateX(-100%);
 }
 
 .cycle-day-rows {
@@ -984,11 +992,30 @@
   height: 42px;
   border: 1px solid color-mix(in srgb, var(--cycle-border) 70%, transparent);
   border-radius: 12px;
-  background:
-    linear-gradient(to right, transparent calc(25% - 1px), var(--cycle-border) 25%, transparent calc(25% + 1px)),
-    linear-gradient(to right, transparent calc(50% - 1px), var(--cycle-border) 50%, transparent calc(50% + 1px)),
-    linear-gradient(to right, transparent calc(75% - 1px), var(--cycle-border) 75%, transparent calc(75% + 1px)),
-    color-mix(in srgb, var(--cycle-surface) 64%, transparent);
+  background: color-mix(in srgb, var(--cycle-surface) 64%, transparent);
+}
+
+.cycle-day-gridline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--cycle-border);
+}
+
+.cycle-day-gridline.midnight {
+  width: 2px;
+  background: color-mix(in srgb, var(--cycle-muted) 55%, transparent);
+}
+
+.cycle-day-before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 11px 0 0 11px;
+  background: color-mix(in srgb, var(--cycle-muted) 12%, transparent);
 }
 
 .cycle-day-bar {
@@ -1052,7 +1079,8 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, #f3c95f 25%, transparent);
 }
 
-.cycle-chart-legend {
+/* Outranks .cycle-activity-stream p, which would otherwise make it a block with no gaps. */
+.cycle-activity-stream .cycle-chart-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
@@ -1086,6 +1114,12 @@
   height: 14px;
   border-radius: 0;
   background: #f3c95f;
+}
+
+.cycle-chart-legend i.before-day {
+  height: 12px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--cycle-muted) 22%, transparent);
 }
 
 .cycle-linear-history {
@@ -1988,7 +2022,7 @@
     height: 46px;
   }
 
-  .cycle-chart-legend {
+  .cycle-activity-stream .cycle-chart-legend {
     gap: 9px;
   }
 

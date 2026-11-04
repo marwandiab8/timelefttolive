@@ -189,6 +189,18 @@ describe('LifeWheel', () => {
     expect(markup).not.toContain('2 sessions');
   });
 
+  it('shows a night that began the evening before from its bedtime, not from midnight', () => {
+    // As sleepInterval gives it on the wake-up day: clipped to midnight, with the real bedtime kept.
+    const clock = new Intl.DateTimeFormat(undefined, { timeZone: 'America/Toronto', hour: 'numeric', minute: '2-digit' });
+    const bedtime = new Date('2026-11-03T03:51:08Z');
+    const session = { startAt: new Date('2026-11-03T05:00:00Z'), nightStartAt: bedtime, endAt: new Date('2026-11-03T08:37:51Z'), durationSeconds: 14256, active: false };
+    const sleep = { ...categories[2], sessionCount: 1, totalSeconds: 14256, sessions: [session], activeSession: null };
+    const markup = render({ categoryAnalysis: sleep, period: 'day', selectedLabel: 'Sleep' });
+    expect(markup).toContain(`<time>${clock.format(bedtime)} – ${clock.format(session.endAt)}</time>`);
+    expect(markup).not.toContain(clock.format(session.startAt));
+    expect(markup).toContain('3h 58m');
+  });
+
   it('shows the session count and the full total, not just the first session\'s window, on a day with two sessions in the same category', () => {
     // e.g. arrived at 7:04, left for lunch at 12:19, came back at 1:53, left at 6:23: two Work sessions that day.
     const morning = { startAt: new Date('2026-09-19T07:04:00Z'), endAt: new Date('2026-09-19T12:19:00Z'), durationSeconds: 5 * H + 15 * 60, active: false };

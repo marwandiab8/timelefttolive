@@ -585,18 +585,72 @@ describe('activity analysis utilities', () => {
       expect(analysis.sessions[0].durationSeconds).toBe(18396);
     });
 
+    it('keeps the bedtime on the wake-up day session, for showing the night\'s times', () => {
+      const bounds = getPeriodBounds('day', '2026-09-23');
+      const [session] = buildPeriodAnalysis([night], bounds).sessions;
+      expect(session.startAt.toISOString()).toBe(bounds.start.toISOString());
+      expect(session.nightStartAt.toISOString()).toBe('2026-09-23T02:42:07.000Z');
+      expect(session.endAt.toISOString()).toBe('2026-09-23T07:56:46.000Z');
+    });
+
     it('does not count any of that night on the day it started', () => {
       const analysis = buildPeriodAnalysis([night], getPeriodBounds('day', '2026-09-22'));
       expect(sleepSeconds(analysis)).toBe(0);
     });
 
-    it('still draws the night from midnight on the wake-up day chart', () => {
+    it('draws the whole night from bedtime on the wake-up day chart, which starts at 6 PM the evening before', () => {
       const bounds = getPeriodBounds('day', '2026-09-23');
       const analysis = buildPeriodAnalysis([night], bounds);
       expect(analysis.sessions[0].startAt.toISOString()).toBe(bounds.start.toISOString());
-      const row = buildDayActivityChart(analysis, bounds).rows[0];
-      expect(row.offset).toBe(0);
-      expect(row.boundaryStartAt.toISOString()).toBe('2026-09-23T02:42:07.000Z');
+      const chart = buildDayActivityChart(analysis, bounds);
+      // 6 PM Sep 22 to midnight Sep 24: 30 hours, a label every 6.
+      expect(chart.ticks.map((tick) => tick.label)).toEqual(['6 PM', '12 AM', '6 AM', 'Noon', '6 PM', '12 AM']);
+      expect(chart.ticks.map((tick) => tick.offset)).toEqual([0, 20, 40, 60, 80, 100]);
+      expect(chart.ticks.filter((tick) => tick.dayStart).map((tick) => tick.label)).toEqual(['12 AM']);
+      expect(chart.dayStartOffset).toBe(20);
+      const row = chart.rows[0];
+      expect(row).toMatchObject({ wholeNight: true, hasReliableInterval: true, durationSeconds: 18396 });
+      expect(row.displayStartAt.toISOString()).toBe('2026-09-23T02:42:07.000Z');
+      expect(row.offset).toBeCloseTo((4 * 3600 + 42 * 60 + 7) / (30 * 3600) * 100, 6);
+      expect(row.offset + row.width).toBeCloseTo((6 * 3600 + 3 * 3600 + 56 * 60 + 46) / (30 * 3600) * 100, 6);
+    });
+
+    it('keeps the day chart at 24 hours when no night started the evening before', () => {
+      const bounds = getPeriodBounds('day', '2026-09-23');
+      const afterMidnight = { ...night, id: 'after-midnight', startAt: '2026-09-23T04:30:00Z' };
+      const chart = buildDayActivityChart(buildPeriodAnalysis([afterMidnight], bounds), bounds);
+      expect(chart.ticks.map((tick) => tick.label)).toEqual(['12 AM', '6 AM', 'Noon', '6 PM', '12 AM']);
+      expect(chart.ticks.map((tick) => tick.offset)).toEqual([0, 25, 50, 75, 100]);
+      expect(chart.dayStartOffset).toBe(0);
+      expect(chart.rows[0].offset).toBeCloseTo(0.5 / 24 * 100, 6);
+    });
+
+    it('starts the chart no earlier than noon the day before', () => {
+      const bounds = getPeriodBounds('day', '2026-09-23');
+      const earlyNight = { ...night, id: 'early', startAt: '2026-09-22T14:00:00Z' };
+      const chart = buildDayActivityChart(buildPeriodAnalysis([earlyNight], bounds), bounds);
+      expect(chart.ticks[0]).toMatchObject({ label: 'Noon', offset: 0 });
+      expect(chart.rows[0].offset).toBe(0);
+    });
+
+    it('places the hours by the clock on the day the clocks go back', () => {
+      // Nov 1 2026 has 25 hours; 6 PM Oct 31 (EDT) to midnight Nov 2 (EST) is 31.
+      const bounds = getPeriodBounds('day', '2026-11-01');
+      const dstNight = { ...night, id: 'dst', startAt: '2026-11-01T02:30:00Z', endAt: '2026-11-01T11:30:00Z' };
+      const chart = buildDayActivityChart(buildPeriodAnalysis([dstNight], bounds), bounds);
+      const offsets = Object.fromEntries(chart.ticks.slice(1, 3).map((tick) => [tick.label, tick.offset]));
+      expect(offsets['12 AM']).toBeCloseTo(6 / 31 * 100, 6);
+      expect(offsets['6 AM']).toBeCloseTo(13 / 31 * 100, 6);
+    });
+
+    it('still starts anything else carried over from the day before at midnight', () => {
+      const bounds = getPeriodBounds('day', '2026-09-23');
+      const now = new Date('2026-09-23T16:00:00Z');
+      const openWork = { id: 'open-work', eventType: 'arrive_work', activityFamily: 'work', occurredAt: '2026-09-22T10:49:00Z' };
+      const chart = buildDayActivityChart(buildPeriodAnalysis([night, openWork], bounds, { includeActive: true, now }), bounds, now);
+      const work = chart.rows.find((row) => row.category === 'Work');
+      expect(work).toMatchObject({ active: true, wholeNight: false, offset: chart.dayStartOffset });
+      expect(chart.dayStartOffset).toBe(20);
     });
 
     it('falls back to the in-bed span when no total sleep is recorded', () => {
