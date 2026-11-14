@@ -428,41 +428,37 @@
   50% { opacity: 0.35; box-shadow: 0 0 2px var(--activity-focus); }
 }
 
-/* The tooltip: a small pane of the same glass, pinned to the slice it describes. */
-.life-wheel-tooltip {
-  position: absolute;
-  z-index: 3;
-  display: grid;
-  gap: 3px;
-  width: max-content;
-  max-width: 250px;
-  padding: 10px 13px;
-  border: 1px solid var(--cycle-border);
-  border-left: 3px solid var(--tooltip-color, var(--cycle-border));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--cycle-surface) 86%, transparent);
-  color: var(--cycle-text);
-  font-size: 0.8rem;
-  line-height: 1.35;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  pointer-events: none;
-}
-
-.life-wheel-tooltip strong {
-  font-size: 0.86rem;
-}
-
-.life-wheel-tooltip span {
+/* The hub speaks for the slice under the pointer: short lines under the number. */
+.life-wheel-center .life-wheel-line {
+  display: block;
+  max-width: 100%;
+  margin-top: 3px;
+  overflow: hidden;
   color: var(--cycle-muted);
+  font-size: clamp(0.6rem, 0.78vw, 0.74rem);
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* It opens away from the hub: to the right of a slice on the right half, above one in the top half. */
-.life-wheel-tooltip.right.below { transform: translate(14px, 14px); }
-.life-wheel-tooltip.left.below { transform: translate(calc(-100% - 14px), 14px); }
-.life-wheel-tooltip.right.above { transform: translate(14px, calc(-100% - 14px)); }
-.life-wheel-tooltip.left.above { transform: translate(calc(-100% - 14px), calc(-100% - 14px)); }
+.life-wheel-center .hub-time {
+  font-size: clamp(1.1rem, 1.7vw, 1.6rem);
+  letter-spacing: -0.03em;
+}
+
+/* The gleam: a blade of light sweeping round the ring, once every nine seconds. */
+.life-wheel-gleam {
+  pointer-events: none;
+  mix-blend-mode: screen;
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+  animation: life-wheel-gleam 9s linear infinite;
+}
+
+@keyframes life-wheel-gleam {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 
 /* The tool row above the wheel: layout, comparison, untracked time, image. */
 .cycle-wheel-tools {
@@ -2975,7 +2971,8 @@
   }
 
   .life-wheel-live,
-  .life-wheel-pulse {
+  .life-wheel-pulse,
+  .life-wheel-gleam {
     animation: none;
   }
 }
@@ -3001,21 +2998,52 @@
     display: none;
   }
 
-  /* On a phone the tooltip sits over the hub, whichever slice it describes: outside the ring it
-     would run off the screen (the hub's own text says the same thing, so nothing is lost). */
-  .life-wheel-tooltip,
-  .life-wheel-tooltip.right.below,
-  .life-wheel-tooltip.left.below,
-  .life-wheel-tooltip.right.above,
-  .life-wheel-tooltip.left.above {
-    left: 50% !important; /* the slice position is set inline */
-    top: 50% !important;
-    max-width: min(68vw, 250px);
-    transform: translate(-50%, -50%);
-    border-left-width: 1px;
-    border-top: 3px solid var(--tooltip-color, var(--cycle-border));
-    font-size: 0.74rem;
-    text-align: center;
+  /* The lens is about 130px wide on a phone: everything in it tightens up, the location goes,
+     and at most two lines sit under the number. */
+  .life-wheel-center {
+    inset: 30.5%;
+    padding: 2px;
+  }
+
+  .life-wheel-center .life-wheel-icon {
+    font-size: 1.05rem;
+  }
+
+  .life-wheel-center h2 {
+    margin: 1px 0;
+    font-size: 0.92rem;
+  }
+
+  .life-wheel-center p,
+  .life-wheel-center time {
+    margin: 1px 0;
+    font-size: 0.6rem;
+  }
+
+  .life-wheel-center .hub-location {
+    display: none;
+  }
+
+  .life-wheel-center > strong {
+    margin: 2px 0 1px;
+    font-size: 1.4rem;
+  }
+
+  .life-wheel-center .hub-time {
+    font-size: 1.05rem;
+  }
+
+  .life-wheel-center .life-wheel-line {
+    margin-top: 1px;
+    font-size: 0.54rem;
+  }
+
+  .life-wheel-center .life-wheel-line:nth-of-type(n + 3) {
+    display: none;
+  }
+
+  .life-wheel-center small {
+    font-size: 0.54rem;
   }
 
   .life-wheel {
@@ -3032,10 +3060,6 @@
   .cycle-facts li {
     padding: 8px 10px;
   }
-}
-
-.activity-cycle[data-theme="light"] .life-wheel-tooltip {
-  box-shadow: 0 14px 40px rgba(31, 53, 63, 0.18);
 }
 
 .activity-cycle[data-theme="light"] .cycle-target-metric.met dd { color: #1f9d55; }

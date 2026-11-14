@@ -50,17 +50,23 @@ export function labelColorFor(hex) {
 }
 
 // The chosen material: the "Clear crystal" study variant (Marwan picked it over Jewel on
-// 2026-11-14 after seeing Jewel live): a light body, a strong glancing highlight and a thin bright
-// rim. Every number is in viewBox units or opacities; the colours come from the category colour alone.
+// 2026-11-14 after seeing Jewel live), pushed shinier the same day: a brighter body, a strong
+// glancing highlight plus a second soft reflection, light on both bevels, a polished bezel and a
+// slow gleam sweeping round the ring. Every number is in viewBox units or opacities; the colours
+// come from the category colour alone.
 export const CRYSTAL = Object.freeze({
-  innerDark: 0.24,
-  outerLight: 0.22,
-  specular: { dark: 0.42, light: 0.3 },
-  band: { width: 0.8, alpha: { dark: 0.75, light: 0.65 } },
-  rim: { light: { dark: 0.34, light: 0.24 }, dark: 0.35 },
-  glow: { alpha: { dark: 0.42, light: 0.26 }, blur: 2.6 },
+  innerDark: 0.3,
+  outerLight: 0.3,
+  specular: { dark: 0.55, light: 0.4 },
+  sheen: { dark: 0.3, light: 0.24 },
+  band: { width: 0.9, alpha: { dark: 0.92, light: 0.8 } },
+  innerBand: { width: 0.45, alpha: { dark: 0.4, light: 0.3 } },
+  rim: { light: { dark: 0.5, light: 0.3 }, dark: 0.4 },
+  glow: { alpha: { dark: 0.55, light: 0.3 }, blur: 3 },
+  gleam: { alpha: { dark: 0.3, light: 0.22 }, seconds: 9 },
+  bezel: { dark: 0.55, light: 0.75 },
   gapAngle: 2.2,
-  shadow: { dark: 0.55, light: 0.3 }
+  shadow: { dark: 0.6, light: 0.3 }
 });
 
 /** The three body stops of a slice: dark at the hole, true colour in the middle, light at the edge. */

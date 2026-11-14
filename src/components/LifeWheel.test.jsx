@@ -36,6 +36,9 @@ describe('LifeWheel material', () => {
     expect(markup).toContain('-spec"');
     expect(markup).toContain('feDropShadow');
     expect(markup).toContain('class="life-wheel-seat"');
+    expect(markup).toContain('class="life-wheel-bezel"');
+    expect(markup).toContain('-sheen"');
+    expect(markup).toContain('-ringclip"');
     expect(markup).toContain('class="life-wheel-hub"');
     expect(markup).toContain('/brand/k2-logo-watermark.png');
     expect(markup).not.toMatch(/NaN|undefined/);
@@ -65,6 +68,18 @@ describe('LifeWheel material', () => {
 });
 
 describe('LifeWheel hub', () => {
+  it('says the selected slice\'s share, comparison and target under its number, since there is no tooltip', () => {
+    const compareSeconds = new Map([['Work', 9 * H + 6 * 60]]);
+    const work = { ...categories[0], sessionCount: 1, totalSeconds: 8 * H, sessions: [], activeSession: null };
+    const markup = render({ selectedLabel: 'Work', categoryAnalysis: work, compare: 'previous', compareSeconds, targetText: '36m under your 9h limit' });
+    const hub = markup.match(/<div class="life-wheel-center[\s\S]*$/)[0];
+    expect(hub).toContain('<small class="life-wheel-line">50% of tracked time</small>');
+    expect(hub).toContain('<small class="life-wheel-line">1h 6m less than yesterday (9h 6m)</small>');
+    expect(hub).toContain('<small class="life-wheel-line">36m under your 9h limit</small>');
+    expect(markup).not.toContain('life-wheel-tooltip');
+  });
+
+
   it('becomes a button that shows every activity again while one is selected', () => {
     const selected = render({ selectedLabel: 'Work', categoryAnalysis: { ...categories[0], sessionCount: 1, totalSeconds: 8 * H, sessions: [], activeSession: null } });
     expect(selected).toMatch(/class="life-wheel-center clearable" aria-live="polite" role="button" tabindex="0" title="Show all activities"/);

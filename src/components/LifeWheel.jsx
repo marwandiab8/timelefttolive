@@ -353,7 +353,10 @@ export function LifeWheel({
   const centerSession = categoryAnalysis?.activeSession
     || (period === 'day' && categoryAnalysis?.sessionCount === 1 ? categoryAnalysis?.sessions[0] : null);
 
-  const describe = (segment) => describeSegment(segment, { period, isClock, compare, comparisonArcs, targets, totalSeconds });
+  const describeContext = { period, isClock, compare, comparisonArcs, targets, totalSeconds };
+  // What the hub shows: the slice or bead under the pointer (or with keyboard focus) first, unless
+  // it is the selected slice itself, which has the fuller view; then the selection; then the total.
+  const hovering = hovered && !(hovered.segment && hovered.segment.label === selectedLabel && !hovered.segment.clock) ? hovered : null;
 
   return (
     <div className={`life-wheel material-${material} layout-${isClock ? 'clock' : 'share'}`} data-testid="life-wheel" data-material={material}>
@@ -376,6 +379,7 @@ export function LifeWheel({
 
         {/* The seat: a dark bezel the gaps open onto, with hour marks in the clock layout. */}
         <circle className="life-wheel-seat" cx={C} cy={C} r={R + 1.4} fill={material === 'crystal' ? `url(#${id}-seat)` : palette.seat} stroke={palette.seatEdge} strokeWidth="0.3" />
+        {material === 'crystal' && <circle className="life-wheel-bezel" cx={C} cy={C} r={R + 1.55} fill="none" stroke={`url(#${id}-bezel)`} strokeWidth="0.45" />}
         {isClock && clock.ticks.map((tick) => {
           const from = pointOnRing(tick.major ? R + 0.2 : R + 0.5, tick.angle);
           const to = pointOnRing(tick.major ? R + 1.4 : R + 1.15, tick.angle);
@@ -460,6 +464,15 @@ export function LifeWheel({
           </g>
         )}
 
+        {material === 'crystal' && motion && (
+          /* The clip stays put on the outer group; only the blade inside it turns. */
+          <g clipPath={`url(#${id}-ringclip)`} aria-hidden="true">
+            <g className="life-wheel-gleam" style={{ animationDuration: `${CRYSTAL.gleam.seconds}s` }}>
+              <path d={`M ${C} ${C} L ${pointOnRing(R + 2, -16).x} ${pointOnRing(R + 2, -16).y} A ${R + 2} ${R + 2} 0 0 1 ${pointOnRing(R + 2, 16).x} ${pointOnRing(R + 2, 16).y} Z`} fill={`url(#${id}-gleam)`} />
+            </g>
+          </g>
+        )}
+
         <WheelHub id={id} material={material} theme={theme} palette={palette} />
       </svg>
 
@@ -478,40 +491,107 @@ export function LifeWheel({
           }
         } : undefined}
       >
-        {categoryAnalysis ? (
-          <>
-            <span className="life-wheel-icon" aria-hidden="true"><HubIcon label={categoryAnalysis.label} /></span>
-            <h2>{categoryAnalysis.label}</h2>
-            {centerSession?.location && <p>{centerSession.location}</p>}
-            {centerSession ? (
-              <time>{clockFormatter.format(sessionShownStart(centerSession))} – {centerSession.active ? 'In progress' : clockFormatter.format(centerSession.endAt)}</time>
-            ) : (
-              <p>{categoryAnalysis.sessionCount} {categoryAnalysis.sessionCount === 1 ? 'session' : 'sessions'}</p>
-            )}
-            <strong>{formatDuration(centerSession?.durationSeconds ?? categoryAnalysis.totalSeconds)}</strong>
-            {targetText && <small className="life-wheel-target">{targetText}</small>}
-          </>
-        ) : pointAnalysis ? (
-          <>
-            <span className="life-wheel-icon" aria-hidden="true"><HubIcon label={pointAnalysis.label} /></span>
-            <h2>{pointAnalysis.label}</h2>
-            <p>{pointAnalysis.count} {pointAnalysis.count === 1 ? 'event' : 'events'}</p>
-            <strong>{pointAnalysis.reliableDuration ? formatDuration(pointAnalysis.totalSeconds) : 'Moments'}</strong>
-            {!pointAnalysis.reliableDuration && <span>No duration supplied</span>}
-          </>
-        ) : (
-          <>
-            <p>{title}</p>
-            <strong>{formatDuration(motion ? countedTotal : totalSeconds)}</strong>
-            <span>tracked time</span>
-            {analysis.activeCount > 0 && <small><i className="life-wheel-pulse" aria-hidden="true" />{analysis.activeCount} in progress · updated {clockFormatter.format(now)}</small>}
-          </>
-        )}
+        <HubContent
+          hovering={hovering}
+          categoryAnalysis={categoryAnalysis}
+          pointAnalysis={pointAnalysis}
+          centerSession={centerSession}
+          title={title}
+          total={formatDuration(motion ? countedTotal : totalSeconds)}
+          activeCount={analysis.activeCount}
+          now={now}
+          targetText={targetText}
+          context={describeContext}
+        />
       </div>
-
-      {hovered && <WheelTooltip hovered={hovered} describe={describe} />}
     </div>
   );
+}
+
+// --- the hub's words ---------------------------------------------------------------------------
+
+function HubLines({ lines }) {
+  return lines.filter(Boolean).slice(0, 4).map((line, index) => <small className="life-wheel-line" key={index}>{line}</small>);
+}
+
+function HubContent({ hovering, categoryAnalysis, pointAnalysis, centerSession, title, total, activeCount, now, targetText, context }) {
+  if (hovering?.bead) {
+    const { bead } = hovering;
+    const times = bead.items.map((item) => item.at).filter(Boolean).sort((left, right) => left - right);
+    const titles = [...new Set(bead.items.map((item) => item.title).filter(Boolean))];
+    const when = times.length
+      ? (times.length > 1 && times[0].getTime() !== times.at(-1).getTime() ? `${clockFormatter.format(times[0])} – ${clockFormatter.format(times.at(-1))}` : clockFormatter.format(times[0]))
+      : (bead.count > 1 ? `${bead.count} moments` : 'Moment');
+    return (
+      <>
+        <span className="life-wheel-icon" aria-hidden="true"><HubIcon label={bead.label} /></span>
+        <h2>{bead.label}{bead.count > 1 ? ` · ${bead.count}` : ''}</h2>
+        <strong className="hub-time">{when}</strong>
+        <HubLines lines={[...titles.slice(0, 2), titles.length > 2 ? `+${titles.length - 2} more` : '']} />
+      </>
+    );
+  }
+  if (hovering?.segment) {
+    const { segment } = hovering;
+    const { title: heading, value, lines } = describeSegment(segment, context);
+    return (
+      <>
+        {!segment.untracked && <span className="life-wheel-icon" aria-hidden="true"><HubIcon label={segment.label} /></span>}
+        <h2>{heading}</h2>
+        <strong>{value}</strong>
+        <HubLines lines={lines} />
+      </>
+    );
+  }
+  if (categoryAnalysis) {
+    const { totalSeconds, comparisonArcs, compare, period } = context;
+    const share = totalSeconds ? `${sharePercent(categoryAnalysis.totalSeconds / totalSeconds)} of tracked time` : '';
+    const sessions = `${categoryAnalysis.sessionCount} ${categoryAnalysis.sessionCount === 1 ? 'session' : 'sessions'}`;
+    const arc = comparisonArcs.find((candidate) => candidate.label === categoryAnalysis.label);
+    return (
+      <>
+        <span className="life-wheel-icon" aria-hidden="true"><HubIcon label={categoryAnalysis.label} /></span>
+        <h2>{categoryAnalysis.label}</h2>
+        {centerSession?.location && <p className="hub-location">{centerSession.location}</p>}
+        {centerSession ? (
+          <time>{clockFormatter.format(sessionShownStart(centerSession))} – {centerSession.active ? 'In progress' : clockFormatter.format(centerSession.endAt)}</time>
+        ) : (
+          <p>{sessions}</p>
+        )}
+        <strong>{formatDuration(centerSession?.durationSeconds ?? categoryAnalysis.totalSeconds)}</strong>
+        <HubLines lines={[
+          centerSession && categoryAnalysis.sessionCount > 1 ? `${share} · ${sessions}` : share,
+          compare !== 'none' && arc ? comparisonLine(categoryAnalysis.totalSeconds, arc.seconds, compare, period) : '',
+          targetText
+        ]} />
+      </>
+    );
+  }
+  if (pointAnalysis) {
+    return (
+      <>
+        <span className="life-wheel-icon" aria-hidden="true"><HubIcon label={pointAnalysis.label} /></span>
+        <h2>{pointAnalysis.label}</h2>
+        <p>{pointAnalysis.count} {pointAnalysis.count === 1 ? 'event' : 'events'}</p>
+        <strong>{pointAnalysis.reliableDuration ? formatDuration(pointAnalysis.totalSeconds) : 'Moments'}</strong>
+        {!pointAnalysis.reliableDuration && <span>No duration supplied</span>}
+      </>
+    );
+  }
+  return (
+    <>
+      <p>{title}</p>
+      <strong>{total}</strong>
+      <span>tracked time</span>
+      {activeCount > 0 && <small><i className="life-wheel-pulse" aria-hidden="true" />{activeCount} in progress · updated {clockFormatter.format(now)}</small>}
+    </>
+  );
+}
+
+function comparisonLine(seconds, against, compare, period) {
+  const delta = seconds - against;
+  const name = compare === 'previous' ? PREVIOUS_NAMES[period] || 'the previous period' : 'your recent normal';
+  return Math.abs(delta) < 60 ? `Same as ${name}` : `${formatDuration(Math.abs(delta))} ${delta > 0 ? 'more' : 'less'} than ${name} (${formatDuration(against)})`;
 }
 
 function sessionShownStart(session) {
@@ -530,8 +610,11 @@ function HubIcon({ label }) {
 
 function WheelDefs({ id, segments, theme, palette }) {
   const specular = CRYSTAL.specular[theme] ?? CRYSTAL.specular.dark;
+  const sheen = CRYSTAL.sheen[theme] ?? CRYSTAL.sheen.dark;
   const band = CRYSTAL.band.alpha[theme] ?? CRYSTAL.band.alpha.dark;
   const shadow = CRYSTAL.shadow[theme] ?? CRYSTAL.shadow.dark;
+  const gleam = CRYSTAL.gleam.alpha[theme] ?? CRYSTAL.gleam.alpha.dark;
+  const bezel = CRYSTAL.bezel[theme] ?? CRYSTAL.bezel.dark;
   return (
     <defs>
       {/* A glancing light from the upper left, gone before the middle of the wheel. */}
@@ -540,6 +623,27 @@ function WheelDefs({ id, segments, theme, palette }) {
         <stop offset="0.28" stopColor="#fff" stopOpacity={n(specular * 0.22)} />
         <stop offset="0.5" stopColor="#fff" stopOpacity="0" />
       </linearGradient>
+      {/* A second, softer reflection from the upper right: two lights read as glass. */}
+      <radialGradient id={`${id}-sheen`} gradientUnits="userSpaceOnUse" cx="64" cy="20" r="30">
+        <stop offset="0" stopColor="#fff" stopOpacity={sheen} />
+        <stop offset="0.45" stopColor="#fff" stopOpacity={n(sheen * 0.3)} />
+        <stop offset="1" stopColor="#fff" stopOpacity="0" />
+      </radialGradient>
+      {/* The gleam: a soft blade of light that sweeps round the ring (rotated by CSS). */}
+      <linearGradient id={`${id}-gleam`} gradientUnits="userSpaceOnUse" x1="36" y1="0" x2="64" y2="0">
+        <stop offset="0" stopColor="#fff" stopOpacity="0" />
+        <stop offset="0.5" stopColor="#fff" stopOpacity={gleam} />
+        <stop offset="1" stopColor="#fff" stopOpacity="0" />
+      </linearGradient>
+      {/* Polished metal: bright where the light falls, dark opposite. */}
+      <linearGradient id={`${id}-bezel`} gradientUnits="userSpaceOnUse" x1="22" y1="16" x2="80" y2="86">
+        <stop offset="0" stopColor="#fff" stopOpacity={bezel} />
+        <stop offset="0.5" stopColor="#fff" stopOpacity={n(bezel * 0.18)} />
+        <stop offset="1" stopColor="#fff" stopOpacity="0.03" />
+      </linearGradient>
+      <clipPath id={`${id}-ringclip`}>
+        {segments.filter((segment) => !segment.untracked).map((segment) => <path key={segment.key} d={describeWheelSegment(segment)} />)}
+      </clipPath>
       <radialGradient id={`${id}-band`} gradientUnits="userSpaceOnUse" cx="24" cy="14" r="78">
         <stop offset="0" stopColor="#fff" stopOpacity={band} />
         <stop offset="0.55" stopColor="#fff" stopOpacity={n(band * 0.35)} />
@@ -577,6 +681,13 @@ function outerArcOf(segment, inset) {
   const start = segment.startAngle + pad;
   const end = segment.endAngle - pad;
   return end > start ? describeArc(R - inset, start, end) : '';
+}
+
+function innerArcOf(segment, inset) {
+  const pad = segment.full ? 0 : 4;
+  const start = segment.startAngle + pad;
+  const end = segment.endAngle - pad;
+  return end > start ? describeArc(IR + inset, start, end) : '';
 }
 
 function WheelSlice({ id, index, segment, material, theme, palette, selected, faded, live, tabIndex, onSelect, onHover, onFocusKey, onMove, registerRef }) {
@@ -636,7 +747,9 @@ function WheelSlice({ id, index, segment, material, theme, palette, selected, fa
     <g className={classes} style={style} data-label={segment.label} {...handlers}>
       <path className={segmentClass} d={d} fill={`url(#${id}-body-${index})`} fillRule="evenodd" />
       {!untracked && <path d={d} fill={`url(#${id}-spec)`} fillRule="evenodd" />}
+      {!untracked && <path d={d} fill={`url(#${id}-sheen)`} fillRule="evenodd" />}
       {!untracked && <path d={outerArcOf(segment, CRYSTAL.band.width / 2 + 0.25)} fill="none" stroke={`url(#${id}-band)`} strokeWidth={CRYSTAL.band.width} strokeLinecap="round" />}
+      {!untracked && <path d={innerArcOf(segment, CRYSTAL.innerBand.width / 2 + 0.2)} fill="none" stroke={`url(#${id}-band)`} strokeOpacity={n((CRYSTAL.innerBand.alpha[theme] ?? CRYSTAL.innerBand.alpha.dark) / (CRYSTAL.band.alpha[theme] ?? CRYSTAL.band.alpha.dark))} strokeWidth={CRYSTAL.innerBand.width} strokeLinecap="round" />}
       <path d={d} fill="none" stroke={inner} strokeOpacity={untracked ? 0.35 : CRYSTAL.rim.dark} strokeWidth="0.7" strokeLinejoin="round" />
       <path d={d} fill="none" stroke="#fff" strokeOpacity={untracked ? rimLight * 0.4 : rimLight} strokeWidth="0.32" strokeLinejoin="round" />
       {segment.boosted && !untracked && <path d={outerArcOf(segment, 0.15)} fill="none" stroke="#fff" strokeOpacity="0.75" strokeWidth="0.25" strokeDasharray="0.6 0.7" />}
@@ -661,11 +774,12 @@ function WheelHub({ id, material, theme, palette }) {
       {!crystal && <image href="/brand/k2-logo-watermark.png" x={C - 14} y={C - 14} width="28" height="28" opacity={theme === 'dark' ? 0.14 : 0.1} />}
       {crystal && <circle cx={C} cy={C} r={IR - 0.6} fill={`url(#${id}-hubshine)`} />}
       <circle cx={C} cy={C} r={IR - 0.75} fill="none" stroke="#fff" strokeOpacity={palette.hubRim} strokeWidth="0.3" />
+      {crystal && <circle cx={C} cy={C} r={IR - 0.5} fill="none" stroke={`url(#${id}-bezel)`} strokeWidth="0.5" />}
     </g>
   );
 }
 
-// --- labels, tooltip ---------------------------------------------------------------------------
+// --- labels ------------------------------------------------------------------------------------
 
 function WheelLabels({ segments }) {
   return (
@@ -698,55 +812,29 @@ function WheelLabels({ segments }) {
 }
 
 function describeSegment(segment, { period, isClock, compare, comparisonArcs, targets, totalSeconds }) {
+  const value = formatDuration(segment.seconds);
   if (segment.untracked) {
-    return { title: 'Untracked time', lines: [`${formatDuration(segment.seconds)} of this ${period} without a session`, `${sharePercent(segment.trueShare)} of the ${period}`] };
+    return { title: 'Untracked time', value, lines: [`${sharePercent(segment.trueShare)} of the ${period} without a session`] };
   }
   const lines = [];
   if (isClock) {
     const start = new Date(segment.start);
     const end = segment.active ? null : new Date(segment.end);
-    lines.push(`${clockFormatter.format(start)} – ${end ? clockFormatter.format(end) : 'in progress'} · ${formatDuration(segment.seconds)}`);
+    lines.push(`${clockFormatter.format(start)} – ${end ? clockFormatter.format(end) : 'in progress'}`);
     if (segment.location) lines.push(segment.location);
     if (segment.wrapsMidnight) lines.push('From bedtime the evening before');
   } else {
-    lines.push(`${formatDuration(segment.seconds)} · ${sharePercent(segment.trueShare)} of tracked time`);
     const count = (segment.sessions || []).length;
-    if (count) lines.push(`${count} ${count === 1 ? 'session' : 'sessions'}${period === 'day' && sessionWindow(segment) ? ` · ${sessionWindow(segment)}` : ''}`);
+    lines.push(`${sharePercent(segment.trueShare)} of tracked time${count ? ` · ${count} ${count === 1 ? 'session' : 'sessions'}` : ''}`);
+    if (period === 'day' && sessionWindow(segment)) lines.push(sessionWindow(segment));
     const arc = comparisonArcs.find((candidate) => candidate.label === segment.label);
-    if (compare !== 'none' && arc) {
-      const delta = segment.seconds - arc.seconds;
-      const against = compare === 'previous' ? PREVIOUS_NAMES[period] || 'the previous period' : 'your recent normal';
-      lines.push(Math.abs(delta) < 60 ? `Same as ${against}` : `${formatDuration(Math.abs(delta))} ${delta > 0 ? 'more' : 'less'} than ${against} (${formatDuration(arc.seconds)})`);
-    }
+    if (compare !== 'none' && arc) lines.push(comparisonLine(segment.seconds, arc.seconds, compare, period));
     const target = targets?.get ? targets.get(segment.label) : targets?.[segment.label];
     if (target?.text) lines.push(target.text);
   }
-  if (segment.boosted) lines.push(`Drawn larger than its share (${sharePercent(segment.trueShare)}) so it stays visible`);
+  if (segment.boosted) lines.push(`Drawn larger than its ${sharePercent(segment.trueShare)} share so it stays visible`);
   if (!totalSeconds) lines.push('No tracked time');
-  return { title: isClock ? (segment.title || segment.label) : segment.label, lines };
-}
-
-function WheelTooltip({ hovered, describe }) {
-  if (hovered.bead) {
-    const { bead, x, y } = hovered;
-    const titles = bead.items.slice(0, 3).map((item) => item.title).filter(Boolean);
-    return (
-      <div className={`life-wheel-tooltip ${x > 50 ? 'right' : 'left'} ${y > 50 ? 'below' : 'above'}`} style={{ left: `${x}%`, top: `${y}%` }} role="tooltip">
-        <strong>{bead.label}{bead.count > 1 ? ` · ${bead.count}` : ''}</strong>
-        {titles.map((text, index) => <span key={index}>{text}</span>)}
-        {bead.items[0]?.at && <span>{clockFormatter.format(bead.items[0].at)}{bead.count > 1 && bead.items.at(-1)?.at ? ` – ${clockFormatter.format(bead.items.at(-1).at)}` : ''}</span>}
-      </div>
-    );
-  }
-  const { segment } = hovered;
-  const at = pointOnRing(MID_RADIUS, segment.midAngle);
-  const { title, lines } = describe(segment);
-  return (
-    <div className={`life-wheel-tooltip ${at.x > 50 ? 'right' : 'left'} ${at.y > 50 ? 'below' : 'above'}`} style={{ left: `${at.x}%`, top: `${at.y}%`, '--tooltip-color': segment.color || 'transparent' }} role="tooltip">
-      <strong>{title}</strong>
-      {lines.map((line, index) => <span key={index}>{line}</span>)}
-    </div>
-  );
+  return { title: isClock ? (segment.title || segment.label) : segment.label, value, lines };
 }
 
 // --- thumbnails --------------------------------------------------------------------------------
