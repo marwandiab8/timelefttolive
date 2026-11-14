@@ -138,32 +138,31 @@ describe('LifeWheel', () => {
     <LifeWheel analysis={analysis} categoryAnalysis={null} now={new Date('2026-09-19T12:00:00Z')} onSelect={vi.fn()} period="week" pointAnalysis={null} selectedLabel={null} title="Last week" {...props} />
   );
 
-  it('draws one rounded path per category in that category\'s colour, and no dashed circles', () => {
+  it('draws one rounded slice per category in that category\'s colour, dashing only the slice drawn at the minimum', () => {
     const markup = render();
-    expect(markup.match(/<path /g)).toHaveLength(categories.length);
-    expect(markup).not.toContain('<circle');
-    expect(markup).not.toContain('stroke-dasharray');
+    expect(markup.match(/class="life-wheel-segment/g)).toHaveLength(categories.length);
+    expect(markup.match(/stroke-dasharray="0.6 0.7"/g)).toHaveLength(1);
     categories.forEach((category) => expect(markup).toContain(`fill="${category.color}"`));
     expect(markup).not.toMatch(/NaN|undefined/);
   });
 
   it('keeps an 11 minute slice visible next to a 57 hour one', () => {
     const markup = render();
-    const places = markup.match(/<path[^>]*aria-label="Places, 11m"[^>]*>/)[0];
+    const places = markup.match(/<g class="life-wheel-slice"[^>]*aria-label="Places, 11m[^"]*"[^>]*>\s*<path[^>]*>/)[0];
     expect(places).toMatch(/ d="M [\d.]+ [\d.]+ L/);
   });
 
   it('prints the icon on every slice and the duration where it fits', () => {
     const markup = render();
-    const labels = markup.match(/<div class="life-wheel-labels"[\s\S]*?<\/div>/)[0];
-    expect(labels.match(/<button/g)).toHaveLength(categories.length);
+    const labels = markup.match(/<g class="life-wheel-labels"[\s\S]*?<\/g><\/g>/)[0];
+    expect(labels.match(/<svg /g)).toHaveLength(categories.length);
     expect(labels).toContain('57h');
     expect(labels).toContain('45h');
     expect(labels).not.toContain('11m');
   });
 
   it('does not repeat the category names on the ring, since the legend has them', () => {
-    const labels = render().match(/<div class="life-wheel-labels"[\s\S]*?<\/div>/)[0];
+    const labels = render().match(/<g class="life-wheel-labels"[\s\S]*?<\/g><\/g>/)[0];
     expect(labels).not.toContain('Home');
     expect(labels).not.toContain('Work');
   });

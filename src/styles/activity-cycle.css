@@ -222,11 +222,9 @@
   min-height: 640px;
   padding: clamp(24px, 3vw, 46px);
   overflow: hidden;
-  border: 1px solid var(--cycle-border);
+  border: 1px solid color-mix(in srgb, var(--cycle-border) 70%, transparent);
   border-radius: 34px;
-  background:
-    radial-gradient(circle at 37% 50%, color-mix(in srgb, var(--activity-focus) 13%, transparent), transparent 28rem),
-    color-mix(in srgb, var(--cycle-surface) 96%, transparent);
+  background: color-mix(in srgb, var(--cycle-surface) 96%, transparent);
   box-shadow: var(--cycle-shadow);
   transition: border-color 220ms ease, background 220ms ease;
 }
@@ -239,41 +237,32 @@
   position: relative;
   isolation: isolate;
   display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 30px;
   min-width: 0;
   min-height: 550px;
   place-items: center;
+  align-content: start;
 }
 
-/* Marwan's K2 logo as a faint watermark (never catches taps): the whole logo in the wheel's open centre,
-   behind the day's totals - or, on a day with no wheel, larger across the empty panel. */
-.life-wheel::before,
+/* Marwan's K2 logo: etched into the wheel's lens (drawn by LifeWheel), or, on a day with no wheel,
+   a faint watermark across the empty panel (never catches taps). */
 .cycle-wheel-stage:not(:has(.life-wheel))::before {
   content: "";
   position: absolute;
   z-index: -1;
-  background: url("/brand/k2-logo-watermark.png") center / contain no-repeat;
-  opacity: 0.14;
-  pointer-events: none;
-}
-
-.life-wheel::before {
-  inset: 29.5%; /* the wheel's inner radius is 21 of 50: the logo just fits inside the ring */
-}
-
-.cycle-wheel-stage:not(:has(.life-wheel))::before {
   inset: 8%;
+  background: url("/brand/k2-logo-watermark.png") center / contain no-repeat;
   opacity: 0.08;
-}
-
-.activity-cycle[data-theme="light"] .life-wheel::before {
-  opacity: 0.1;
+  pointer-events: none;
 }
 
 .life-wheel {
   position: relative;
   isolation: isolate;
   width: clamp(500px, 41vw, 650px);
-  max-width: 100%;
+  max-width: 92%;
+  margin: 1.5% 0 3%; /* room for the beads and the comparison ring outside the rim */
   aspect-ratio: 1;
 }
 
@@ -283,24 +272,71 @@
   overflow: visible;
 }
 
-.life-wheel-segment {
+/* One slice: the body and its highlights move together. The selected one lifts outward; the
+   others frost rather than vanish. */
+.life-wheel-slice {
   cursor: pointer;
   outline: none;
-  transition: opacity 220ms ease, filter 220ms ease;
+  transition: transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 240ms ease, filter 240ms ease;
 }
 
-.life-wheel-segment:hover {
-  filter: brightness(1.08);
+.life-wheel-slice:hover {
+  filter: brightness(1.04);
 }
 
-/* The other slices step back so the selected one stands out. */
-.life-wheel-segment.faded {
-  opacity: 0.2;
+.life-wheel-slice.faded {
+  opacity: 0.35;
+  filter: saturate(0.4);
 }
 
-.life-wheel-segment:focus-visible {
+.life-wheel-slice.untracked {
+  cursor: default;
+}
+
+.life-wheel-slice:focus-visible > .life-wheel-segment {
   stroke: var(--cycle-text);
-  stroke-width: 0.7;
+  stroke-width: 0.8;
+}
+
+.life-wheel-overlay {
+  cursor: pointer;
+  transition: opacity 240ms ease;
+}
+
+/* The slice with a session in progress breathes along its outer edge. */
+.life-wheel-live {
+  animation: life-wheel-breathe 2.8s ease-in-out infinite;
+}
+
+@keyframes life-wheel-breathe {
+  0%, 100% { opacity: 0.18; }
+  50% { opacity: 0.75; }
+}
+
+.life-wheel-label {
+  filter: drop-shadow(0 0.25px 0.5px rgba(0, 0, 0, 0.4));
+}
+
+.life-wheel-label.untracked {
+  color: var(--cycle-muted);
+  filter: none;
+}
+
+.life-wheel-clock-label {
+  letter-spacing: 0.02em;
+}
+
+.life-wheel-bead {
+  cursor: pointer;
+  transition: opacity 240ms ease, transform 240ms ease;
+}
+
+.life-wheel-bead:hover circle:nth-child(2) {
+  stroke-opacity: 1;
+}
+
+.life-wheel-bead.faded {
+  opacity: 0.3;
 }
 
 .life-wheel-center {
@@ -346,46 +382,266 @@
 }
 
 .life-wheel-icon {
-  font-size: 1.4rem;
+  display: grid;
+  place-items: center;
+  color: var(--activity-focus);
+  font-size: 1.6rem;
 }
 
-.life-wheel-labels {
+.life-wheel-center .life-wheel-target {
+  margin-top: 6px;
+  color: var(--cycle-muted);
+  font-size: 0.72rem;
+}
+
+.life-wheel-center small {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.life-wheel-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--activity-focus);
+  box-shadow: 0 0 8px var(--activity-focus);
+  animation: life-wheel-pulse 2.6s ease-in-out infinite;
+}
+
+@keyframes life-wheel-pulse {
+  50% { opacity: 0.35; box-shadow: 0 0 2px var(--activity-focus); }
+}
+
+/* The tooltip: a small pane of the same glass, pinned to the slice it describes. */
+.life-wheel-tooltip {
   position: absolute;
-  inset: 0;
+  z-index: 3;
+  display: grid;
+  gap: 3px;
+  width: max-content;
+  max-width: 250px;
+  padding: 10px 13px;
+  border: 1px solid var(--cycle-border);
+  border-left: 3px solid var(--tooltip-color, var(--cycle-border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--cycle-surface) 86%, transparent);
+  color: var(--cycle-text);
+  font-size: 0.8rem;
+  line-height: 1.35;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   pointer-events: none;
 }
 
-.life-wheel-labels button {
-  position: absolute;
+.life-wheel-tooltip strong {
+  font-size: 0.86rem;
+}
+
+.life-wheel-tooltip span {
+  color: var(--cycle-muted);
+}
+
+/* It opens away from the hub: to the right of a slice on the right half, above one in the top half. */
+.life-wheel-tooltip.right.below { transform: translate(14px, 14px); }
+.life-wheel-tooltip.left.below { transform: translate(calc(-100% - 14px), 14px); }
+.life-wheel-tooltip.right.above { transform: translate(14px, calc(-100% - 14px)); }
+.life-wheel-tooltip.left.above { transform: translate(calc(-100% - 14px), calc(-100% - 14px)); }
+
+/* The tool row above the wheel: layout, comparison, untracked time, image. */
+.cycle-wheel-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  justify-self: stretch;
+}
+
+.cycle-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--cycle-border);
+  border-radius: 999px;
+  background: var(--cycle-surface-soft);
+}
+
+.cycle-segmented > span {
+  padding: 0 8px 0 10px;
+  color: var(--cycle-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.cycle-segmented button,
+.cycle-tool-toggle,
+.cycle-tool-action {
+  min-height: 32px;
+  padding: 5px 13px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--cycle-text);
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.cycle-segmented button:hover,
+.cycle-tool-toggle:hover,
+.cycle-tool-action:hover {
+  background: color-mix(in srgb, var(--cycle-text) 8%, transparent);
+}
+
+.cycle-segmented button.selected,
+.cycle-tool-toggle.selected {
+  background: color-mix(in srgb, var(--activity-focus) 24%, var(--cycle-surface));
+  color: var(--cycle-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--activity-focus) 50%, transparent);
+}
+
+.cycle-segmented button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.cycle-tool-toggle,
+.cycle-tool-action {
+  border-color: var(--cycle-border);
+  background: var(--cycle-surface-soft);
+}
+
+.cycle-tool-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Worth noting: two or three facts with their numbers. */
+.cycle-facts {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cycle-facts li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--cycle-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--activity-focus) 7%, var(--cycle-surface-soft));
+}
+
+.cycle-facts li > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--activity-focus);
+}
+
+.cycle-facts strong {
+  display: block;
+  font-size: 0.92rem;
+}
+
+.cycle-facts span {
+  display: block;
+  margin-top: 2px;
+  color: var(--cycle-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.cycle-target-metric.met dd { color: #65d6ad; }
+.cycle-target-metric.missed dd { color: #f2b84b; }
+.cycle-target-metric dd { font-size: clamp(0.95rem, 1.2vw, 1.1rem); line-height: 1.3; }
+
+.cycle-target-editor {
+  margin-top: 14px;
+}
+
+.cycle-target-editor summary {
+  color: var(--cycle-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.cycle-target-editor form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 0.85rem;
+}
+
+.cycle-target-editor label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cycle-target-editor input {
+  width: 62px;
+  padding: 6px 8px;
+  border: 1px solid var(--cycle-border);
+  border-radius: 8px;
+  background: var(--cycle-surface);
+  color: var(--cycle-text);
+  font: inherit;
+}
+
+.cycle-target-editor button[type="submit"] {
+  padding: 7px 12px;
+  border: 1px solid color-mix(in srgb, var(--activity-focus) 50%, var(--cycle-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--activity-focus) 22%, var(--cycle-surface));
+  color: var(--cycle-text);
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+/* Small multiples: the days of a week or the weeks of a month. */
+.cycle-mini-wheels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.mini-wheel {
   display: grid;
   justify-items: center;
-  gap: 1px;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: #fff;
+  gap: 3px;
+  padding: 6px 4px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--cycle-text);
   cursor: pointer;
-  line-height: 1;
-  pointer-events: auto;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
-  transform: translate(-50%, -50%);
-  transition: opacity 220ms ease;
+  transition: background 160ms ease, border-color 160ms ease;
 }
 
-.life-wheel-labels button span {
-  font-size: 1.3rem;
+.mini-wheel:hover,
+.mini-wheel.selected {
+  border-color: var(--cycle-border);
+  background: var(--cycle-surface-soft);
 }
 
-.life-wheel-labels button small {
-  color: inherit;
-  font-size: 0.85rem;
-  font-weight: 700;
-  white-space: nowrap;
+.mini-wheel svg {
+  display: block;
 }
 
-.life-wheel-labels button.faded {
-  opacity: 0.3;
+.mini-wheel span {
+  color: var(--cycle-muted);
+  font-size: 0.7rem;
+  font-weight: 650;
 }
 
 .cycle-glance {
@@ -482,6 +738,29 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
+}
+
+.cycle-legend button > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cycle-legend .activity-icon {
+  flex: none;
+  color: var(--cycle-muted);
+}
+
+.cycle-legend button.selected .activity-icon,
+.cycle-legend button:hover .activity-icon {
+  color: var(--cycle-text);
+}
+
+.cycle-glance-copy h2 .activity-icon {
+  margin-right: 0.12em;
+  vertical-align: -0.1em;
+  color: var(--activity-focus);
 }
 
 .cycle-legend strong {
@@ -1066,6 +1345,8 @@
 }
 
 .cycle-day-moment span {
+  display: grid;
+  place-items: center;
   line-height: 1;
 }
 
@@ -1173,6 +1454,14 @@
   color: #07100e;
   box-shadow: 0 5px 16px color-mix(in srgb, var(--timeline-color) 32%, transparent);
   font-size: 0.9rem;
+}
+
+.cycle-timeline-marker svg,
+.cycle-day-moment svg,
+.cycle-total-grid article > span svg,
+.cycle-point-history li > span svg,
+.cycle-journal-icon svg {
+  display: block;
 }
 
 .cycle-linear-timeline > li > time {
@@ -2661,3 +2950,61 @@
   .activity-dialog { padding: 18px; }
   .cycle-entry-actions { margin-left: 0; }
 }
+
+/* Appended with the crystal wheel (2026-11-14): overrides that must follow everything above. */
+@media (prefers-reduced-motion: reduce) {
+  .life-wheel-slice,
+  .life-wheel-bead,
+  .life-wheel-overlay {
+    transition: none;
+  }
+
+  .life-wheel-live,
+  .life-wheel-pulse {
+    animation: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .cycle-wheel-stage {
+    gap: 12px;
+  }
+
+  .cycle-wheel-tools {
+    gap: 6px;
+  }
+
+  .cycle-segmented button,
+  .cycle-tool-toggle,
+  .cycle-tool-action {
+    min-height: 30px;
+    padding: 4px 10px;
+    font-size: 0.74rem;
+  }
+
+  .cycle-segmented > span {
+    display: none;
+  }
+
+  .life-wheel-tooltip {
+    max-width: 200px;
+    font-size: 0.72rem;
+  }
+
+  .cycle-mini-wheels {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .cycle-facts li {
+    padding: 8px 10px;
+  }
+}
+
+.activity-cycle[data-theme="light"] .life-wheel-tooltip {
+  box-shadow: 0 14px 40px rgba(31, 53, 63, 0.18);
+}
+
+.activity-cycle[data-theme="light"] .cycle-target-metric.met dd { color: #1f9d55; }
+.activity-cycle[data-theme="light"] .cycle-target-metric.missed dd { color: #b8791a; }
