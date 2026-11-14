@@ -28,9 +28,9 @@ describe('LifeWheel material', () => {
     categories.forEach((category) => expect(markup).toContain(`fill="${category.color}"`));
   });
 
-  it('builds the jewel material from the category colours: one body gradient per slice, a shared highlight, a seat and a lens', () => {
-    const markup = render({ material: 'jewel' });
-    expect(markup).toContain('data-material="jewel"');
+  it('builds the crystal material from the category colours: one body gradient per slice, a shared highlight, a seat and a lens', () => {
+    const markup = render({ material: 'crystal' });
+    expect(markup).toContain('data-material="crystal"');
     expect(markup.match(/<radialGradient id="lw[^"]*-body-\d+"/g)).toHaveLength(categories.length);
     expect(markup).toMatch(/<path class="life-wheel-segment[^"]*" d="[^"]+" fill="url\(#lw[^"]*-body-0\)"/);
     expect(markup).toContain('-spec"');
@@ -42,14 +42,14 @@ describe('LifeWheel material', () => {
   });
 
   it('gives dark ink to the yellow slice and white to the blue one', () => {
-    const markup = render({ material: 'jewel' });
+    const markup = render({ material: 'crystal' });
     const labels = markup.match(/<g class="life-wheel-labels"[\s\S]*?<\/g><\/g>/)[0];
     expect(labels).toContain('color:#17252d');
     expect(labels).toContain('color:#ffffff');
   });
 
   it('marks a slice drawn at the minimum with a dashed edge, and only that one', () => {
-    const markup = render({ material: 'jewel' });
+    const markup = render({ material: 'crystal' });
     expect(markup.match(/stroke-dasharray="0.6 0.7"/g)).toHaveLength(1);
     expect(markup).toMatch(/aria-label="Places, 6m, 0\.6% of tracked time"/);
   });
@@ -122,7 +122,7 @@ describe('LifeWheel instruments', () => {
     expect(fragments[0].start).toBe(hour(-1.15));
     expect(overlays).toHaveLength(1);
 
-    const markup = render({ analysis: clockAnalysis, layout: 'clock', material: 'jewel' });
+    const markup = render({ analysis: clockAnalysis, layout: 'clock', material: 'crystal' });
     expect(markup).toContain('layout-clock');
     expect(markup).toContain('>Noon</text>');
     expect(markup.match(/<line /g).length).toBeGreaterThanOrEqual(24);
@@ -135,7 +135,7 @@ describe('LifeWheel instruments', () => {
 
   it('shows the live pulse and counts sessions in progress in the hub', () => {
     const live = { ...analysis, activeCount: 1, sessionCategories: [{ ...categories[0], allSessions: [{ active: true }] }] };
-    const markup = render({ analysis: live, material: 'jewel' });
+    const markup = render({ analysis: live, material: 'crystal' });
     expect(markup).toContain('class="life-wheel-live"');
     expect(markup).toContain('1 in progress');
     expect(markup).toContain('life-wheel-pulse');

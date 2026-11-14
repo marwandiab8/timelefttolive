@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { JEWEL, contrastRatio, darkenHex, frostedStops, labelColorFor, lightenHex, luminance, mixHex, sliceStops } from './wheelMaterial.js';
+import { CRYSTAL, contrastRatio, darkenHex, frostedStops, labelColorFor, lightenHex, luminance, mixHex, sliceStops } from './wheelMaterial.js';
 
 describe('wheel material colours', () => {
   it('mixes toward black and white without leaving the hex range', () => {
@@ -31,7 +31,7 @@ describe('wheel material colours', () => {
     expect(stops.middle).toBe('#4f8cff');
     expect(luminance(stops.inner)).toBeLessThan(luminance(stops.middle));
     expect(luminance(stops.outer)).toBeGreaterThan(luminance(stops.middle));
-    expect(sliceStops('#4f8cff', { ...JEWEL, innerDark: 0, outerLight: 0 })).toEqual({ inner: '#4f8cff', middle: '#4f8cff', outer: '#4f8cff' });
+    expect(sliceStops('#4f8cff', { ...CRYSTAL, innerDark: 0, outerLight: 0 })).toEqual({ inner: '#4f8cff', middle: '#4f8cff', outer: '#4f8cff' });
   });
 
   it('keeps the frosted untracked segment lighter on the light theme', () => {

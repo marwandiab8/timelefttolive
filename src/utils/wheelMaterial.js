@@ -49,22 +49,22 @@ export function labelColorFor(hex) {
   return contrastRatio(DARK_INK, hex) >= contrastRatio(LIGHT_INK, hex) * 1.6 ? DARK_INK : LIGHT_INK;
 }
 
-// The chosen material (the "Jewel" study variant, 2026-11-14): deep darkening at the hole,
-// a bright band along the outer edge and a saturated middle. Every number is in viewBox units
-// or opacities; the colours come from the category colour alone.
-export const JEWEL = Object.freeze({
-  innerDark: 0.46,
-  outerLight: 0.3,
-  specular: { dark: 0.34, light: 0.26 },
-  band: { width: 1.1, alpha: { dark: 0.8, light: 0.7 } },
-  rim: { light: { dark: 0.4, light: 0.26 }, dark: 0.5 },
-  glow: { alpha: { dark: 0.44, light: 0.26 }, blur: 2.2 },
-  gapAngle: 2.4,
+// The chosen material: the "Clear crystal" study variant (Marwan picked it over Jewel on
+// 2026-11-14 after seeing Jewel live): a light body, a strong glancing highlight and a thin bright
+// rim. Every number is in viewBox units or opacities; the colours come from the category colour alone.
+export const CRYSTAL = Object.freeze({
+  innerDark: 0.24,
+  outerLight: 0.22,
+  specular: { dark: 0.42, light: 0.3 },
+  band: { width: 0.8, alpha: { dark: 0.75, light: 0.65 } },
+  rim: { light: { dark: 0.34, light: 0.24 }, dark: 0.35 },
+  glow: { alpha: { dark: 0.42, light: 0.26 }, blur: 2.6 },
+  gapAngle: 2.2,
   shadow: { dark: 0.55, light: 0.3 }
 });
 
 /** The three body stops of a slice: dark at the hole, true colour in the middle, light at the edge. */
-export function sliceStops(color, material = JEWEL) {
+export function sliceStops(color, material = CRYSTAL) {
   return {
     inner: darkenHex(color, material.innerDark),
     middle: color,

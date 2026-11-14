@@ -2,7 +2,7 @@
 // tooltip, comparison ring, moment beads and target marks. Geometry comes from wheelGeometry.js,
 // colours from wheelMaterial.js; this file only draws and animates.
 //
-// Materials: 'jewel' (the glass) or 'plain' (flat fills: reduced transparency, tests, thumbnails).
+// Materials: 'crystal' (the glass) or 'plain' (flat fills: reduced transparency, tests, thumbnails).
 // Layouts: 'share' (largest first, clockwise from 12) or 'clock' (a day at its real hours).
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
@@ -21,7 +21,7 @@ import {
   pointOnRing,
   targetAngle
 } from '../utils/wheelGeometry.js';
-import { JEWEL, frostedStops, labelColorFor, sliceStops } from '../utils/wheelMaterial.js';
+import { CRYSTAL, frostedStops, labelColorFor, sliceStops } from '../utils/wheelMaterial.js';
 import { getActivityIconKey, renderActivityIconPaths } from './activityIcons.jsx';
 
 const { center: C, outerRadius: R, innerRadius: IR } = WHEEL;
@@ -62,14 +62,14 @@ function useMediaQuery(query) {
   return matches;
 }
 
-/** 'jewel' in a browser unless transparency is reduced; 'plain' on the server and in tests. */
+/** 'crystal' in a browser unless transparency is reduced; 'plain' on the server and in tests. */
 export function useWheelMaterial(requested = 'auto') {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const reducedTransparency = useMediaQuery('(prefers-reduced-transparency: reduce)');
   if (requested !== 'auto') return requested;
   if (!mounted || reducedTransparency) return 'plain';
-  return 'jewel';
+  return 'crystal';
 }
 
 function usePrefersReducedMotion() {
@@ -268,7 +268,7 @@ export function LifeWheel({
   const id = `lw${rawId.replace(/[^a-zA-Z0-9]/g, '')}`;
   const palette = THEMES[theme] || THEMES.dark;
   const isClock = layout === 'clock' && period === 'day' && bounds?.start;
-  const gapAngle = material === 'plain' ? WHEEL.gapAngle : JEWEL.gapAngle;
+  const gapAngle = material === 'plain' ? WHEEL.gapAngle : CRYSTAL.gapAngle;
 
   // Share layout: the categories largest first (with the untracked remainder when asked).
   const periodSeconds = bounds?.start && bounds?.end ? (bounds.end - bounds.start) / 1000 : 0;
@@ -363,10 +363,10 @@ export function LifeWheel({
         ref={svgRef}
         data-theme={theme}
       >
-        {material === 'jewel' && <WheelDefs id={id} segments={segments} theme={theme} palette={palette} />}
+        {material === 'crystal' && <WheelDefs id={id} segments={segments} theme={theme} palette={palette} />}
 
-        {material === 'jewel' && (
-          <g className="life-wheel-glow" filter={`url(#${id}-glow)`} opacity={JEWEL.glow.alpha[theme] ?? JEWEL.glow.alpha.dark}>
+        {material === 'crystal' && (
+          <g className="life-wheel-glow" filter={`url(#${id}-glow)`} opacity={CRYSTAL.glow.alpha[theme] ?? CRYSTAL.glow.alpha.dark}>
             {segments.filter((segment) => !segment.untracked).map((segment) => (
               <path key={segment.key} d={describeWheelSegment(segment)} fill={segment.color} fillRule="evenodd" />
             ))}
@@ -374,7 +374,7 @@ export function LifeWheel({
         )}
 
         {/* The seat: a dark bezel the gaps open onto, with hour marks in the clock layout. */}
-        <circle className="life-wheel-seat" cx={C} cy={C} r={R + 1.4} fill={material === 'jewel' ? `url(#${id}-seat)` : palette.seat} stroke={palette.seatEdge} strokeWidth="0.3" />
+        <circle className="life-wheel-seat" cx={C} cy={C} r={R + 1.4} fill={material === 'crystal' ? `url(#${id}-seat)` : palette.seat} stroke={palette.seatEdge} strokeWidth="0.3" />
         {isClock && clock.ticks.map((tick) => {
           const from = pointOnRing(tick.major ? R + 0.2 : R + 0.5, tick.angle);
           const to = pointOnRing(tick.major ? R + 1.4 : R + 1.15, tick.angle);
@@ -394,7 +394,7 @@ export function LifeWheel({
           </g>
         )}
 
-        <g className="life-wheel-ring" filter={material === 'jewel' ? `url(#${id}-shadow)` : undefined}>
+        <g className="life-wheel-ring" filter={material === 'crystal' ? `url(#${id}-shadow)` : undefined}>
           {segments.map((segment, index) => (
             <WheelSlice
               key={segment.key}
@@ -514,9 +514,9 @@ function HubIcon({ label }) {
 // --- material ----------------------------------------------------------------------------------
 
 function WheelDefs({ id, segments, theme, palette }) {
-  const specular = JEWEL.specular[theme] ?? JEWEL.specular.dark;
-  const band = JEWEL.band.alpha[theme] ?? JEWEL.band.alpha.dark;
-  const shadow = JEWEL.shadow[theme] ?? JEWEL.shadow.dark;
+  const specular = CRYSTAL.specular[theme] ?? CRYSTAL.specular.dark;
+  const band = CRYSTAL.band.alpha[theme] ?? CRYSTAL.band.alpha.dark;
+  const shadow = CRYSTAL.shadow[theme] ?? CRYSTAL.shadow.dark;
   return (
     <defs>
       {/* A glancing light from the upper left, gone before the middle of the wheel. */}
@@ -530,7 +530,7 @@ function WheelDefs({ id, segments, theme, palette }) {
         <stop offset="0.55" stopColor="#fff" stopOpacity={n(band * 0.35)} />
         <stop offset="1" stopColor="#fff" stopOpacity="0.04" />
       </radialGradient>
-      <filter id={`${id}-glow`} x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation={JEWEL.glow.blur} /></filter>
+      <filter id={`${id}-glow`} x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation={CRYSTAL.glow.blur} /></filter>
       <filter id={`${id}-shadow`} x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0.6" dy="1.8" stdDeviation="1.6" floodColor="#000" floodOpacity={shadow} /></filter>
       <filter id={`${id}-soft`} x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="1.4" /></filter>
       <radialGradient id={`${id}-hub`} gradientUnits="userSpaceOnUse" cx="42" cy="40" r="26">
@@ -576,7 +576,7 @@ function WheelSlice({ id, index, segment, material, theme, palette, selected, fa
   const classes = `life-wheel-slice ${faded ? 'faded' : ''} ${selected ? 'selected' : ''} ${live ? 'live' : ''} ${untracked ? 'untracked' : ''}`.replace(/\s+/g, ' ').trim();
   const segmentClass = `life-wheel-segment ${faded ? 'faded' : ''} ${selected ? 'selected' : ''}`;
   const inner = untracked ? frostedStops(theme).inner : sliceStops(segment.color).inner;
-  const rimLight = (JEWEL.rim.light[theme] ?? JEWEL.rim.light.dark);
+  const rimLight = (CRYSTAL.rim.light[theme] ?? CRYSTAL.rim.light.dark);
   const interactive = !untracked && !segment.leaving;
 
   const handlers = interactive ? {
@@ -621,8 +621,8 @@ function WheelSlice({ id, index, segment, material, theme, palette, selected, fa
     <g className={classes} style={style} data-label={segment.label} {...handlers}>
       <path className={segmentClass} d={d} fill={`url(#${id}-body-${index})`} fillRule="evenodd" />
       {!untracked && <path d={d} fill={`url(#${id}-spec)`} fillRule="evenodd" />}
-      {!untracked && <path d={outerArcOf(segment, JEWEL.band.width / 2 + 0.25)} fill="none" stroke={`url(#${id}-band)`} strokeWidth={JEWEL.band.width} strokeLinecap="round" />}
-      <path d={d} fill="none" stroke={inner} strokeOpacity={untracked ? 0.35 : JEWEL.rim.dark} strokeWidth="0.7" strokeLinejoin="round" />
+      {!untracked && <path d={outerArcOf(segment, CRYSTAL.band.width / 2 + 0.25)} fill="none" stroke={`url(#${id}-band)`} strokeWidth={CRYSTAL.band.width} strokeLinecap="round" />}
+      <path d={d} fill="none" stroke={inner} strokeOpacity={untracked ? 0.35 : CRYSTAL.rim.dark} strokeWidth="0.7" strokeLinejoin="round" />
       <path d={d} fill="none" stroke="#fff" strokeOpacity={untracked ? rimLight * 0.4 : rimLight} strokeWidth="0.32" strokeLinejoin="round" />
       {segment.boosted && !untracked && <path d={outerArcOf(segment, 0.15)} fill="none" stroke="#fff" strokeOpacity="0.75" strokeWidth="0.25" strokeDasharray="0.6 0.7" />}
       {live && <path className="life-wheel-live" d={outerArcOf(segment, 0.05)} fill="none" stroke={segment.color} strokeWidth="1.6" strokeLinecap="round" filter={`url(#${id}-soft)`} />}
@@ -631,11 +631,11 @@ function WheelSlice({ id, index, segment, material, theme, palette, selected, fa
 }
 
 function WheelHub({ id, material, theme, palette }) {
-  const jewel = material === 'jewel';
+  const crystal = material === 'crystal';
   return (
     <g className="life-wheel-hub" aria-hidden="true">
-      <circle cx={C} cy={C} r={IR - 0.6} fill={jewel ? `url(#${id}-hub)` : palette.hub[1]} />
-      {jewel && (
+      <circle cx={C} cy={C} r={IR - 0.6} fill={crystal ? `url(#${id}-hub)` : palette.hub[1]} />
+      {crystal && (
         <g clipPath={`url(#${id}-hubclip)`}>
           <circle cx={C} cy={C} r={IR + 1.2} fill="none" stroke="#000" strokeOpacity={palette.hubShadow} strokeWidth="3.2" filter={`url(#${id}-soft)`} />
           {/* Marwan's K2 logo, etched into the lens: a dark and a light copy a hair apart. */}
@@ -643,8 +643,8 @@ function WheelHub({ id, material, theme, palette }) {
           <image href="/brand/k2-logo-watermark.png" x={C - 13.7} y={C - 14.3} width="28" height="28" style={{ filter: 'brightness(4) grayscale(1)', opacity: palette.etchLight }} />
         </g>
       )}
-      {!jewel && <image href="/brand/k2-logo-watermark.png" x={C - 14} y={C - 14} width="28" height="28" opacity={theme === 'dark' ? 0.14 : 0.1} />}
-      {jewel && <circle cx={C} cy={C} r={IR - 0.6} fill={`url(#${id}-hubshine)`} />}
+      {!crystal && <image href="/brand/k2-logo-watermark.png" x={C - 14} y={C - 14} width="28" height="28" opacity={theme === 'dark' ? 0.14 : 0.1} />}
+      {crystal && <circle cx={C} cy={C} r={IR - 0.6} fill={`url(#${id}-hubshine)`} />}
       <circle cx={C} cy={C} r={IR - 0.75} fill="none" stroke="#fff" strokeOpacity={palette.hubRim} strokeWidth="0.3" />
     </g>
   );

@@ -4,7 +4,7 @@
 
 Hosting deployed to production from `feat/crystal-wheel` at `e46f9e3` (PR #7), so merge that PR to bring `main` level with production. Functions, rules and indexes are unchanged.
 
-- The Activity time wheel is drawn as lit crystal (the "Jewel" material Marwan chose from the study in `scripts/wheel-study/`), with one stroke icon set replacing the emoji, label ink by slice luminance, a dashed edge on boosted slices, and a lens hub with the K2 logo etched.
+- The Activity time wheel is drawn as lit crystal (the "Clear crystal" material from the study in `scripts/wheel-study/`; Jewel went live first and Marwan asked for crystal the same day), with one stroke icon set replacing the emoji, label ink by slice luminance, a dashed edge on boosted slices, and a lens hub with the K2 logo etched.
 - New on the wheel: tooltips, Share | Clock layout for a day, a comparison ring (previous period or recent normal), untracked time as a frosted segment, moments as beads on the rim, target marks and a target editor (profile field `activityTargets`, written by `saveActivityTargets`), worth-noting facts, small multiples for a week or a month, keyboard shortcuts, and Save as image (2048 px PNG).
 - Checked before the deploy in the interactive preview (desktop and 390 px, dark and light): entrance, morph, selection lift, tooltips, clock layout, comparison ring, beads, export. Not yet checked signed in with the real profile: the target editor writing to Firestore, the real data in Clock layout, and the Normal comparison with real history. `npm run test:frontend` 376 tests pass; the served bundle matches the build (`index-DRyfW9sr.js`).
 
