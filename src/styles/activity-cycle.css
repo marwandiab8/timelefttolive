@@ -3001,9 +3001,26 @@
     display: none;
   }
 
-  .life-wheel-tooltip {
-    max-width: 200px;
-    font-size: 0.72rem;
+  /* On a phone the tooltip sits over the hub, whichever slice it describes: outside the ring it
+     would run off the screen (the hub's own text says the same thing, so nothing is lost). */
+  .life-wheel-tooltip,
+  .life-wheel-tooltip.right.below,
+  .life-wheel-tooltip.left.below,
+  .life-wheel-tooltip.right.above,
+  .life-wheel-tooltip.left.above {
+    left: 50% !important; /* the slice position is set inline */
+    top: 50% !important;
+    max-width: min(68vw, 250px);
+    transform: translate(-50%, -50%);
+    border-left-width: 1px;
+    border-top: 3px solid var(--tooltip-color, var(--cycle-border));
+    font-size: 0.74rem;
+    text-align: center;
+  }
+
+  .life-wheel {
+    margin: 2.5% 0 4%;
+    max-width: 86%; /* room for the beads and the clock labels outside the rim */
   }
 
   .cycle-mini-wheels {
