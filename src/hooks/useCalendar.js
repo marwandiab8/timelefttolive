@@ -476,3 +476,8 @@ export function acceptViewerInvite(calendarId, viewerDocId, uid) {
 }
 
 export { defaultSettings };
+
+/** The owner's per-category targets for the Activity wheel (see utils/activityTargets.js). */
+export function saveActivityTargets(calendarId, activityTargets) {
+  return updateDoc(doc(db, 'lifeCalendars', calendarId), { activityTargets, updatedAt: serverTimestamp() });
+}
