@@ -388,6 +388,21 @@
   font-size: 1.6rem;
 }
 
+.life-wheel-center.clearable {
+  cursor: pointer;
+  border-radius: 50%;
+  transition: background 200ms ease;
+}
+
+.life-wheel-center.clearable:hover {
+  background: color-mix(in srgb, var(--cycle-text) 5%, transparent);
+}
+
+.life-wheel-center.clearable:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--activity-focus) 72%, white);
+  outline-offset: -3px;
+}
+
 .life-wheel-center .life-wheel-target {
   margin-top: 6px;
   color: var(--cycle-muted);

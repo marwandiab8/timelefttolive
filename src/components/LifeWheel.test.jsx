@@ -58,7 +58,17 @@ describe('LifeWheel material', () => {
     const markup = render({ selectedLabel: 'Sleep', categoryAnalysis: { ...categories[1], sessionCount: 1, totalSeconds: 7 * H, sessions: [], activeSession: null } });
     expect(markup).toMatch(/role="button" tabindex="0" aria-pressed="false" aria-label="Work, 8h, 50% of tracked time"/);
     expect(markup).toMatch(/aria-pressed="true" aria-label="Sleep, 7h/);
-    expect(markup.match(/tabindex="0"/g)).toHaveLength(1);
+    // One slice carries the roving tabindex; the hub's own tabindex (it clears the selection) is separate.
+    const ring = markup.match(/<g class="life-wheel-ring"[\s\S]*?<\/g><\/g>/)[0];
+    expect(ring.match(/tabindex="0"/g)).toHaveLength(1);
+  });
+});
+
+describe('LifeWheel hub', () => {
+  it('becomes a button that shows every activity again while one is selected', () => {
+    const selected = render({ selectedLabel: 'Work', categoryAnalysis: { ...categories[0], sessionCount: 1, totalSeconds: 8 * H, sessions: [], activeSession: null } });
+    expect(selected).toMatch(/class="life-wheel-center clearable" aria-live="polite" role="button" tabindex="0" title="Show all activities"/);
+    expect(render()).toMatch(/class="life-wheel-center " aria-live="polite">/);
   });
 });
 

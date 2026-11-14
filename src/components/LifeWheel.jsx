@@ -259,7 +259,8 @@ export function LifeWheel({
   theme = 'dark',
   material: requestedMaterial = 'auto',
   animate = true,
-  svgRef = null
+  svgRef = null,
+  onClear = null
 }) {
   const material = useWheelMaterial(requestedMaterial);
   const reducedMotion = usePrefersReducedMotion();
@@ -462,7 +463,21 @@ export function LifeWheel({
         <WheelHub id={id} material={material} theme={theme} palette={palette} />
       </svg>
 
-      <div className="life-wheel-center" aria-live="polite">
+      {/* The hub: a click on it (or Enter) shows every activity again, so all the wedges light up. */}
+      <div
+        className={`life-wheel-center ${selectedLabel ? 'clearable' : ''}`}
+        aria-live="polite"
+        role={selectedLabel ? 'button' : undefined}
+        tabIndex={selectedLabel ? 0 : undefined}
+        title={selectedLabel ? 'Show all activities' : undefined}
+        onClick={selectedLabel ? () => (onClear ? onClear() : onSelect(selectedLabel)) : undefined}
+        onKeyDown={selectedLabel ? (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            if (onClear) onClear(); else onSelect(selectedLabel);
+          }
+        } : undefined}
+      >
         {categoryAnalysis ? (
           <>
             <span className="life-wheel-icon" aria-hidden="true"><HubIcon label={categoryAnalysis.label} /></span>
