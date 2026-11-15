@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import BrandLogo from './BrandLogo.jsx';
 import { saveActivityTargets, useAllLifeEvents, useActivityJournalDetails, useConnectedSources, useLifeEvents } from '../hooks/useCalendar.js';
 import { loadAuthorizedActivityImage } from '../services/activityJournal.js';
-import { deleteActivityEntry, editActivityEntry } from '../services/activityEntries.js';
+import { deleteActivityEntry, editActivityEntry, restoreActivityEntry } from '../services/activityEntries.js';
+import { listRecentlyDeleted } from '../services/recycleBin.js';
 import PrimaryViewSwitcher from './PrimaryViewSwitcher.jsx';
 import { LifeWheel, MiniWheel } from './LifeWheel.jsx';
 import { ActivityIcon } from './activityIcons.jsx';
@@ -36,7 +37,8 @@ import {
   getPeriodBounds,
   groupPhotosByDate,
   shiftPeriodDate,
-  toggleActivitySelection
+  toggleActivitySelection,
+  toJsDate
 } from '../utils/lifeEventUtils.js';
 
 // The wheel itself lives in LifeWheel.jsx; re-exported so existing imports and tests keep working.
@@ -470,8 +472,76 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
         <summary>Tracking status</summary>
         <p>{sourceState.connections.filter((connection) => connection.status === 'active').length} active connected sources. Technical delivery details are kept out of the reflection view.</p>
       </details>
+      <RecentlyDeleted calendarId={calendar?.id} onRestored={() => setManagementMessage('Activity restored. It is back on the timeline and in the totals.')} />
       {managedEntry && <ActivityEntryDialog entry={managedEntry} onCancel={() => setManagedEntry(null)} onDelete={() => removeManagedEntry(managedEntry)} onSave={saveManagedEntry} />}
     </main>
+  );
+}
+
+// What a recycled activity reads as in the "Recently deleted" list: its title, when it happened, when it
+// was deleted. Exported for tests.
+export function describeRecycledItem(item, now = new Date()) {
+  const occurredAt = toJsDate(item?.startAt) || toJsDate(item?.occurredAt);
+  const recycledAt = toJsDate(item?.recycledAt);
+  const when = occurredAt ? `${shortDateFormatter.format(occurredAt)} ${clockFormatter.format(occurredAt)}` : 'Unknown time';
+  const ago = recycledAt ? Math.max(0, Math.round((now.getTime() - recycledAt.getTime()) / 86400000)) : null;
+  const deleted = ago === null ? '' : ago === 0 ? 'deleted today' : ago === 1 ? 'deleted yesterday' : `deleted ${ago} days ago`;
+  const both = Array.isArray(item?.recycledWith) && item.recycledWith.length > 1;
+  return { title: item?.title || 'Activity', when, deleted, both };
+}
+
+// Deleted activities wait 90 days in the recycle bin. Restoring one puts the event back and lifts the
+// tombstone that stopped the phone from re-sending it (functions/src/activityEntries.js). The list is
+// loaded when the panel is opened; `load` and `restore` are injectable for tests.
+export function RecentlyDeleted({ calendarId, onRestored, load = listRecentlyDeleted, restore = restoreActivityEntry }) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState(null);
+  const [busyId, setBusyId] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open || !calendarId) return undefined;
+    let cancelled = false;
+    setError('');
+    load(calendarId).then((list) => { if (!cancelled) setItems(list); }).catch((loadError) => { if (!cancelled) setError(loadError?.message || 'Could not load recently deleted activities.'); });
+    return () => { cancelled = true; };
+  }, [open, calendarId, load]);
+
+  async function bringBack(item) {
+    setBusyId(item.id);
+    setError('');
+    try {
+      const result = await restore({ calendarId, eventId: item.id });
+      const restoredIds = new Set(result?.data?.ids || result?.ids || [item.id]);
+      setItems((current) => (current || []).filter((entry) => !restoredIds.has(entry.id)));
+      if (onRestored) onRestored(result);
+    } catch (restoreError) {
+      setError(restoreError?.message || 'Could not restore this activity.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  return (
+    <details className="cycle-technical cycle-recycle-bin" onToggle={(eventObject) => setOpen(eventObject.currentTarget.open)}>
+      <summary>Recently deleted</summary>
+      {error && <p className="cycle-error">{error}</p>}
+      {items === null && !error && <p>Loading…</p>}
+      {items && items.length === 0 && <p>Nothing deleted in the last 90 days.</p>}
+      {items && items.length > 0 && (
+        <ul>
+          {items.map((item) => {
+            const described = describeRecycledItem(item);
+            return (
+              <li key={item.id}>
+                <div><strong>{described.title}</strong><span>{described.when}{described.deleted ? ` · ${described.deleted}` : ''}{described.both ? ' · with its pair' : ''}</span></div>
+                <button type="button" disabled={busyId === item.id} onClick={() => bringBack(item)}>{busyId === item.id ? 'Restoring…' : 'Restore'}</button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </details>
   );
 }
 
@@ -1305,6 +1375,12 @@ export function buildLocationPatch(location, label) {
 // A paired session is an arrival and a departure event; both must be deleted
 // together. The key is omitted (not undefined) for unpaired entries for the
 // same encoding reason as above.
+// An arrival or departure the phone recorded: deleting one leaves its session open-ended, and the
+// source cannot re-create it (the delete writes a tombstone), so the dialog says so.
+export function isBoundaryEvent(event) {
+  return /^(?:arrive|leave|start|finish|stop)_/.test(String(event?.eventType || ''));
+}
+
 export function buildDeleteRequest(calendarId, entry) {
   return {
     calendarId,
@@ -1377,6 +1453,14 @@ export function ActivityEntryDialog({ entry, onCancel, onDelete, onSave }) {
           <>
             <header className="activity-dialog-header"><h2 id="activity-dialog-title">Delete this activity?</h2><button className="activity-dialog-close" type="button" aria-label="Close activity dialog" onClick={onCancel}>×</button></header>
             <p>This will remove <strong>{entry.label}</strong> from your timeline and all activity totals.</p>
+            {isBoundaryEvent(event) && (
+              <p className="activity-dialog-note">
+                {entry.linkedEventId
+                  ? 'Both the arrival and the departure the phone recorded will go, and the phone will not send them again.'
+                  : 'This is an arrival or departure the phone recorded. Without it the session has no start or end here, and the phone will not send it again.'}
+                {' '}If the session only looks wrong, edit its times instead. A deleted activity can be brought back from Recently deleted, at the bottom of the page, for 90 days.
+              </p>
+            )}
             <p>{entry.dateLabel}</p>
             <div className="activity-dialog-actions"><button type="button" onClick={onCancel}>Cancel</button><button className="danger" type="button" disabled={saving} onClick={async () => { setSaving(true); try { await onDelete(); } finally { setSaving(false); } }}>{saving ? 'Deleting…' : 'Delete activity'}</button></div>
           </>

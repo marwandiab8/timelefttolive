@@ -3064,3 +3064,13 @@
 
 .activity-cycle[data-theme="light"] .cycle-target-metric.met dd { color: #1f9d55; }
 .activity-cycle[data-theme="light"] .cycle-target-metric.missed dd { color: #b8791a; }
+
+/* Delete dialog: why removing an arrival or departure matters, and the way back. */
+.activity-dialog-note { color: var(--cycle-muted); font-size: 0.9rem; line-height: 1.45; }
+
+/* Recently deleted: the recycle bin, under Tracking status. */
+.cycle-recycle-bin ul { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+.cycle-recycle-bin li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cycle-recycle-bin li div { display: grid; gap: 2px; min-width: 0; }
+.cycle-recycle-bin li span { color: var(--cycle-muted); font-size: 0.85rem; }
+.cycle-recycle-bin button { flex: none; }

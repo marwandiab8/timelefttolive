@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { getCategoryDefinition } from '../utils/lifeEventUtils.js';
-import { ActivityEntryDialog, LifeWheel, TimelineEntryList, TotalsView, buildDeleteRequest, buildLocationPatch } from './ActivityDashboard.jsx';
+import { ActivityEntryDialog, LifeWheel, TimelineEntryList, TotalsView, buildDeleteRequest, buildLocationPatch, describeRecycledItem, RecentlyDeleted, isBoundaryEvent } from './ActivityDashboard.jsx';
 
 const allTimeRange = {
   id: 'all',
@@ -245,5 +245,28 @@ describe('main-calendar days in the timeline', () => {
     expect(markup).toContain('Cleaning');
     expect(markup).not.toContain('Time not recorded');
     expect(markup.match(/>Edit</g)).toHaveLength(1);
+  });
+});
+
+describe('recently deleted', () => {
+  it('describes a recycled activity by its title, time and how long ago it was deleted', () => {
+    const now = new Date('2026-11-15T21:00:00Z');
+    const described = describeRecycledItem({
+      title: 'Arrived home', eventType: 'arrive_home', occurredAt: '2026-11-14T03:17:49Z', recycledAt: '2026-11-15T20:19:20Z', recycledWith: ['a']
+    }, now);
+    expect(described.title).toBe('Arrived home');
+    expect(described.when).toMatch(/Nov 13/);
+    expect(described.when).toMatch(/10:17/);
+    expect(described.deleted).toBe('deleted today');
+    expect(described.both).toBe(false);
+    expect(describeRecycledItem({ title: 'Home', recycledAt: '2026-11-12T20:00:00Z', recycledWith: ['a', 'b'] }, now)).toMatchObject({ when: 'Unknown time', deleted: 'deleted 3 days ago', both: true });
+  });
+
+  it('renders the panel closed with its summary, and knows a boundary event', () => {
+    const markup = renderToStaticMarkup(<RecentlyDeleted calendarId="cal-1" load={async () => []} restore={async () => ({})} />);
+    expect(markup).toContain('Recently deleted');
+    expect(markup).toContain('cycle-recycle-bin');
+    expect(isBoundaryEvent({ eventType: 'arrive_home' })).toBe(true);
+    expect(isBoundaryEvent({ eventType: 'sleep_session' })).toBe(false);
   });
 });
