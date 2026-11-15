@@ -393,6 +393,54 @@ describe('activity analysis utilities', () => {
     expect(analysis.sessions[0]).toMatchObject({ kind: 'incomplete', endAt: null, durationSeconds: null });
   });
 
+  it('keeps an open Home stay running through a quiet weekend and shows it on each day it covers', () => {
+    const events = [{ id: 'home-fri', eventType: 'arrive_home', activityFamily: 'home', occurredAt: '2026-11-14T03:17:49Z' }];
+    const now = new Date('2026-11-15T20:30:00Z'); // Sunday afternoon, 41 hours after arriving home on Friday night
+
+    const friday = buildPeriodAnalysis(events, getPeriodBounds('day', '2026-11-13'), { includeActive: true, now });
+    expect(friday.sessions[0]).toMatchObject({ kind: 'open', active: false, category: 'Home', durationSeconds: 6131 });
+    expect(friday.sessions[0].endAt.toISOString()).toBe('2026-11-14T05:00:00.000Z');
+
+    const saturday = buildPeriodAnalysis(events, getPeriodBounds('day', '2026-11-14'), { includeActive: true, now });
+    expect(saturday.activeCount).toBe(0);
+    expect(saturday.incompleteCount).toBe(0);
+    expect(saturday.sessions[0]).toMatchObject({ kind: 'open', active: false, durationSeconds: 86400 });
+    expect(saturday.categories[0]).toMatchObject({ label: 'Home', seconds: 86400 });
+
+    const sunday = buildPeriodAnalysis(events, getPeriodBounds('day', '2026-11-15'), { includeActive: true, now });
+    expect(sunday.activeCount).toBe(1);
+    expect(sunday.sessions[0]).toMatchObject({ kind: 'active', active: true, durationSeconds: 55800 });
+  });
+
+  it('still gives up on an open Work arrival after 36 hours, and on an open Home stay after a week', () => {
+    const now = new Date('2026-11-15T20:30:00Z');
+    const work = buildPeriodAnalysis([
+      { id: 'work-fri', eventType: 'arrive_work', activityFamily: 'work', occurredAt: '2026-11-14T03:17:49Z' }
+    ], getPeriodBounds('day', '2026-11-13'), { includeActive: true, now });
+    expect(work.activeCount).toBe(0);
+    expect(work.timedSeconds).toBe(0);
+    expect(work.sessions[0]).toMatchObject({ kind: 'incomplete', durationSeconds: null });
+
+    const stale = buildPeriodAnalysis([
+      { id: 'home-old', eventType: 'arrive_home', activityFamily: 'home', occurredAt: '2026-11-07T03:17:49Z' }
+    ], getPeriodBounds('day', '2026-11-15'), { includeActive: true, now });
+    expect(stale.activeCount).toBe(0);
+    expect(stale.timedSeconds).toBe(0);
+  });
+
+  it('ends an open Home stay when a later arrival somewhere else shows it was over', () => {
+    const now = new Date('2026-11-15T20:30:00Z');
+    const events = [
+      { id: 'home-fri', eventType: 'arrive_home', activityFamily: 'home', occurredAt: '2026-11-14T03:17:49Z' },
+      { id: 'work-sat', eventType: 'arrive_work', activityFamily: 'work', occurredAt: '2026-11-14T13:00:00Z' }
+    ];
+    const saturday = buildPeriodAnalysis(events, getPeriodBounds('day', '2026-11-14'), { includeActive: true, now });
+    expect(saturday.sessions.find((session) => session.category === 'Home')).toBeUndefined();
+    expect(saturday.sessions.find((session) => session.category === 'Work')).toMatchObject({ kind: 'open', active: false, durationSeconds: 57600 });
+    const friday = buildPeriodAnalysis(events, getPeriodBounds('day', '2026-11-13'), { includeActive: true, now });
+    expect(friday.sessions.find((session) => session.category === 'Home')).toMatchObject({ kind: 'incomplete', incompleteReason: 'superseded_by_arrival' });
+  });
+
   it('keeps only the latest valid unmatched boundary active and treats Spotify starts as moments', () => {
     const bounds = getPeriodBounds('day', '2026-08-17');
     const analysis = buildPeriodAnalysis([

@@ -116,7 +116,7 @@ Generic CarPlay-style `arrive_location` / `leave_location` records are observati
 | --- | --- |
 | `reported` | An event that carries its own `endAt` or `durationSeconds` (for example a completed workout). It keeps its supplied times. |
 | `paired` | An `arrive_*`/`start_*` boundary matched with the next `leave_*`/`finish_*`/`stop_*` for the same person, category and location. |
-| `active` | An unmatched start that is still in progress. Only Work, Gym/Fitness, Sleep, Home, Transportation, Meals and Reading can be active, only if it started within the last 36 hours, only for the period that contains "now", and only the latest per category. Its duration runs to the current time. |
+| `active` / `open` | An unmatched start that is still in progress. Only Work, Gym/Fitness, Sleep, Home, Transportation, Meals and Reading can be open, only the latest per category, and only if it started within the last 36 hours (Home: within the last 7 days, because a quiet weekend at home produces no event at all). The stretch runs from its start to the current time and is shown on every period it covers, clipped to that period: `active` (in progress) on the period that contains "now", `open` on the days before it. A later arrival somewhere else, or a later start of the same activity, ends it instead (see `incomplete`). |
 | `incomplete` | An unmatched start or unmatched end. It has no duration and is excluded from time totals. If a later arrival at a different place proves the visit ended, it is labelled "Ended elsewhere". |
 
 Spotify start events are never treated as open-ended boundaries. Spotify events come from iPhone Shortcuts and mark Spotify being opened and closed, not each track, so one stretch of listening is usually several of them. `pairMusicBoundaries` turns each stretch into one `paired` Music session, from its first `start_spotify` to its last `finish_spotify`:
@@ -187,6 +187,8 @@ What it writes: the patch above plus `updatedAt`, `updatedBy`, `updatedByUid` an
 Request: `{ calendarId, eventId, linkedEventId? }`. Returns `{ id: eventId }`. Errors `not-found` if the event, or the linked event when one is given, does not exist. A `null` or empty `linkedEventId` is treated as absent.
 
 For a paired session (arrival and departure) the dashboard passes the departure event's id as `linkedEventId`, the same way `editActivityEntry` does, so both boundaries are removed together. Nothing is deleted if either is missing or the caller is not the owner.
+
+A delete also writes `lifeEventTombstones/{idempotencyKey}`, and `upsertLifeEventRecord` answers `deleted` for a tombstoned key, so the source can never re-create the event (GridlineAI's re-delivery of a deleted arrival is refused). Deleting an arrival to tidy a Home session therefore removes Home from that point on. To bring a deleted event back, remove the tombstone and re-ingest the original payload through `normalizeLifeEventRecord` and `upsertLifeEventRecord`; `~/Documents/ChatBot/scripts/repair-home-2026-11-15.cjs` did that on 2026-11-15 for a deleted `arrive_home`, checking the rebuilt idempotency key and content hash against the `rawIngestionPayloads` record before writing.
 
 In one transaction, for each event being deleted, it:
 

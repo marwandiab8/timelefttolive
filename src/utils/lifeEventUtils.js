@@ -48,6 +48,13 @@ const placeActivityLabels = new Set();
 
 const MOMENT_CATEGORIES = new Set(['Notes', 'Work Reports', 'Attachments', 'Achievements', 'Moments']);
 const ACTIVE_SESSION_CATEGORIES = new Set(['Work', 'Gym/Fitness', 'Sleep', 'Home', 'Transportation', 'Meals', 'Reading']);
+// How long an unmatched start may still be treated as running. A night and a day covers a missed
+// leave at work or the gym; Home is different: a quiet weekend there produces no event at all, so an
+// open Home stay runs for up to a week until something (a drive, an arrival elsewhere) shows it ended.
+const OPEN_SESSION_WINDOW_MS = { default: 36 * 3600 * 1000, Home: 7 * 24 * 3600 * 1000 };
+function openSessionWindowMs(category) {
+  return OPEN_SESSION_WINDOW_MS[category] ?? OPEN_SESSION_WINDOW_MS.default;
+}
 const GENERIC_TITLES = /^(life event|journal entry|work session|home session|gym session|location session|activity|event|report|file|image)$/i;
 const COORDINATE_VALUE = /^\s*-?\d{1,3}(?:\.\d+)?\s*[,/]\s*-?\d{1,3}(?:\.\d+)?\s*$/;
 const HIDDEN_POINT_CATEGORIES = new Set(['Attachments']);
@@ -1068,8 +1075,7 @@ export function buildActivitySessions(events, bounds = null, options = {}) {
     const eligible = options.includeActive === true
       && ACTIVE_SESSION_CATEGORIES.has(category)
       && candidate.eventTime < now
-      && (now.getTime() - candidate.eventTime.getTime()) <= (36 * 3600 * 1000)
-      && (!bounds || (now >= bounds.start && now < bounds.end))
+      && (now.getTime() - candidate.eventTime.getTime()) <= openSessionWindowMs(category)
       && !superseding
       && !supersededByBoundary.has(candidate.event);
     if (!eligible) return;
@@ -1083,15 +1089,20 @@ export function buildActivitySessions(events, bounds = null, options = {}) {
     const live = latestActiveByCategory.get(category)?.event === event;
     const superseding = supersededStarts.get(event) || null;
     if (bounds && !live && (eventTime >= bounds.end || eventTime < bounds.start)) return;
+    // An open stretch runs from its start to now and is shown on every period it covers, clipped to
+    // that period: "active" (in progress) on the period that contains now, "open" on the days before.
     const interval = live ? clippedInterval(eventTime, now, bounds) : null;
+    if (live && !interval) return;
+    const current = live && (!bounds || (now >= bounds.start && now < bounds.end));
+    const kind = live ? (current ? 'active' : 'open') : 'incomplete';
     const session = makeSession(event, interval || {
       startAt: eventTime,
       endAt: null,
       durationSeconds: null
     }, {
-      id: `${live ? 'active' : 'incomplete'}-${event.id || eventTime.getTime()}`,
-      kind: live ? 'active' : 'incomplete',
-      active: live,
+      id: `${kind}-${event.id || eventTime.getTime()}`,
+      kind,
+      active: current,
       missingBoundary: live ? null : 'end',
       incompleteReason: superseding
         ? 'superseded_by_arrival'
