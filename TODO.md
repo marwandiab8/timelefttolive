@@ -1,5 +1,13 @@
 # To finish later
 
+## Deployed (2026-11-15)
+
+Hosting deployed to production from `feat/crystal-wheel` at `42789ee` (PR #7, on top of the crystal wheel below), so merge that PR to bring `main` level with production. Functions, rules and indexes are unchanged.
+
+- An open Home stay now keeps running for up to 7 days (other categories still 36 hours), and an open stretch is shown on every day it covers: `open` on the days before today, `active` (in progress) today. Before, a quiet weekend at home showed no Home at all until the next departure arrived, and the Friday arrival sat there as "incomplete", which is what led to it being deleted on Nov 15. Checked with the app's own session builder on the real events: Fri Nov 13 Home from 10:17 pm, Sat Nov 14 Home all day, Sun Nov 15 Home to now, matching the Life Cycle app's 41-hour Home stretch. `npm run test:frontend` 381 tests pass; the served bundle matches the build (`index-Cr-4o7D1.js`).
+- Data repair the same day (no code): the deleted Fri Nov 13 10:17 pm `arrive_home` was restored and the Raging Bull darts visit (7:34 to 9:57 pm) added, by `~/Documents/ChatBot/scripts/repair-home-2026-11-15.cjs`; a dashboard delete writes a tombstone that blocks the source from re-creating the event (`docs/activity-dashboard.md`, "Callable functions"). GridlineAI's two Shortcut delivery triggers run an Oct 8 mapper and conflict with the inline delivery on every place visit; that is documented in the GridlineAI repo (`docs/time-left-gridlineai-sync.md`) and needs a redeploy there.
+- Not yet checked signed in with the real profile: Saturday and Sunday showing Home on the wheel and in the day list, and that the "open" day sessions read naturally in the hub (they show the clipped end, e.g. 12:00 AM).
+
 ## Deployed (2026-11-14)
 
 Hosting deployed to production from `feat/crystal-wheel` at `f5c010d` (PR #7; first at `e46f9e3` with the Jewel material, then `7288ff6` Clear crystal, `8292f46` the hub click, `71bc080` the phone tooltip, and `f5c010d` no tooltip at all plus the shinier glass), so merge that PR to bring `main` level with production. Functions, rules and indexes are unchanged.
