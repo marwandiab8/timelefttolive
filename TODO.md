@@ -1,5 +1,13 @@
 # To finish later
 
+## Deployed (2026-11-15, evening)
+
+Hosting, the functions `deleteActivityEntry`, `restoreActivityEntry` and `cleanupLifeEventIngestionArtifacts`, the Firestore rules and the index overrides deployed to production from `feat/crystal-wheel` at `141a646` (PR #7). Served bundle `index-CllxvMUW.js`.
+
+- A delete keeps a copy in `lifeEventRecycleBin` for 90 days; `restoreActivityEntry` brings it back and lifts the tombstone; the dashboard's "Recently deleted" panel (under Tracking status) restores with one tap; the delete dialog warns before an arrival or departure goes. `npm run test:functions` 135 pass, `npm run test:frontend` 383 pass.
+- Not yet checked signed in: open the Recently deleted panel (the Nov 15 arrival is not in it, it was restored by hand before the bin existed; it will list future deletes), and restore something deleted on purpose.
+- The matching GridlineAI work (visits logged from drives, the tracking health check, the stale-trigger redeploy) is PR #15 in that repo; `docs/tracking-reliability.md` there describes the whole chain.
+
 ## Deployed (2026-11-15)
 
 Hosting deployed to production from `feat/crystal-wheel` at `42789ee` (PR #7, on top of the crystal wheel below), so merge that PR to bring `main` level with production. Functions, rules and indexes are unchanged.
