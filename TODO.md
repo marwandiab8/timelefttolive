@@ -1,5 +1,7 @@
 # To finish later
 
+**2026-11-15, evening: PR #7 merged. `main` (c08d80b) is level with production.** Hosting, the activity-entry functions, the Firestore rules and the index overrides were redeployed from `main` right after the merge; PR #6 and the earlier branches are all contained in it. The "merge that PR" notes in the sections below are done.
+
 ## Deployed (2026-11-15, evening)
 
 Hosting, the functions `deleteActivityEntry`, `restoreActivityEntry` and `cleanupLifeEventIngestionArtifacts`, the Firestore rules and the index overrides deployed to production from `feat/crystal-wheel` at `141a646` (PR #7). Served bundle `index-CllxvMUW.js`.
