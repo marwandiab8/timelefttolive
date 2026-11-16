@@ -433,8 +433,14 @@ const REVISABLE_EVENT_TYPES = new Set(["daily_steps", "sleep_session", "calendar
 // (the DartConnect Inbox Apps Script) can be re-sent the same way when their summary improves.
 const REVISABLE_DARTS_EVENT_TYPES = new Set(["dartsRecord", "darts_practice", "completed_darts_match"]);
 
+// A place visit can be named after the fact: a stop logged from a drive gets its name and activity when the
+// member confirms or renames it by text (gridlineai unknownStops.js), and the same source record is re-sent
+// with a better title. An event the owner edited by hand is protected by manualOverride above.
+const REVISABLE_PLACE_EVENT_TYPES = new Set(["arrive_location", "leave_location"]);
+
 function isRevisableUpdate(existing, payload) {
   if (REVISABLE_EVENT_TYPES.has(existing.eventType) && existing.eventType === payload.eventType) return true;
+  if (REVISABLE_PLACE_EVENT_TYPES.has(existing.eventType) && existing.eventType === payload.eventType && existing.sourceApp === payload.sourceApp) return true;
   return REVISABLE_DARTS_EVENT_TYPES.has(existing.eventType)
     && REVISABLE_DARTS_EVENT_TYPES.has(payload.eventType)
     && existing.sourceApp === payload.sourceApp;

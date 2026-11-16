@@ -2201,6 +2201,42 @@ test("a darts event can be re-sent with more detail, even across the old and new
   assert.equal(eventDocs[0][1].revisionCount, 1);
 });
 
+test("a place visit can be re-sent with its name and activity once the member names the place", async () => {
+  const db = new FakeFirestore();
+  const token = "t-place-revise";
+  await setupAuthorized(db, token);
+  const base = {
+    calendarId: "calendar-1",
+    connectionId: "conn-1",
+    integrationId: "integration-conn-1",
+    schemaVersion: 1,
+    sourceApp: "aigridline",
+    sourceProjectId: "project-a",
+    sourceRecordId: "stop-1-leave",
+    eventType: "leave_location",
+    eventClass: "location",
+    occurredAt: "2026-11-14T02:57:10Z",
+    startAt: "2026-11-14T00:34:19Z",
+    endAt: "2026-11-14T02:57:10Z",
+    title: "Visit at Stop near 43.5471, -80.2968",
+    location: { label: "Stop near 43.5471, -80.2968", latitude: 43.5471, longitude: -80.2968 },
+    metadata: { placeActivity: "Visit" }
+  };
+  await ingestLifeEventSingle(db, makeReq(base, token), makeRes());
+  const second = makeRes();
+  await ingestLifeEventSingle(db, makeReq({ ...base, title: "Darts at Raging Bull", location: { ...base.location, label: "Raging Bull" }, metadata: { placeActivity: "Darts" } }, token), second);
+  assert.equal(second.statusCode, 200);
+  assert.equal(second.payload.duplicate, false);
+  const eventDocs = [...db._store.entries()].filter(([key]) => key.includes("/lifeEvents/"));
+  assert.equal(eventDocs.length, 1);
+  assert.equal(eventDocs[0][1].title, "Darts at Raging Bull");
+  assert.equal(eventDocs[0][1].metadata.placeActivity, "Darts");
+  assert.equal(eventDocs[0][1].revisionCount, 1);
+  const other = makeRes();
+  await ingestLifeEventSingle(db, makeReq({ ...base, eventType: "arrive_location", startAt: undefined, endAt: undefined, title: "Changed into something else" }, token), other);
+  assert.equal(other.statusCode, 409, "the same record as a different event type is still a conflict");
+});
+
 test("a DartConnect match can be re-sent with a better summary", async () => {
   const db = new FakeFirestore();
   const token = "t-dartconnect-revise";
