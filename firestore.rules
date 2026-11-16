@@ -112,6 +112,12 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
+      // Deleted activities wait here for 90 days; the owner reads the list, only the restore function writes.
+      match /lifeEventRecycleBin/{eventId} {
+        allow read: if isOwner(calendarId);
+        allow write: if false;
+      }
+
       match /ingestionDeadLetters/{deadLetterId} {
         allow read, write: if false;
       }

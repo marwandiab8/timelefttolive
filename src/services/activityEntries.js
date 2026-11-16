@@ -12,3 +12,8 @@ export function deleteActivityEntry(data) {
   if (!functions) return Promise.reject(new Error('Activity deletion is unavailable until Firebase is configured.'));
   return httpsCallable(functions, 'deleteActivityEntry')(data);
 }
+
+export function restoreActivityEntry(data) {
+  if (!functions) return Promise.reject(new Error('Restoring activities is unavailable until Firebase is configured.'));
+  return httpsCallable(functions, 'restoreActivityEntry')(data);
+}

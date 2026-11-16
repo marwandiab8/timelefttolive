@@ -1011,7 +1011,9 @@ async function cleanupLifeEventArtifacts(db) {
   const now = new Date();
   const rawDeleted = await deleteExpiredCollectionGroupDocuments(db, "rawIngestionPayloads", now);
   const deadLetterDeleted = await deleteExpiredCollectionGroupDocuments(db, "ingestionDeadLetters", now);
-  return { rawDeleted, deadLetterDeleted, totalDeleted: rawDeleted + deadLetterDeleted };
+  // Deleted activities wait 90 days in the recycle bin (src/activityEntries.js) before they are gone for good.
+  const recycledDeleted = await deleteExpiredCollectionGroupDocuments(db, "lifeEventRecycleBin", now);
+  return { rawDeleted, deadLetterDeleted, recycledDeleted, totalDeleted: rawDeleted + deadLetterDeleted + recycledDeleted };
 }
 
 function chunk(values, size) {

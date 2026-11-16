@@ -222,11 +222,9 @@
   min-height: 640px;
   padding: clamp(24px, 3vw, 46px);
   overflow: hidden;
-  border: 1px solid var(--cycle-border);
+  border: 1px solid color-mix(in srgb, var(--cycle-border) 70%, transparent);
   border-radius: 34px;
-  background:
-    radial-gradient(circle at 37% 50%, color-mix(in srgb, var(--activity-focus) 13%, transparent), transparent 28rem),
-    color-mix(in srgb, var(--cycle-surface) 96%, transparent);
+  background: color-mix(in srgb, var(--cycle-surface) 96%, transparent);
   box-shadow: var(--cycle-shadow);
   transition: border-color 220ms ease, background 220ms ease;
 }
@@ -239,41 +237,32 @@
   position: relative;
   isolation: isolate;
   display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 30px;
   min-width: 0;
   min-height: 550px;
   place-items: center;
+  align-content: start;
 }
 
-/* Marwan's K2 logo as a faint watermark (never catches taps): the whole logo in the wheel's open centre,
-   behind the day's totals - or, on a day with no wheel, larger across the empty panel. */
-.life-wheel::before,
+/* Marwan's K2 logo: etched into the wheel's lens (drawn by LifeWheel), or, on a day with no wheel,
+   a faint watermark across the empty panel (never catches taps). */
 .cycle-wheel-stage:not(:has(.life-wheel))::before {
   content: "";
   position: absolute;
   z-index: -1;
-  background: url("/brand/k2-logo-watermark.png") center / contain no-repeat;
-  opacity: 0.14;
-  pointer-events: none;
-}
-
-.life-wheel::before {
-  inset: 29.5%; /* the wheel's inner radius is 21 of 50: the logo just fits inside the ring */
-}
-
-.cycle-wheel-stage:not(:has(.life-wheel))::before {
   inset: 8%;
+  background: url("/brand/k2-logo-watermark.png") center / contain no-repeat;
   opacity: 0.08;
-}
-
-.activity-cycle[data-theme="light"] .life-wheel::before {
-  opacity: 0.1;
+  pointer-events: none;
 }
 
 .life-wheel {
   position: relative;
   isolation: isolate;
   width: clamp(500px, 41vw, 650px);
-  max-width: 100%;
+  max-width: 92%;
+  margin: 1.5% 0 3%; /* room for the beads and the comparison ring outside the rim */
   aspect-ratio: 1;
 }
 
@@ -283,24 +272,71 @@
   overflow: visible;
 }
 
-.life-wheel-segment {
+/* One slice: the body and its highlights move together. The selected one lifts outward; the
+   others frost rather than vanish. */
+.life-wheel-slice {
   cursor: pointer;
   outline: none;
-  transition: opacity 220ms ease, filter 220ms ease;
+  transition: transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 240ms ease, filter 240ms ease;
 }
 
-.life-wheel-segment:hover {
-  filter: brightness(1.08);
+.life-wheel-slice:hover {
+  filter: brightness(1.04);
 }
 
-/* The other slices step back so the selected one stands out. */
-.life-wheel-segment.faded {
-  opacity: 0.2;
+.life-wheel-slice.faded {
+  opacity: 0.35;
+  filter: saturate(0.4);
 }
 
-.life-wheel-segment:focus-visible {
+.life-wheel-slice.untracked {
+  cursor: default;
+}
+
+.life-wheel-slice:focus-visible > .life-wheel-segment {
   stroke: var(--cycle-text);
-  stroke-width: 0.7;
+  stroke-width: 0.8;
+}
+
+.life-wheel-overlay {
+  cursor: pointer;
+  transition: opacity 240ms ease;
+}
+
+/* The slice with a session in progress breathes along its outer edge. */
+.life-wheel-live {
+  animation: life-wheel-breathe 2.8s ease-in-out infinite;
+}
+
+@keyframes life-wheel-breathe {
+  0%, 100% { opacity: 0.18; }
+  50% { opacity: 0.75; }
+}
+
+.life-wheel-label {
+  filter: drop-shadow(0 0.25px 0.5px rgba(0, 0, 0, 0.4));
+}
+
+.life-wheel-label.untracked {
+  color: var(--cycle-muted);
+  filter: none;
+}
+
+.life-wheel-clock-label {
+  letter-spacing: 0.02em;
+}
+
+.life-wheel-bead {
+  cursor: pointer;
+  transition: opacity 240ms ease, transform 240ms ease;
+}
+
+.life-wheel-bead:hover circle:nth-child(2) {
+  stroke-opacity: 1;
+}
+
+.life-wheel-bead.faded {
+  opacity: 0.3;
 }
 
 .life-wheel-center {
@@ -346,46 +382,277 @@
 }
 
 .life-wheel-icon {
-  font-size: 1.4rem;
-}
-
-.life-wheel-labels {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.life-wheel-labels button {
-  position: absolute;
   display: grid;
-  justify-items: center;
-  gap: 1px;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: #fff;
+  place-items: center;
+  color: var(--activity-focus);
+  font-size: 1.6rem;
+}
+
+.life-wheel-center.clearable {
   cursor: pointer;
-  line-height: 1;
-  pointer-events: auto;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
-  transform: translate(-50%, -50%);
-  transition: opacity 220ms ease;
+  border-radius: 50%;
+  transition: background 200ms ease;
 }
 
-.life-wheel-labels button span {
-  font-size: 1.3rem;
+.life-wheel-center.clearable:hover {
+  background: color-mix(in srgb, var(--cycle-text) 5%, transparent);
 }
 
-.life-wheel-labels button small {
-  color: inherit;
-  font-size: 0.85rem;
-  font-weight: 700;
+.life-wheel-center.clearable:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--activity-focus) 72%, white);
+  outline-offset: -3px;
+}
+
+.life-wheel-center .life-wheel-target {
+  margin-top: 6px;
+  color: var(--cycle-muted);
+  font-size: 0.72rem;
+}
+
+.life-wheel-center small {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.life-wheel-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--activity-focus);
+  box-shadow: 0 0 8px var(--activity-focus);
+  animation: life-wheel-pulse 2.6s ease-in-out infinite;
+}
+
+@keyframes life-wheel-pulse {
+  50% { opacity: 0.35; box-shadow: 0 0 2px var(--activity-focus); }
+}
+
+/* The hub speaks for the slice under the pointer: short lines under the number. */
+.life-wheel-center .life-wheel-line {
+  display: block;
+  max-width: 100%;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--cycle-muted);
+  font-size: clamp(0.6rem, 0.78vw, 0.74rem);
+  line-height: 1.3;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.life-wheel-labels button.faded {
-  opacity: 0.3;
+.life-wheel-center .hub-time {
+  font-size: clamp(1.1rem, 1.7vw, 1.6rem);
+  letter-spacing: -0.03em;
+}
+
+/* The gleam: a blade of light sweeping round the ring, once every nine seconds. */
+.life-wheel-gleam {
+  pointer-events: none;
+  mix-blend-mode: screen;
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+  animation: life-wheel-gleam 9s linear infinite;
+}
+
+@keyframes life-wheel-gleam {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* The tool row above the wheel: layout, comparison, untracked time, image. */
+.cycle-wheel-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  justify-self: stretch;
+}
+
+.cycle-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--cycle-border);
+  border-radius: 999px;
+  background: var(--cycle-surface-soft);
+}
+
+.cycle-segmented > span {
+  padding: 0 8px 0 10px;
+  color: var(--cycle-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.cycle-segmented button,
+.cycle-tool-toggle,
+.cycle-tool-action {
+  min-height: 32px;
+  padding: 5px 13px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--cycle-text);
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.cycle-segmented button:hover,
+.cycle-tool-toggle:hover,
+.cycle-tool-action:hover {
+  background: color-mix(in srgb, var(--cycle-text) 8%, transparent);
+}
+
+.cycle-segmented button.selected,
+.cycle-tool-toggle.selected {
+  background: color-mix(in srgb, var(--activity-focus) 24%, var(--cycle-surface));
+  color: var(--cycle-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--activity-focus) 50%, transparent);
+}
+
+.cycle-segmented button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.cycle-tool-toggle,
+.cycle-tool-action {
+  border-color: var(--cycle-border);
+  background: var(--cycle-surface-soft);
+}
+
+.cycle-tool-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Worth noting: two or three facts with their numbers. */
+.cycle-facts {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cycle-facts li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--cycle-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--activity-focus) 7%, var(--cycle-surface-soft));
+}
+
+.cycle-facts li > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--activity-focus);
+}
+
+.cycle-facts strong {
+  display: block;
+  font-size: 0.92rem;
+}
+
+.cycle-facts span {
+  display: block;
+  margin-top: 2px;
+  color: var(--cycle-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.cycle-target-metric.met dd { color: #65d6ad; }
+.cycle-target-metric.missed dd { color: #f2b84b; }
+.cycle-target-metric dd { font-size: clamp(0.95rem, 1.2vw, 1.1rem); line-height: 1.3; }
+
+.cycle-target-editor {
+  margin-top: 14px;
+}
+
+.cycle-target-editor summary {
+  color: var(--cycle-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.cycle-target-editor form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 0.85rem;
+}
+
+.cycle-target-editor label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cycle-target-editor input {
+  width: 62px;
+  padding: 6px 8px;
+  border: 1px solid var(--cycle-border);
+  border-radius: 8px;
+  background: var(--cycle-surface);
+  color: var(--cycle-text);
+  font: inherit;
+}
+
+.cycle-target-editor button[type="submit"] {
+  padding: 7px 12px;
+  border: 1px solid color-mix(in srgb, var(--activity-focus) 50%, var(--cycle-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--activity-focus) 22%, var(--cycle-surface));
+  color: var(--cycle-text);
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+/* Small multiples: the days of a week or the weeks of a month. */
+.cycle-mini-wheels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.mini-wheel {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  padding: 6px 4px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--cycle-text);
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.mini-wheel:hover,
+.mini-wheel.selected {
+  border-color: var(--cycle-border);
+  background: var(--cycle-surface-soft);
+}
+
+.mini-wheel svg {
+  display: block;
+}
+
+.mini-wheel span {
+  color: var(--cycle-muted);
+  font-size: 0.7rem;
+  font-weight: 650;
 }
 
 .cycle-glance {
@@ -482,6 +749,29 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
+}
+
+.cycle-legend button > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cycle-legend .activity-icon {
+  flex: none;
+  color: var(--cycle-muted);
+}
+
+.cycle-legend button.selected .activity-icon,
+.cycle-legend button:hover .activity-icon {
+  color: var(--cycle-text);
+}
+
+.cycle-glance-copy h2 .activity-icon {
+  margin-right: 0.12em;
+  vertical-align: -0.1em;
+  color: var(--activity-focus);
 }
 
 .cycle-legend strong {
@@ -935,20 +1225,28 @@
   font-size: 0.78rem;
 }
 
+/* Labels sit at their hour (left set inline); the first and last hug the ends. */
 .cycle-day-axis {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  position: relative;
+  height: 1.3em;
   margin: 26px 0 10px 216px;
   color: var(--cycle-muted);
   font-size: 0.68rem;
 }
 
-.cycle-day-axis span:not(:first-child):not(:last-child) {
-  text-align: center;
+.cycle-day-axis span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
 }
 
-.cycle-day-axis span:last-child {
-  text-align: right;
+.cycle-day-axis span.first {
+  transform: none;
+}
+
+.cycle-day-axis span.last {
+  transform: translateX(-100%);
 }
 
 .cycle-day-rows {
@@ -984,11 +1282,30 @@
   height: 42px;
   border: 1px solid color-mix(in srgb, var(--cycle-border) 70%, transparent);
   border-radius: 12px;
-  background:
-    linear-gradient(to right, transparent calc(25% - 1px), var(--cycle-border) 25%, transparent calc(25% + 1px)),
-    linear-gradient(to right, transparent calc(50% - 1px), var(--cycle-border) 50%, transparent calc(50% + 1px)),
-    linear-gradient(to right, transparent calc(75% - 1px), var(--cycle-border) 75%, transparent calc(75% + 1px)),
-    color-mix(in srgb, var(--cycle-surface) 64%, transparent);
+  background: color-mix(in srgb, var(--cycle-surface) 64%, transparent);
+}
+
+.cycle-day-gridline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--cycle-border);
+}
+
+.cycle-day-gridline.midnight {
+  width: 2px;
+  background: color-mix(in srgb, var(--cycle-muted) 55%, transparent);
+}
+
+.cycle-day-before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 11px 0 0 11px;
+  background: color-mix(in srgb, var(--cycle-muted) 12%, transparent);
 }
 
 .cycle-day-bar {
@@ -1039,6 +1356,8 @@
 }
 
 .cycle-day-moment span {
+  display: grid;
+  place-items: center;
   line-height: 1;
 }
 
@@ -1052,7 +1371,8 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, #f3c95f 25%, transparent);
 }
 
-.cycle-chart-legend {
+/* Outranks .cycle-activity-stream p, which would otherwise make it a block with no gaps. */
+.cycle-activity-stream .cycle-chart-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
@@ -1086,6 +1406,12 @@
   height: 14px;
   border-radius: 0;
   background: #f3c95f;
+}
+
+.cycle-chart-legend i.before-day {
+  height: 12px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--cycle-muted) 22%, transparent);
 }
 
 .cycle-linear-history {
@@ -1139,6 +1465,14 @@
   color: #07100e;
   box-shadow: 0 5px 16px color-mix(in srgb, var(--timeline-color) 32%, transparent);
   font-size: 0.9rem;
+}
+
+.cycle-timeline-marker svg,
+.cycle-day-moment svg,
+.cycle-total-grid article > span svg,
+.cycle-point-history li > span svg,
+.cycle-journal-icon svg {
+  display: block;
 }
 
 .cycle-linear-timeline > li > time {
@@ -1988,7 +2322,7 @@
     height: 46px;
   }
 
-  .cycle-chart-legend {
+  .cycle-activity-stream .cycle-chart-legend {
     gap: 9px;
   }
 
@@ -2627,3 +2961,116 @@
   .activity-dialog { padding: 18px; }
   .cycle-entry-actions { margin-left: 0; }
 }
+
+/* Appended with the crystal wheel (2026-11-14): overrides that must follow everything above. */
+@media (prefers-reduced-motion: reduce) {
+  .life-wheel-slice,
+  .life-wheel-bead,
+  .life-wheel-overlay {
+    transition: none;
+  }
+
+  .life-wheel-live,
+  .life-wheel-pulse,
+  .life-wheel-gleam {
+    animation: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .cycle-wheel-stage {
+    gap: 12px;
+  }
+
+  .cycle-wheel-tools {
+    gap: 6px;
+  }
+
+  .cycle-segmented button,
+  .cycle-tool-toggle,
+  .cycle-tool-action {
+    min-height: 30px;
+    padding: 4px 10px;
+    font-size: 0.74rem;
+  }
+
+  .cycle-segmented > span {
+    display: none;
+  }
+
+  /* The lens is about 130px wide on a phone: everything in it tightens up, the location goes,
+     and at most two lines sit under the number. */
+  .life-wheel-center {
+    inset: 30.5%;
+    padding: 2px;
+  }
+
+  .life-wheel-center .life-wheel-icon {
+    font-size: 1.05rem;
+  }
+
+  .life-wheel-center h2 {
+    margin: 1px 0;
+    font-size: 0.92rem;
+  }
+
+  .life-wheel-center p,
+  .life-wheel-center time {
+    margin: 1px 0;
+    font-size: 0.6rem;
+  }
+
+  .life-wheel-center .hub-location {
+    display: none;
+  }
+
+  .life-wheel-center > strong {
+    margin: 2px 0 1px;
+    font-size: 1.4rem;
+  }
+
+  .life-wheel-center .hub-time {
+    font-size: 1.05rem;
+  }
+
+  .life-wheel-center .life-wheel-line {
+    margin-top: 1px;
+    font-size: 0.54rem;
+  }
+
+  .life-wheel-center .life-wheel-line:nth-of-type(n + 3) {
+    display: none;
+  }
+
+  .life-wheel-center small {
+    font-size: 0.54rem;
+  }
+
+  .life-wheel {
+    margin: 2.5% 0 4%;
+    max-width: 86%; /* room for the beads and the clock labels outside the rim */
+  }
+
+  .cycle-mini-wheels {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .cycle-facts li {
+    padding: 8px 10px;
+  }
+}
+
+.activity-cycle[data-theme="light"] .cycle-target-metric.met dd { color: #1f9d55; }
+.activity-cycle[data-theme="light"] .cycle-target-metric.missed dd { color: #b8791a; }
+
+/* Delete dialog: why removing an arrival or departure matters, and the way back. */
+.activity-dialog-note { color: var(--cycle-muted); font-size: 0.9rem; line-height: 1.45; }
+
+/* Recently deleted: the recycle bin, under Tracking status. */
+.cycle-recycle-bin ul { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+.cycle-recycle-bin li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cycle-recycle-bin li div { display: grid; gap: 2px; min-width: 0; }
+.cycle-recycle-bin li span { color: var(--cycle-muted); font-size: 0.85rem; }
+.cycle-recycle-bin button { flex: none; }

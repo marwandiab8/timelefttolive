@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import BrandLogo from './BrandLogo.jsx';
-import { useAllLifeEvents, useActivityJournalDetails, useConnectedSources, useLifeEvents } from '../hooks/useCalendar.js';
+import { saveActivityTargets, useAllLifeEvents, useActivityJournalDetails, useConnectedSources, useLifeEvents } from '../hooks/useCalendar.js';
 import { loadAuthorizedActivityImage } from '../services/activityJournal.js';
-import { deleteActivityEntry, editActivityEntry } from '../services/activityEntries.js';
+import { deleteActivityEntry, editActivityEntry, restoreActivityEntry } from '../services/activityEntries.js';
+import { listRecentlyDeleted } from '../services/recycleBin.js';
 import PrimaryViewSwitcher from './PrimaryViewSwitcher.jsx';
+import { LifeWheel, MiniWheel } from './LifeWheel.jsx';
+import { ActivityIcon } from './activityIcons.jsx';
+import { buildNotableFacts, countWeekDays } from '../utils/activityNotables.js';
+import { TARGET_DEFINITIONS, describeTarget, evaluateTarget, normalizeActivityTargets, targetAmount } from '../utils/activityTargets.js';
+import { exportWheelImage } from '../utils/wheelImage.js';
 import {
   APP_TIMEZONE,
   buildActivityTallies,
@@ -31,14 +37,12 @@ import {
   getPeriodBounds,
   groupPhotosByDate,
   shiftPeriodDate,
-  toggleActivitySelection
+  toggleActivitySelection,
+  toJsDate
 } from '../utils/lifeEventUtils.js';
-import {
-  buildWheelSegments,
-  describeWheelSegment,
-  getWheelLabelMode,
-  getWheelLabelPosition
-} from '../utils/wheelGeometry.js';
+
+// The wheel itself lives in LifeWheel.jsx; re-exported so existing imports and tests keep working.
+export { LifeWheel, MiniWheel };
 
 const PERIODS = ['day', 'week', 'month', 'year'];
 const TALLY_RANGES = [
@@ -48,6 +52,11 @@ const TALLY_RANGES = [
   { id: '7d', label: '7 days' }
 ];
 const HISTORY_PERIOD_COUNTS = { day: 14, week: 8, month: 6, year: 3 };
+const LAYOUT_KEY = 'activityWheelLayout';
+const COMPARE_KEY = 'activityWheelCompare';
+const readPreference = (key) => (typeof localStorage === 'undefined' ? null : localStorage.getItem(key));
+const writePreference = (key, value) => { if (typeof localStorage !== 'undefined') localStorage.setItem(key, value); };
+const weekdayFormatter = new Intl.DateTimeFormat(undefined, { timeZone: 'America/Toronto', weekday: 'short' });
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   timeZone: APP_TIMEZONE,
@@ -105,11 +114,15 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
   const [tallyRangeId, setTallyRangeId] = useState('all');
   const [now, setNow] = useState(() => new Date());
   const [theme, setTheme] = useState(() => (
-    localStorage.getItem('activityDashboardTheme') === 'light' ? 'light' : 'dark'
+    readPreference('activityDashboardTheme') === 'light' ? 'light' : 'dark'
   ));
   const [managedEntry, setManagedEntry] = useState(null);
   const [managementMessage, setManagementMessage] = useState('');
   const [managementError, setManagementError] = useState('');
+  const [layout, setLayout] = useState(() => (readPreference(LAYOUT_KEY) === 'clock' ? 'clock' : 'share'));
+  const [compare, setCompare] = useState(() => (['previous', 'normal'].includes(readPreference(COMPARE_KEY)) ? readPreference(COMPARE_KEY) : 'none'));
+  const [untrackedPreference, setUntrackedPreference] = useState(null);
+  const wheelSvgRef = useRef(null);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -165,6 +178,78 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
   ), [analysis, bounds, previousAnalysis, recentHistory, selectedCategory]);
   const pointAnalysis = useMemo(() => buildPointCategoryAnalysis(selectedPointCategory), [selectedPointCategory]);
 
+  // What the comparison ring measures against: the previous period, or the recent normal
+  // (the average of the loaded periods that had the category, at least two of them).
+  const compareSeconds = useMemo(() => {
+    if (compare === 'previous') return new Map(previousAnalysis.categories.map((category) => [category.label, category.seconds]));
+    if (compare === 'normal') {
+      return new Map(analysis.categories.map((category) => {
+        const recent = recentHistory
+          .map((item) => item.analysis.categories.find((candidate) => candidate.label === category.label)?.seconds)
+          .filter((seconds) => Number.isFinite(seconds) && seconds > 0);
+        return [category.label, recent.length >= 2 ? recent.reduce((sum, seconds) => sum + seconds, 0) / recent.length : 0];
+      }).filter(([, seconds]) => seconds > 0));
+    }
+    return null;
+  }, [analysis.categories, compare, previousAnalysis.categories, recentHistory]);
+  const showUntracked = untrackedPreference ?? period === 'day';
+
+  const activityTargets = useMemo(() => normalizeActivityTargets(calendar.activityTargets), [calendar.activityTargets]);
+  const targetMarks = useMemo(() => {
+    const marks = new Map();
+    analysis.categories.forEach((category) => {
+      const activeDays = new Set(category.sessions.map((session) => getDateIdInTimezone(session.startAt, bounds.timezone))).size;
+      const evaluation = evaluateTarget(activityTargets, {
+        label: category.label,
+        totalSeconds: category.seconds,
+        sessionCount: category.sessions.length,
+        activeDays,
+        averageActiveDaySeconds: activeDays ? category.seconds / activeDays : 0
+      }, period, bounds, { weekSessionCount: period === 'day' ? countWeekDays(category.label, analysis, recentHistory, dateId) : undefined });
+      if (evaluation) marks.set(category.label, evaluation);
+    });
+    return marks;
+  }, [activityTargets, analysis, bounds, dateId, period, recentHistory]);
+  const selectedTarget = categoryAnalysis ? targetMarks.get(categoryAnalysis.label) || null : null;
+
+  const facts = useMemo(() => buildNotableFacts({ analysis, history: recentHistory, period, bounds }), [analysis, bounds, period, recentHistory]);
+
+  // Moments as beads on the rim: one point per grouped moment, coloured by its point category.
+  const beads = useMemo(() => {
+    const colors = new Map(analysis.pointCategories.map((category) => [category.label, category.color]));
+    return analysis.momentGroups
+      .filter((group) => colors.has(group.pointCategory))
+      .map((group) => ({
+        id: group.id,
+        label: group.pointCategory,
+        color: colors.get(group.pointCategory),
+        at: group.firstAt,
+        title: group.title,
+        count: group.count,
+        segmentLabel: group.category
+      }));
+  }, [analysis.momentGroups, analysis.pointCategories]);
+
+  // Small multiples: the days of a week, or the weeks of a month, from the data already loaded.
+  const miniWheels = useMemo(() => {
+    if (period === 'week') {
+      return Array.from({ length: 7 }, (_, index) => {
+        const id = shiftPeriodDate(bounds.startDateId, 'day', index);
+        const dayBounds = getPeriodBounds('day', id);
+        return { id, period: 'day', label: weekdayFormatter.format(dayBounds.start), categories: buildPeriodAnalysis(enrichedLifeEvents, dayBounds, { includeActive: true, now }).categories };
+      });
+    }
+    if (period === 'month') {
+      const weeks = [];
+      for (let cursor = getPeriodBounds('week', bounds.startDateId).startDateId; cursor <= bounds.endDateId; cursor = shiftPeriodDate(cursor, 'week', 1)) {
+        const weekBounds = getPeriodBounds('week', cursor);
+        weeks.push({ id: cursor, period: 'week', label: shortDateFormatter.format(weekBounds.start), categories: buildPeriodAnalysis(enrichedLifeEvents, weekBounds, { includeActive: true, now }).categories });
+      }
+      return weeks;
+    }
+    return [];
+  }, [bounds, enrichedLifeEvents, now, period]);
+
   const tallyRange = useMemo(() => getActivityTallyRange(tallyRangeId, now), [now, tallyRangeId]);
   const tallies = useMemo(() => buildActivityTallies(allLifeEventState.lifeEvents, {
     calendarId: calendar.id,
@@ -200,8 +285,84 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
   function toggleTheme() {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
     setTheme(nextTheme);
-    localStorage.setItem('activityDashboardTheme', nextTheme);
+    writePreference('activityDashboardTheme', nextTheme);
   }
+
+  function chooseLayout(nextLayout) {
+    setLayout(nextLayout);
+    writePreference(LAYOUT_KEY, nextLayout);
+  }
+
+  function chooseCompare(nextCompare) {
+    setCompare(nextCompare);
+    writePreference(COMPARE_KEY, nextCompare);
+  }
+
+  function flash(message) {
+    setManagementMessage(message);
+    window.setTimeout(() => setManagementMessage(''), 3500);
+  }
+
+  async function saveTarget(label, amount) {
+    setManagementError('');
+    const definition = TARGET_DEFINITIONS[label];
+    if (!definition) return;
+    const next = { ...activityTargets };
+    if (amount) next[label] = { [definition.kind]: amount };
+    else delete next[label];
+    try {
+      await saveActivityTargets(calendar.id, normalizeActivityTargets(next));
+      flash(amount ? `Target saved: ${describeTarget(label, amount)}.` : `Target removed for ${label}.`);
+    } catch (error) {
+      setManagementError(error?.message || 'Unable to save this target.');
+    }
+  }
+
+  async function exportWheel() {
+    setManagementError('');
+    const leading = analysis.categories.slice(0, 3).map((category) => `${category.label} ${formatDuration(category.seconds)}`).join(', ');
+    const dateLabel = period === 'day' ? dateFormatter.format(bounds.start) : title;
+    try {
+      const fileName = await exportWheelImage({
+        svg: wheelSvgRef.current,
+        title: categoryAnalysis ? categoryAnalysis.label : title,
+        total: formatDuration(categoryAnalysis ? categoryAnalysis.totalSeconds : analysis.timedSeconds),
+        subtitle: categoryAnalysis ? `${categoryAnalysis.sessionCount} ${categoryAnalysis.sessionCount === 1 ? 'session' : 'sessions'}` : 'tracked time',
+        caption: [dateLabel, formatDuration(analysis.timedSeconds), leading].filter(Boolean).join(' · '),
+        theme,
+        fileName: `time-wheel-${bounds.startDateId}${period === 'day' ? '' : `-${period}`}.png`
+      });
+      flash(`Saved ${fileName}.`);
+    } catch (error) {
+      setManagementError(error?.message || 'Unable to save the wheel image.');
+    }
+  }
+
+  // Keyboard: arrows move the period, D W M Y pick one, T is today, Escape clears the selection.
+  // Nothing fires while typing, while a dialog or the photo preview is open, or inside the wheel
+  // (whose own arrow keys walk the slices).
+  useEffect(() => {
+    if (!active || mode !== 'wheel') return undefined;
+    const onKeyDown = (event) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target;
+      if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName)) return;
+      if (document.querySelector('[role="dialog"]') || target?.closest?.('.life-wheel-slice')) return;
+      const key = event.key.toLowerCase();
+      if (event.key === 'ArrowLeft') movePeriod(-1);
+      else if (event.key === 'ArrowRight') movePeriod(1);
+      else if (event.key === 'Escape') setSelectedLabel(null);
+      else if (key === 'd') choosePeriod('day');
+      else if (key === 'w') choosePeriod('week');
+      else if (key === 'm') choosePeriod('month');
+      else if (key === 'y') choosePeriod('year');
+      else if (key === 't') setDateId(getLocalDateId(now));
+      else return;
+      event.preventDefault();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  });
 
   async function saveManagedEntry(data) {
     setManagementError('');
@@ -278,6 +439,23 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
           title={title}
           onEdit={(entry) => setManagedEntry(entry)}
           onDelete={(entry) => setManagedEntry({ ...entry, confirmDelete: true })}
+          theme={theme}
+          layout={layout}
+          onLayoutChange={chooseLayout}
+          compare={compare}
+          onCompareChange={chooseCompare}
+          compareSeconds={compareSeconds}
+          showUntracked={showUntracked}
+          onToggleUntracked={() => setUntrackedPreference(!showUntracked)}
+          beads={beads}
+          targets={activityTargets}
+          targetMarks={targetMarks}
+          selectedTarget={selectedTarget}
+          onSaveTarget={saveTarget}
+          facts={facts}
+          miniWheels={miniWheels}
+          onExport={exportWheel}
+          wheelSvgRef={wheelSvgRef}
         />
       ) : (
         <TotalsView
@@ -294,8 +472,76 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
         <summary>Tracking status</summary>
         <p>{sourceState.connections.filter((connection) => connection.status === 'active').length} active connected sources. Technical delivery details are kept out of the reflection view.</p>
       </details>
+      <RecentlyDeleted calendarId={calendar?.id} onRestored={() => setManagementMessage('Activity restored. It is back on the timeline and in the totals.')} />
       {managedEntry && <ActivityEntryDialog entry={managedEntry} onCancel={() => setManagedEntry(null)} onDelete={() => removeManagedEntry(managedEntry)} onSave={saveManagedEntry} />}
     </main>
+  );
+}
+
+// What a recycled activity reads as in the "Recently deleted" list: its title, when it happened, when it
+// was deleted. Exported for tests.
+export function describeRecycledItem(item, now = new Date()) {
+  const occurredAt = toJsDate(item?.startAt) || toJsDate(item?.occurredAt);
+  const recycledAt = toJsDate(item?.recycledAt);
+  const when = occurredAt ? `${shortDateFormatter.format(occurredAt)} ${clockFormatter.format(occurredAt)}` : 'Unknown time';
+  const ago = recycledAt ? Math.max(0, Math.round((now.getTime() - recycledAt.getTime()) / 86400000)) : null;
+  const deleted = ago === null ? '' : ago === 0 ? 'deleted today' : ago === 1 ? 'deleted yesterday' : `deleted ${ago} days ago`;
+  const both = Array.isArray(item?.recycledWith) && item.recycledWith.length > 1;
+  return { title: item?.title || 'Activity', when, deleted, both };
+}
+
+// Deleted activities wait 90 days in the recycle bin. Restoring one puts the event back and lifts the
+// tombstone that stopped the phone from re-sending it (functions/src/activityEntries.js). The list is
+// loaded when the panel is opened; `load` and `restore` are injectable for tests.
+export function RecentlyDeleted({ calendarId, onRestored, load = listRecentlyDeleted, restore = restoreActivityEntry }) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState(null);
+  const [busyId, setBusyId] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open || !calendarId) return undefined;
+    let cancelled = false;
+    setError('');
+    load(calendarId).then((list) => { if (!cancelled) setItems(list); }).catch((loadError) => { if (!cancelled) setError(loadError?.message || 'Could not load recently deleted activities.'); });
+    return () => { cancelled = true; };
+  }, [open, calendarId, load]);
+
+  async function bringBack(item) {
+    setBusyId(item.id);
+    setError('');
+    try {
+      const result = await restore({ calendarId, eventId: item.id });
+      const restoredIds = new Set(result?.data?.ids || result?.ids || [item.id]);
+      setItems((current) => (current || []).filter((entry) => !restoredIds.has(entry.id)));
+      if (onRestored) onRestored(result);
+    } catch (restoreError) {
+      setError(restoreError?.message || 'Could not restore this activity.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  return (
+    <details className="cycle-technical cycle-recycle-bin" onToggle={(eventObject) => setOpen(eventObject.currentTarget.open)}>
+      <summary>Recently deleted</summary>
+      {error && <p className="cycle-error">{error}</p>}
+      {items === null && !error && <p>Loading…</p>}
+      {items && items.length === 0 && <p>Nothing deleted in the last 90 days.</p>}
+      {items && items.length > 0 && (
+        <ul>
+          {items.map((item) => {
+            const described = describeRecycledItem(item);
+            return (
+              <li key={item.id}>
+                <div><strong>{described.title}</strong><span>{described.when}{described.deleted ? ` · ${described.deleted}` : ''}{described.both ? ' · with its pair' : ''}</span></div>
+                <button type="button" disabled={busyId === item.id} onClick={() => bringBack(item)}>{busyId === item.id ? 'Restoring…' : 'Restore'}</button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </details>
   );
 }
 
@@ -320,8 +566,26 @@ function WheelView({
   selectedLabel,
   title,
   onEdit,
-  onDelete
+  onDelete,
+  theme,
+  layout,
+  onLayoutChange,
+  compare,
+  onCompareChange,
+  compareSeconds,
+  showUntracked,
+  onToggleUntracked,
+  beads,
+  targets,
+  targetMarks,
+  selectedTarget,
+  onSaveTarget,
+  facts,
+  miniWheels,
+  onExport,
+  wheelSvgRef
 }) {
+  const hasNormal = recentHistory.filter((item) => item.analysis.categories.length).length >= 2;
   return (
     <>
       <PeriodNavigation
@@ -336,11 +600,24 @@ function WheelView({
 
       <section className={`cycle-hero ${selectedLabel ? 'has-selection' : ''}`}>
         <div className="cycle-wheel-stage">
+          <WheelControls
+            period={period}
+            layout={layout}
+            onLayoutChange={onLayoutChange}
+            compare={compare}
+            onCompareChange={onCompareChange}
+            hasNormal={hasNormal}
+            showUntracked={showUntracked}
+            onToggleUntracked={onToggleUntracked}
+            onExport={onExport}
+            canExport={!loading && analysis.categories.length > 0}
+          />
           {loading ? (
             <LoadingState label="Building your time wheel…" />
           ) : analysis.categories.length ? (
             <LifeWheel
               analysis={analysis}
+              bounds={bounds}
               categoryAnalysis={categoryAnalysis}
               now={now}
               onSelect={onSelect}
@@ -348,6 +625,15 @@ function WheelView({
               pointAnalysis={pointAnalysis}
               selectedLabel={selectedLabel}
               title={title}
+              theme={theme}
+              layout={layout}
+              compare={compare}
+              compareSeconds={compareSeconds}
+              showUntracked={showUntracked}
+              beads={beads}
+              targets={targetMarks}
+              targetText={selectedTarget?.text || ''}
+              svgRef={wheelSvgRef}
             />
           ) : (
             <EmptyWheel title={title} momentCount={analysis.momentGroups.length} incompleteCount={analysis.incompleteCount} />
@@ -356,11 +642,26 @@ function WheelView({
 
         <aside className="cycle-glance">
           {categoryAnalysis ? (
-            <SelectedGlance analysis={categoryAnalysis} onClear={() => onSelect(categoryAnalysis.label)} />
+            <SelectedGlance analysis={categoryAnalysis} onClear={() => onSelect(categoryAnalysis.label)} target={selectedTarget} targets={targets} onSaveTarget={onSaveTarget} />
           ) : pointAnalysis ? (
             <PointGlance analysis={pointAnalysis} onClear={() => onSelect(pointAnalysis.label)} />
           ) : (
-            <PeriodGlance analysis={analysis} bounds={bounds} title={title} />
+            <PeriodGlance analysis={analysis} bounds={bounds} title={title} facts={facts} />
+          )}
+          {miniWheels.length > 0 && (
+            <div className="cycle-mini-wheels" aria-label={period === 'week' ? 'Each day of this week' : 'Each week of this month'}>
+              {miniWheels.map((wheel) => (
+                <MiniWheel
+                  key={wheel.id}
+                  categories={wheel.categories}
+                  label={wheel.label}
+                  onClick={() => {
+                    onPeriodChange(wheel.period);
+                    onDateChange(wheel.id);
+                  }}
+                />
+              ))}
+            </div>
           )}
           <CategoryLegend
             categories={analysis.sessionCategories}
@@ -418,6 +719,27 @@ function WheelView({
   );
 }
 
+function WheelControls({ period, layout, onLayoutChange, compare, onCompareChange, hasNormal, showUntracked, onToggleUntracked, onExport, canExport }) {
+  return (
+    <div className="cycle-wheel-tools">
+      {period === 'day' && (
+        <div className="cycle-segmented" role="group" aria-label="Wheel layout">
+          <button type="button" aria-pressed={layout === 'share'} className={layout === 'share' ? 'selected' : ''} onClick={() => onLayoutChange('share')}>Share</button>
+          <button type="button" aria-pressed={layout === 'clock'} className={layout === 'clock' ? 'selected' : ''} onClick={() => onLayoutChange('clock')}>Clock</button>
+        </div>
+      )}
+      <div className="cycle-segmented" role="group" aria-label="Compare with">
+        <span>Compare</span>
+        <button type="button" aria-pressed={compare === 'none'} className={compare === 'none' ? 'selected' : ''} onClick={() => onCompareChange('none')}>None</button>
+        <button type="button" aria-pressed={compare === 'previous'} className={compare === 'previous' ? 'selected' : ''} onClick={() => onCompareChange('previous')}>Previous</button>
+        <button type="button" aria-pressed={compare === 'normal'} className={compare === 'normal' ? 'selected' : ''} disabled={!hasNormal} title={hasNormal ? '' : 'Needs two recent periods with activity'} onClick={() => onCompareChange('normal')}>Normal</button>
+      </div>
+      <button type="button" className={`cycle-tool-toggle ${showUntracked ? 'selected' : ''}`} aria-pressed={showUntracked} onClick={onToggleUntracked}>Untracked time</button>
+      <button type="button" className="cycle-tool-action" disabled={!canExport} onClick={onExport}>Save as image</button>
+    </div>
+  );
+}
+
 function PeriodNavigation({ period, title, dateId, onPeriodChange, onMove, onDateChange, onToday }) {
   return (
     <nav className="cycle-period-nav" aria-label="Time period">
@@ -441,105 +763,6 @@ function PeriodNavigation({ period, title, dateId, onPeriodChange, onMove, onDat
   );
 }
 
-export function LifeWheel({ analysis, categoryAnalysis, now, onSelect, period, pointAnalysis, selectedLabel, title }) {
-  // Slices are proportional to time, except that tiny ones are drawn at a
-  // minimum size so they stay visible; see buildWheelSegments.
-  const segments = buildWheelSegments(analysis.categories);
-  // Only pin the center to one session's own start/end/duration when that
-  // session is live, or when it's the day's only session for this category.
-  // With two+ sessions in a day (e.g. left for lunch and came back), showing
-  // just the first one's window was misleading, so fall through to the
-  // "N sessions" summary below instead.
-  const centerSession = categoryAnalysis?.activeSession
-    || (period === 'day' && categoryAnalysis?.sessionCount === 1 ? categoryAnalysis?.sessions[0] : null);
-
-  return (
-    <div className="life-wheel" data-testid="life-wheel">
-      <svg viewBox="0 0 100 100" role="img" aria-label={`${title} time allocation`}>
-        {segments.map((segment) => (
-          <path
-            aria-label={`${segment.label}, ${formatDuration(segment.seconds)}`}
-            className={`life-wheel-segment ${selectedLabel && selectedLabel !== segment.label ? 'faded' : ''} ${selectedLabel === segment.label ? 'selected' : ''}`}
-            d={describeWheelSegment(segment)}
-            fill={segment.color}
-            fillRule="evenodd"
-            key={segment.label}
-            role="button"
-            tabIndex="0"
-            onClick={() => onSelect(segment.label)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                onSelect(segment.label);
-              }
-            }}
-          >
-            <title>{`${segment.label}: ${formatDuration(segment.seconds)}`}</title>
-          </path>
-        ))}
-      </svg>
-      <WheelLabels segments={segments} onSelect={onSelect} selectedLabel={selectedLabel} />
-      <div className="life-wheel-center" aria-live="polite">
-        {categoryAnalysis ? (
-          <>
-            <span className="life-wheel-icon" aria-hidden="true">{categoryAnalysis.icon}</span>
-            <h2>{categoryAnalysis.label}</h2>
-            {centerSession?.location && <p>{centerSession.location}</p>}
-            {centerSession ? (
-              <time>{clockFormatter.format(centerSession.startAt)} – {centerSession.active ? 'In progress' : clockFormatter.format(centerSession.endAt)}</time>
-            ) : (
-              <p>{categoryAnalysis.sessionCount} {categoryAnalysis.sessionCount === 1 ? 'session' : 'sessions'}</p>
-            )}
-            <strong>{formatDuration(centerSession?.durationSeconds ?? categoryAnalysis.totalSeconds)}</strong>
-          </>
-        ) : pointAnalysis ? (
-          <>
-            <span className="life-wheel-icon" aria-hidden="true">{pointAnalysis.icon}</span>
-            <h2>{pointAnalysis.label}</h2>
-            <p>{pointAnalysis.count} {pointAnalysis.count === 1 ? 'event' : 'events'}</p>
-            <strong>{pointAnalysis.reliableDuration ? formatDuration(pointAnalysis.totalSeconds) : 'Moments'}</strong>
-            {!pointAnalysis.reliableDuration && <span>No duration supplied</span>}
-          </>
-        ) : (
-          <>
-            <p>{title}</p>
-            <strong>{formatDuration(analysis.timedSeconds)}</strong>
-            <span>tracked time</span>
-            {analysis.activeCount > 0 && <small>{analysis.activeCount} in progress · updated {clockFormatter.format(now)}</small>}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function WheelLabels({ segments, selectedLabel, onSelect }) {
-  return (
-    <div className="life-wheel-labels" aria-hidden="true">
-      {segments.map((segment) => {
-        const duration = formatDuration(segment.seconds);
-        const mode = getWheelLabelMode(segment, duration.length);
-        if (mode === 'none') return null;
-        const { left, top } = getWheelLabelPosition(segment);
-        const state = selectedLabel === segment.label ? 'selected' : selectedLabel ? 'faded' : '';
-        return (
-          <button
-            className={state}
-            key={segment.label}
-            style={{ left: `${left}%`, top: `${top}%` }}
-            type="button"
-            tabIndex="-1"
-            onClick={() => onSelect(segment.label)}
-          >
-            <span>{segment.icon}</span>
-            {mode === 'full' && <small>{duration}</small>}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function CategoryLegend({ categories, pointCategories, selectedLabel, onSelect }) {
   const timedLabels = new Set(categories.map((category) => category.label));
   const selectablePoints = pointCategories.filter((category) => !timedLabels.has(category.label));
@@ -547,19 +770,19 @@ function CategoryLegend({ categories, pointCategories, selectedLabel, onSelect }
     <div className="cycle-legend" aria-label="Activity categories">
       {categories.map((category) => (
         <button className={selectedLabel === category.label ? 'selected' : ''} key={category.label} type="button" onClick={() => onSelect(category.label)}>
-          <i style={{ background: category.color }} /><span>{category.icon} {category.label}</span><strong>{category.seconds > 0 ? formatDuration(category.seconds) : 'Incomplete'}</strong>
+          <i style={{ background: category.color }} /><span><ActivityIcon label={category.label} size={16} /> {category.label}</span><strong>{category.seconds > 0 ? formatDuration(category.seconds) : 'Incomplete'}</strong>
         </button>
       ))}
       {selectablePoints.map((category) => (
         <button className={selectedLabel === category.label ? 'selected' : ''} key={`point-${category.label}`} type="button" onClick={() => onSelect(category.label)}>
-          <i style={{ background: category.color }} /><span>{category.icon} {category.label}</span><strong>{category.count} {category.count === 1 ? 'event' : 'events'}</strong>
+          <i style={{ background: category.color }} /><span><ActivityIcon label={category.label} size={16} /> {category.label}</span><strong>{category.count} {category.count === 1 ? 'event' : 'events'}</strong>
         </button>
       ))}
     </div>
   );
 }
 
-function PeriodGlance({ analysis, bounds, title }) {
+function PeriodGlance({ analysis, bounds, title, facts = [] }) {
   const leading = analysis.categories[0];
   const coverage = bounds.period === 'day' ? Math.min(100, Math.round((analysis.timedSeconds / 86400) * 100)) : null;
   const reflection = leading
@@ -578,25 +801,80 @@ function PeriodGlance({ analysis, bounds, title }) {
         <div><dt>Largest</dt><dd>{leading?.label || 'None yet'}</dd></div>
         <div><dt>Moments</dt><dd>{analysis.momentGroups.length}</dd></div>
       </dl>
+      {facts.length > 0 && (
+        <ul className="cycle-facts" aria-label="Worth noting">
+          {facts.map((fact) => <li key={fact.id}><ActivityIcon label={fact.label} size={15} /><div><strong>{fact.text}</strong><span>{fact.detail}</span></div></li>)}
+        </ul>
+      )}
       {analysis.incompleteCount > 0 && <p className="cycle-caution">{analysis.incompleteCount} historical session {analysis.incompleteCount === 1 ? 'is' : 'are'} missing a finish and excluded from tracked time.</p>}
     </div>
   );
 }
 
-function SelectedGlance({ analysis, onClear }) {
+function SelectedGlance({ analysis, onClear, target = null, targets = {}, onSaveTarget }) {
   return (
     <div className="cycle-glance-copy selected">
       <p className="cycle-eyebrow">Focused view</p>
-      <h2>{analysis.icon} {analysis.label}</h2>
+      <h2><ActivityIcon label={analysis.label} size={34} /> {analysis.label}</h2>
       <p className="cycle-reflection">{buildCategoryInsight(analysis)}</p>
       <dl className="cycle-glance-metrics">
         <div><dt>Total time</dt><dd>{formatDuration(analysis.totalSeconds)}</dd></div>
         <div><dt>{analysis.label === 'Gym/Fitness' ? 'Visits' : 'Sessions'}</dt><dd>{analysis.sessionCount}</dd></div>
         <div><dt>Active days</dt><dd>{analysis.activeDays}</dd></div>
         <div><dt>Average</dt><dd>{formatDuration(analysis.averageSessionSeconds)}</dd></div>
+        {target && <div className={`cycle-target-metric ${target.met ? 'met' : 'missed'}`}><dt>Target</dt><dd>{target.text}</dd></div>}
       </dl>
+      {TARGET_DEFINITIONS[analysis.label] && onSaveTarget && <TargetEditor label={analysis.label} amount={targetAmount(targets, analysis.label)} onSave={onSaveTarget} />}
       <button className="cycle-clear-selection" type="button" onClick={onClear}>Show all activities</button>
     </div>
+  );
+}
+
+// Sets or clears one category's target. Time targets are entered as hours and minutes, visit
+// targets as a count per week; the kind is fixed per category (see activityTargets.js).
+export function TargetEditor({ label, amount, onSave }) {
+  const definition = TARGET_DEFINITIONS[label];
+  const timed = definition.kind !== 'sessionsPerWeek';
+  const [hours, setHours] = useState(timed && amount ? Math.floor(amount / 3600) : 7);
+  const [minutes, setMinutes] = useState(timed && amount ? Math.round((amount % 3600) / 60) : 0);
+  const [count, setCount] = useState(!timed && amount ? amount : 3);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (timed && amount) {
+      setHours(Math.floor(amount / 3600));
+      setMinutes(Math.round((amount % 3600) / 60));
+    }
+    if (!timed && amount) setCount(amount);
+  }, [amount, timed]);
+  async function submit(event) {
+    event.preventDefault();
+    const next = timed ? Number(hours) * 3600 + Number(minutes) * 60 : Number(count);
+    if (!(next > 0)) return;
+    setSaving(true);
+    try { await onSave(label, next); } finally { setSaving(false); }
+  }
+  async function clear() {
+    setSaving(true);
+    try { await onSave(label, null); } finally { setSaving(false); }
+  }
+  return (
+    <details className="cycle-target-editor">
+      <summary>{amount ? `Target: ${describeTarget(label, amount)}` : 'Set a target'}</summary>
+      <form onSubmit={submit}>
+        <span>{definition.kind === 'minSeconds' ? 'At least' : definition.kind === 'maxSeconds' ? 'At most' : 'At least'}</span>
+        {timed ? (
+          <>
+            <label><input type="number" min="0" max="24" value={hours} onChange={(event) => setHours(event.target.value)} aria-label="Hours" /> h</label>
+            <label><input type="number" min="0" max="59" value={minutes} onChange={(event) => setMinutes(event.target.value)} aria-label="Minutes" /> m</label>
+            <span>{definition.noun}</span>
+          </>
+        ) : (
+          <label><input type="number" min="1" max="50" value={count} onChange={(event) => setCount(event.target.value)} aria-label="Visits per week" /> {definition.verb} {definition.noun}</label>
+        )}
+        <button type="submit" disabled={saving}>{saving ? 'Saving…' : amount ? 'Update' : 'Save target'}</button>
+        {amount && <button type="button" className="cycle-text-button" disabled={saving} onClick={clear}>Remove</button>}
+      </form>
+    </details>
   );
 }
 
@@ -604,7 +882,7 @@ function PointGlance({ analysis, onClear }) {
   return (
     <div className="cycle-glance-copy selected">
       <p className="cycle-eyebrow">Focused moments</p>
-      <h2>{analysis.icon} {analysis.label}</h2>
+      <h2><ActivityIcon label={analysis.label} size={34} /> {analysis.label}</h2>
       <p className="cycle-reflection">
         {analysis.count} {analysis.count === 1 ? 'activity was' : 'activities were'} recorded in this period.
         {!analysis.reliableDuration && ' These are real occurrences, but their source did not supply a reliable duration.'}
@@ -719,8 +997,8 @@ function TimelineEntry({ entry, onSelect, onEdit, onDelete }) {
   } : null;
   return (
     <li className={`${entry.type} ${entry.nested ? 'nested' : ''}`} style={{ '--timeline-color': entry.color }}>
-      <span className="cycle-timeline-marker" aria-hidden="true">{entry.icon}</span>
-      <time dateTime={entry.at?.toISOString()}>{entry.at ? clockFormatter.format(entry.at) : entry.allDay ? 'All day' : 'No time'}</time>
+      <span className="cycle-timeline-marker" aria-hidden="true"><ActivityIcon label={entry.pointCategory || entry.category} size={15} /></span>
+      <time dateTime={(entry.displayStartAt || entry.at)?.toISOString()}>{entry.at ? clockFormatter.format(entry.displayStartAt || entry.at) : entry.allDay ? 'All day' : 'No time'}</time>
       <article>
         <button type="button" onClick={() => onSelect(selection)} aria-label={`Open ${selection} activity: ${title}`}>
           <div>
@@ -740,7 +1018,7 @@ function TimelineEntry({ entry, onSelect, onEdit, onDelete }) {
         {managed && <div className="cycle-entry-actions"><button type="button" onClick={() => onEdit(managed)}>Edit</button><button type="button" className="danger" onClick={() => onDelete(managed)}>Delete</button></div>}
         {entry.type === 'session' && (
           <div className="cycle-timeline-boundaries">
-            {entry.startedBeforeVisibleRange && <span><b>Continued into this period</b> The chart begins at the selected period boundary; the actual arrival is shown below.</span>}
+            {entry.startedBeforeVisibleRange && !entry.wholeNight && <span><b>Continued into this period</b> The chart begins at the selected period boundary; the actual arrival is shown below.</span>}
             {entry.startEvent && <span><b>{getEventDisplayTitle(entry.startEvent)}</b> {timelineBoundaryLabel(entry.boundaryStartAt, entry.dateId)}{entry.startSentAt && <small> · sent {clockFormatter.format(entry.startSentAt)}</small>}</span>}
             {entry.endEvent && <span><b>{getEventDisplayTitle(entry.endEvent)}</b> {timelineBoundaryLabel(entry.boundaryEndAt, entry.dateId)}{entry.endSentAt && <small> · sent {clockFormatter.format(entry.endSentAt)}</small>}</span>}
             {entry.active && <span><b>Status</b> In progress</span>}
@@ -761,11 +1039,13 @@ function timelineBoundaryLabel(value, visibleDateId) {
 }
 
 function timelineSessionRange(entry) {
+  // A night is the wake-up day's own, from bedtime, so it never "continues" from the day before.
   const visibleStart = entry.startedBeforeVisibleRange
-    ? `Continued from ${timelineBoundaryLabel(entry.boundaryStartAt, entry.dateId)}`
+    ? entry.wholeNight
+      ? timelineBoundaryLabel(entry.boundaryStartAt, entry.dateId)
+      : `Continued from ${timelineBoundaryLabel(entry.boundaryStartAt, entry.dateId)}`
     : clockFormatter.format(entry.at);
-  const wholeNight = Number.isFinite(entry.session?.attributedSeconds);
-  const visibleDuration = `${formatDuration(entry.durationSeconds)}${entry.startedBeforeVisibleRange && !wholeNight ? ' shown in this period' : ''}`;
+  const visibleDuration = `${formatDuration(entry.durationSeconds)}${entry.startedBeforeVisibleRange && !entry.wholeNight ? ' shown in this period' : ''}`;
   if (entry.active) return `${visibleStart} – In progress · ${visibleDuration}`;
   if (entry.endAt) return `${visibleStart} – ${timelineBoundaryLabel(entry.boundaryEndAt || entry.endAt, entry.dateId)} · ${visibleDuration}`;
   if (entry.session?.missingBoundary === 'start') return `Finish recorded at ${clockFormatter.format(entry.at)} · Arrival not recorded`;
@@ -780,12 +1060,21 @@ function DayActivityOverview({ chart, onSelect }) {
         <div><p className="cycle-eyebrow">Your day in time</p><h3>24-hour timeline</h3></div>
         <span>{formatDuration(chart.trackedSeconds)} reliably tracked</span>
       </header>
-      <div className="cycle-day-axis" aria-hidden="true"><span>12 AM</span><span>6 AM</span><span>Noon</span><span>6 PM</span><span>12 AM</span></div>
+      <div className="cycle-day-axis" aria-hidden="true">
+        {chart.ticks.map((tick, index) => (
+          <span
+            className={index === 0 ? 'first' : index === chart.ticks.length - 1 ? 'last' : ''}
+            key={tick.hour}
+            style={{ left: `${tick.offset}%` }}
+          >{tick.label}</span>
+        ))}
+      </div>
       <div className="cycle-day-rows">
         {chart.rows.map((row) => (
           <article className={row.nested ? 'nested' : ''} key={row.id}>
             <div><strong>{row.nested ? `↳ ${row.title}` : row.title}</strong><span>{row.active ? 'In progress' : row.incomplete ? row.status : formatDuration(row.durationSeconds)}</span></div>
             <div className="cycle-day-track">
+              <DayTrackGuides chart={chart} />
               {chart.currentOffset !== null && <i className="current-time" style={{ left: `${chart.currentOffset}%` }} />}
               {row.hasReliableInterval ? (
                 <button
@@ -813,6 +1102,7 @@ function DayActivityOverview({ chart, onSelect }) {
           <article className="moments">
             <div><strong>Moments</strong><span>{chart.moments.length} recorded</span></div>
             <div className="cycle-day-track">
+              <DayTrackGuides chart={chart} />
               {chart.currentOffset !== null && <i className="current-time" style={{ left: `${chart.currentOffset}%` }} />}
               {chart.moments.map((moment) => (
                 <button
@@ -823,14 +1113,26 @@ function DayActivityOverview({ chart, onSelect }) {
                   title={`${clockFormatter.format(moment.at)} · ${moment.title}`}
                   aria-label={`${moment.title} at ${clockFormatter.format(moment.at)}`}
                   onClick={() => onSelect(moment.pointCategory)}
-                ><span aria-hidden="true">{moment.icon}</span></button>
+                ><span aria-hidden="true"><ActivityIcon label={moment.pointCategory} size={11} /></span></button>
               ))}
             </div>
           </article>
         )}
       </div>
-      <p className="cycle-chart-legend"><span><i className="session" /> Timed session</span><span><i className="moment" /> Point activity</span><span><i className="current" /> Current Toronto time</span></p>
+      <p className="cycle-chart-legend"><span><i className="session" /> Timed session</span><span><i className="moment" /> Point activity</span><span><i className="current" /> Current Toronto time</span>{chart.dayStartOffset > 0 && <span><i className="before-day" /> Evening before</span>}</p>
     </section>
+  );
+}
+
+// Hour lines, and the evening before shaded up to midnight when last night is drawn from bedtime.
+function DayTrackGuides({ chart }) {
+  return (
+    <>
+      {chart.dayStartOffset > 0 && <i className="cycle-day-before" style={{ width: `${chart.dayStartOffset}%` }} />}
+      {chart.ticks.slice(1, -1).map((tick) => (
+        <i className={`cycle-day-gridline ${tick.dayStart ? 'midnight' : ''}`} key={tick.hour} style={{ left: `${tick.offset}%` }} />
+      ))}
+    </>
   );
 }
 
@@ -900,7 +1202,7 @@ function JournalCard({ calendarId, entry }) {
   return (
     <details className="cycle-journal-card">
       <summary>
-        <div className="cycle-journal-icon" aria-hidden="true">✎</div>
+        <div className="cycle-journal-icon" aria-hidden="true"><ActivityIcon label="Journal" size={20} /></div>
         <div>
           <h3>{entry.title}</h3>
           <p className="cycle-journal-time">
@@ -1073,6 +1375,12 @@ export function buildLocationPatch(location, label) {
 // A paired session is an arrival and a departure event; both must be deleted
 // together. The key is omitted (not undefined) for unpaired entries for the
 // same encoding reason as above.
+// An arrival or departure the phone recorded: deleting one leaves its session open-ended, and the
+// source cannot re-create it (the delete writes a tombstone), so the dialog says so.
+export function isBoundaryEvent(event) {
+  return /^(?:arrive|leave|start|finish|stop)_/.test(String(event?.eventType || ''));
+}
+
 export function buildDeleteRequest(calendarId, entry) {
   return {
     calendarId,
@@ -1145,6 +1453,14 @@ export function ActivityEntryDialog({ entry, onCancel, onDelete, onSave }) {
           <>
             <header className="activity-dialog-header"><h2 id="activity-dialog-title">Delete this activity?</h2><button className="activity-dialog-close" type="button" aria-label="Close activity dialog" onClick={onCancel}>×</button></header>
             <p>This will remove <strong>{entry.label}</strong> from your timeline and all activity totals.</p>
+            {isBoundaryEvent(event) && (
+              <p className="activity-dialog-note">
+                {entry.linkedEventId
+                  ? 'Both the arrival and the departure the phone recorded will go, and the phone will not send them again.'
+                  : 'This is an arrival or departure the phone recorded. Without it the session has no start or end here, and the phone will not send it again.'}
+                {' '}If the session only looks wrong, edit its times instead. A deleted activity can be brought back from Recently deleted, at the bottom of the page, for 90 days.
+              </p>
+            )}
             <p>{entry.dateLabel}</p>
             <div className="activity-dialog-actions"><button type="button" onClick={onCancel}>Cancel</button><button className="danger" type="button" disabled={saving} onClick={async () => { setSaving(true); try { await onDelete(); } finally { setSaving(false); } }}>{saving ? 'Deleting…' : 'Delete activity'}</button></div>
           </>
@@ -1205,7 +1521,7 @@ function PointHistoryEntry({ entry }) {
   const sentAt = entry.sentAt || getEventSentTime(event);
   return (
     <li>
-      <span aria-hidden="true">{entry.icon}</span>
+      <span aria-hidden="true"><ActivityIcon label={entry.pointCategory || entry.category} size={16} /></span>
       <time>{entry.firstAt ? `${shortDateFormatter.format(entry.firstAt)} · ${clockFormatter.format(entry.firstAt)}` : ''}</time>
       <div>
         <strong>{details.track || entry.title}</strong>
@@ -1447,7 +1763,7 @@ export function TotalsView({ tallies, loading, range, rangeId, onRangeChange, on
         <div className="cycle-total-grid">
           {tallies.map((tally) => (
             <article key={tally.label} style={{ '--total-color': tally.color }}>
-              <span aria-hidden="true">{tally.icon}</span>
+              <span aria-hidden="true"><ActivityIcon label={tally.detailLabel || tally.label} size={24} /></span>
               <div>
                 <h3>{tally.label}</h3>
                 <strong>{tally.timed ? (tally.totalSeconds > 0 ? formatDuration(tally.totalSeconds) : 'No valid time') : `${tally.entryCount} ${tally.entryCount === 1 ? 'entry' : 'entries'}`}</strong>
@@ -1484,9 +1800,15 @@ function Metric({ label, value, detail }) {
   return <article><span>{label}</span><strong>{value}</strong>{detail && <small>{detail}</small>}</article>;
 }
 
+// A night of sleep is shown from its bedtime even when that was the evening
+// before, because the whole night counts on the day it ends (sleepInterval).
+function sessionShownStart(session) {
+  return session.nightStartAt || session.startAt;
+}
+
 function formatSessionRange(session) {
   if (session.missingBoundary === 'start') return `Arrival not recorded – ${clockFormatter.format(session.startAt)}`;
-  return `${clockFormatter.format(session.startAt)} – ${session.active ? 'In progress' : session.endAt ? clockFormatter.format(session.endAt) : 'Departure not recorded'}`;
+  return `${clockFormatter.format(sessionShownStart(session))} – ${session.active ? 'In progress' : session.endAt ? clockFormatter.format(session.endAt) : 'Departure not recorded'}`;
 }
 
 function formatWorkoutRange(workout) {
@@ -1512,7 +1834,7 @@ function buildTrendRows(period, analysis, bounds, categoryLabel) {
   if (period === 'day') {
     const periodMs = bounds.end - bounds.start;
     return sessions.map((session) => ({
-      label: clockFormatter.format(session.startAt),
+      label: clockFormatter.format(sessionShownStart(session)),
       title: session.title,
       range: formatSessionRange(session),
       seconds: session.allocatedSeconds,

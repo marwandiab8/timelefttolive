@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const admin = require('firebase-admin');
-const { editActivityEntry, deleteActivityEntry } = require('./activityEntries');
+const { editActivityEntry, deleteActivityEntry, restoreActivityEntry } = require('./activityEntries');
 
 function fakeDb(seed) {
   const store = new Map(Object.entries(seed));
@@ -55,6 +55,42 @@ test('delete writes an owner tombstone and removes only the canonical event', as
   const tombstone = db.store.get('lifeCalendars/cal-1/lifeEventTombstones/event-1');
   assert.equal(tombstone.deletedBy, 'owner-1');
   assert.equal(tombstone.sourceApp, '');
+});
+
+test('delete keeps a copy in the recycle bin, and restore brings the event back and lifts the tombstone', async () => {
+  const db = fakeDb(seedEvent());
+  await deleteActivityEntry(db, 'owner-1', { calendarId: 'cal-1', eventId: 'event-1' });
+  const copy = db.store.get('lifeCalendars/cal-1/lifeEventRecycleBin/event-1');
+  assert.equal(copy.title, 'Leave Home');
+  assert.equal(copy.recycledBy, 'owner-1');
+  assert.deepEqual(copy.recycledWith, ['event-1']);
+  assert.ok(copy.expiresAt.toDate().getTime() > Date.now() + 80 * 24 * 3600 * 1000);
+
+  await assert.rejects(() => restoreActivityEntry(db, 'other-user', { calendarId: 'cal-1', eventId: 'event-1' }), { code: 'permission-denied' });
+  const result = await restoreActivityEntry(db, 'owner-1', { calendarId: 'cal-1', eventId: 'event-1' });
+  assert.deepEqual(result, { ids: ['event-1'] });
+  const event = db.store.get('lifeCalendars/cal-1/lifeEvents/event-1');
+  assert.equal(event.title, 'Leave Home');
+  assert.equal(event.eventType, 'leave_home');
+  assert.equal(event.metadata.keep, true);
+  assert.equal(event.restoredBy, 'owner-1');
+  assert.equal('recycledAt' in event, false);
+  assert.equal(db.store.has('lifeCalendars/cal-1/lifeEventTombstones/event-1'), false);
+  assert.equal(db.store.has('lifeCalendars/cal-1/lifeEventRecycleBin/event-1'), false);
+  await assert.rejects(() => restoreActivityEntry(db, 'owner-1', { calendarId: 'cal-1', eventId: 'event-1' }), { code: 'not-found' });
+});
+
+test('a paired session deleted together is restored together', async () => {
+  const seed = seedEvent();
+  seed['lifeCalendars/cal-1/lifeEvents/event-2'] = { id: 'event-2', title: 'Arrived Home', eventType: 'arrive_home', occurredAt: admin.firestore.Timestamp.fromDate(new Date('2026-08-31T20:00:00Z')) };
+  const db = fakeDb(seed);
+  await deleteActivityEntry(db, 'owner-1', { calendarId: 'cal-1', eventId: 'event-1', linkedEventId: 'event-2' });
+  assert.equal(db.store.has('lifeCalendars/cal-1/lifeEvents/event-2'), false);
+  const result = await restoreActivityEntry(db, 'owner-1', { calendarId: 'cal-1', eventId: 'event-2' });
+  assert.deepEqual(result.ids.sort(), ['event-1', 'event-2']);
+  assert.equal(db.store.get('lifeCalendars/cal-1/lifeEvents/event-1').title, 'Leave Home');
+  assert.equal(db.store.get('lifeCalendars/cal-1/lifeEvents/event-2').title, 'Arrived Home');
+  assert.equal(db.store.has('lifeCalendars/cal-1/lifeEventTombstones/event-2'), false);
 });
 
 test('editing an entry that has no location accepts location: null', async () => {

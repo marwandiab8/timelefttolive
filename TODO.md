@@ -1,5 +1,39 @@
 # To finish later
 
+## Deployed (2026-11-15, evening)
+
+Hosting, the functions `deleteActivityEntry`, `restoreActivityEntry` and `cleanupLifeEventIngestionArtifacts`, the Firestore rules and the index overrides deployed to production from `feat/crystal-wheel` at `141a646` (PR #7). Served bundle `index-CllxvMUW.js`.
+
+- A delete keeps a copy in `lifeEventRecycleBin` for 90 days; `restoreActivityEntry` brings it back and lifts the tombstone; the dashboard's "Recently deleted" panel (under Tracking status) restores with one tap; the delete dialog warns before an arrival or departure goes. `npm run test:functions` 135 pass, `npm run test:frontend` 383 pass.
+- Not yet checked signed in: open the Recently deleted panel (the Nov 15 arrival is not in it, it was restored by hand before the bin existed; it will list future deletes), and restore something deleted on purpose.
+- The matching GridlineAI work (visits logged from drives, the tracking health check, the stale-trigger redeploy) is PR #15 in that repo; `docs/tracking-reliability.md` there describes the whole chain.
+
+## Deployed (2026-11-15)
+
+Hosting deployed to production from `feat/crystal-wheel` at `42789ee` (PR #7, on top of the crystal wheel below), so merge that PR to bring `main` level with production. Functions, rules and indexes are unchanged.
+
+- An open Home stay now keeps running for up to 7 days (other categories still 36 hours), and an open stretch is shown on every day it covers: `open` on the days before today, `active` (in progress) today. Before, a quiet weekend at home showed no Home at all until the next departure arrived, and the Friday arrival sat there as "incomplete", which is what led to it being deleted on Nov 15. Checked with the app's own session builder on the real events: Fri Nov 13 Home from 10:17 pm, Sat Nov 14 Home all day, Sun Nov 15 Home to now, matching the Life Cycle app's 41-hour Home stretch. `npm run test:frontend` 381 tests pass; the served bundle matches the build (`index-Cr-4o7D1.js`).
+- Data repair the same day (no code): the deleted Fri Nov 13 10:17 pm `arrive_home` was restored and the Raging Bull darts visit (7:34 to 9:57 pm) added, by `~/Documents/ChatBot/scripts/repair-home-2026-11-15.cjs`; a dashboard delete writes a tombstone that blocks the source from re-creating the event (`docs/activity-dashboard.md`, "Callable functions"). GridlineAI's two Shortcut delivery triggers run an Oct 8 mapper and conflict with the inline delivery on every place visit; that is documented in the GridlineAI repo (`docs/time-left-gridlineai-sync.md`) and needs a redeploy there.
+- Not yet checked signed in with the real profile: Saturday and Sunday showing Home on the wheel and in the day list, and that the "open" day sessions read naturally in the hub (they show the clipped end, e.g. 12:00 AM).
+
+## Deployed (2026-11-14)
+
+Hosting deployed to production from `feat/crystal-wheel` at `f5c010d` (PR #7; first at `e46f9e3` with the Jewel material, then `7288ff6` Clear crystal, `8292f46` the hub click, `71bc080` the phone tooltip, and `f5c010d` no tooltip at all plus the shinier glass), so merge that PR to bring `main` level with production. Functions, rules and indexes are unchanged.
+
+- The Activity time wheel is drawn as lit crystal (the "Clear crystal" material from the study in `scripts/wheel-study/`; Jewel went live first and Marwan asked for crystal the same day), with one stroke icon set replacing the emoji, label ink by slice luminance, a dashed edge on boosted slices, and a lens hub with the K2 logo etched.
+- Clicking the hub while a category is selected shows every activity again (all wedges fully lit). There is no tooltip: pointing at or focusing a slice or bead, and the selection, all speak through the hub (two lines on a phone).
+- New on the wheel: tooltips, Share | Clock layout for a day, a comparison ring (previous period or recent normal), untracked time as a frosted segment, moments as beads on the rim, target marks and a target editor (profile field `activityTargets`, written by `saveActivityTargets`), worth-noting facts, small multiples for a week or a month, keyboard shortcuts, and Save as image (2048 px PNG).
+- Checked before the deploy in the interactive preview (desktop and 390 px, dark and light): entrance, morph, selection lift, tooltips, clock layout, comparison ring, beads, export. Not yet checked signed in with the real profile: the target editor writing to Firestore, the real data in Clock layout, and the Normal comparison with real history. `npm run test:frontend` 376 tests pass; the served bundle matches the build (`index-DRyfW9sr.js`).
+
+## Deployed (2026-11-03)
+
+Hosting deployed to production from `fix/sleep-night-on-day-chart` at `615db0b` (PR #6), so merge that PR to bring `main` level with production. Functions and rules are unchanged.
+
+- The day's 24-hour timeline draws the night that ended that morning from its bedtime. The chart then starts in 6-hour steps before midnight (6 PM for a usual night, noon at the earliest), with the evening before shaded and a line at midnight; the night's time and range in the list start at bedtime too. Anything else carried over from the day before still starts at midnight. Axis labels and hour lines are placed by the clock (right on the 25-hour day the clocks go back).
+- The chart legend had no spacing (`.cycle-activity-stream p` outranked it); fixed.
+- The wheel's centre and the Sleep analysis rows show the night from its bedtime too (they said 12:00 AM – 3:37 AM); sleep sessions keep the real bedtime as `nightStartAt`.
+- Checked live, desktop and phone width: Nov 3 shows Sleep from 10:51 PM to 3:37 AM, 3h 58m.
+
 ## Deployed (2026-11-02, evening)
 
 Hosting deployed to production from `feat/still-ahead` at `400d2bc`, which is `feat/kids-info-schedule` plus `10bb7a8` (`fix/spotify-listening-time`) and the Still ahead feature. Merge in that order (`feat/dartconnect-source`, `feat/kids-info-schedule`, `fix/spotify-listening-time`, `feat/still-ahead`) to bring `main` level with production. Functions and rules are unchanged.

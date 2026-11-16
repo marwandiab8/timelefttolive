@@ -48,6 +48,13 @@ const placeActivityLabels = new Set();
 
 const MOMENT_CATEGORIES = new Set(['Notes', 'Work Reports', 'Attachments', 'Achievements', 'Moments']);
 const ACTIVE_SESSION_CATEGORIES = new Set(['Work', 'Gym/Fitness', 'Sleep', 'Home', 'Transportation', 'Meals', 'Reading']);
+// How long an unmatched start may still be treated as running. A night and a day covers a missed
+// leave at work or the gym; Home is different: a quiet weekend there produces no event at all, so an
+// open Home stay runs for up to a week until something (a drive, an arrival elsewhere) shows it ended.
+const OPEN_SESSION_WINDOW_MS = { default: 36 * 3600 * 1000, Home: 7 * 24 * 3600 * 1000 };
+function openSessionWindowMs(category) {
+  return OPEN_SESSION_WINDOW_MS[category] ?? OPEN_SESSION_WINDOW_MS.default;
+}
 const GENERIC_TITLES = /^(life event|journal entry|work session|home session|gym session|location session|activity|event|report|file|image)$/i;
 const COORDINATE_VALUE = /^\s*-?\d{1,3}(?:\.\d+)?\s*[,/]\s*-?\d{1,3}(?:\.\d+)?\s*$/;
 const HIDDEN_POINT_CATEGORIES = new Set(['Attachments']);
@@ -848,15 +855,17 @@ function reportedInterval(event, bounds) {
 // A night of sleep is never split at midnight. The whole night belongs to the
 // period its wake-up falls in (as Apple Health does), and counts its recorded
 // total sleep - not just the minutes that happen to fall after 12:00 AM. The
-// visible interval stays clipped so the day chart still starts at midnight;
-// attributedSeconds carries the full night into allocateIntervals.
+// interval stays clipped to the period for allocation; attributedSeconds
+// carries the full night into allocateIntervals, nightStartAt keeps the real
+// bedtime for anything that shows the night's times (the wheel, the session
+// lists), and the day chart draws it from bedtime (buildDayActivityChart).
 function sleepInterval(event, start, end, bounds) {
   if (!start || !end || end <= start) return null;
   if (bounds && (end <= bounds.start || end > bounds.end)) return null;
   const visible = clippedInterval(start, end, bounds);
   if (!visible) return null;
   const attributedSeconds = getSleepTotalSeconds(event, start, end);
-  return { ...visible, durationSeconds: attributedSeconds, attributedSeconds };
+  return { ...visible, durationSeconds: attributedSeconds, attributedSeconds, nightStartAt: start };
 }
 
 function getSleepTotalSeconds(event, start, end) {
@@ -1066,8 +1075,7 @@ export function buildActivitySessions(events, bounds = null, options = {}) {
     const eligible = options.includeActive === true
       && ACTIVE_SESSION_CATEGORIES.has(category)
       && candidate.eventTime < now
-      && (now.getTime() - candidate.eventTime.getTime()) <= (36 * 3600 * 1000)
-      && (!bounds || (now >= bounds.start && now < bounds.end))
+      && (now.getTime() - candidate.eventTime.getTime()) <= openSessionWindowMs(category)
       && !superseding
       && !supersededByBoundary.has(candidate.event);
     if (!eligible) return;
@@ -1081,15 +1089,20 @@ export function buildActivitySessions(events, bounds = null, options = {}) {
     const live = latestActiveByCategory.get(category)?.event === event;
     const superseding = supersededStarts.get(event) || null;
     if (bounds && !live && (eventTime >= bounds.end || eventTime < bounds.start)) return;
+    // An open stretch runs from its start to now and is shown on every period it covers, clipped to
+    // that period: "active" (in progress) on the period that contains now, "open" on the days before.
     const interval = live ? clippedInterval(eventTime, now, bounds) : null;
+    if (live && !interval) return;
+    const current = live && (!bounds || (now >= bounds.start && now < bounds.end));
+    const kind = live ? (current ? 'active' : 'open') : 'incomplete';
     const session = makeSession(event, interval || {
       startAt: eventTime,
       endAt: null,
       durationSeconds: null
     }, {
-      id: `${live ? 'active' : 'incomplete'}-${event.id || eventTime.getTime()}`,
-      kind: live ? 'active' : 'incomplete',
-      active: live,
+      id: `${kind}-${event.id || eventTime.getTime()}`,
+      kind,
+      active: current,
       missingBoundary: live ? null : 'end',
       incompleteReason: superseding
         ? 'superseded_by_arrival'
@@ -1442,6 +1455,9 @@ export function buildChronologicalActivityTimeline(analysis, timeZone = APP_TIME
       && session.startAt
       && boundaryStartAt.getTime() < session.startAt.getTime()
     );
+    // A night of sleep belongs wholly to the day it ends (sleepInterval), so it is shown from
+    // bedtime, not from the period boundary it was clipped to.
+    const wholeNight = Number.isFinite(session.attributedSeconds);
     const stableIdentity = stableEventIdentity(session.startEvent)
       || stableEventIdentity(session.endEvent)
       || String(session.id);
@@ -1464,6 +1480,8 @@ export function buildChronologicalActivityTimeline(analysis, timeZone = APP_TIME
       boundaryStartAt,
       boundaryEndAt,
       startedBeforeVisibleRange,
+      wholeNight,
+      displayStartAt: wholeNight && startedBeforeVisibleRange ? boundaryStartAt : session.startAt,
       dateId: getDateIdInTimezone(session.startAt, timeZone),
       timeRecorded: true,
       durationSeconds: session.durationSeconds,
@@ -1534,17 +1552,54 @@ function positionWithinDay(value, bounds) {
   return Math.max(0, Math.min(100, percentage));
 }
 
+// The day chart starts early enough to draw a night that ended this day from its bedtime: in
+// whole 6-hour steps before midnight (6 PM for a usual night), at most noon the day before.
+const DAY_CHART_STEP_HOURS = 6;
+const DAY_CHART_MAX_LEAD_HOURS = 12;
+const DAY_CHART_TICK_LABELS = { 0: '12 AM', 6: '6 AM', 12: 'Noon', 18: '6 PM' };
+
+function dayChartWindow(sessionEntries, bounds) {
+  const timeZone = bounds.timezone || APP_TIMEZONE;
+  const earliestBedtime = sessionEntries
+    .filter((entry) => entry.wholeNight && entry.displayStartAt < bounds.start)
+    .reduce((earliest, entry) => Math.min(earliest, entry.displayStartAt.getTime()), bounds.start.getTime());
+  const hoursBefore = (bounds.start.getTime() - earliestBedtime) / 3_600_000;
+  const leadHours = Math.min(
+    DAY_CHART_MAX_LEAD_HOURS,
+    Math.ceil(hoursBefore / DAY_CHART_STEP_HOURS) * DAY_CHART_STEP_HOURS
+  );
+  const day = zonedParts(bounds.start, timeZone);
+  // Local clock hours of this day; negative hours fall on the evening before.
+  const atHour = (hour) => zonedDateTimeToDate({ year: day.year, month: day.month, day: day.day, hour }, timeZone);
+  const window = { start: leadHours ? atHour(-leadHours) : bounds.start, end: bounds.end };
+  const ticks = [];
+  for (let hour = -leadHours; hour <= 24; hour += DAY_CHART_STEP_HOURS) {
+    ticks.push({
+      hour,
+      label: DAY_CHART_TICK_LABELS[((hour % 24) + 24) % 24],
+      offset: positionWithinDay(atHour(hour), window),
+      dayStart: hour === 0 && leadHours > 0
+    });
+  }
+  return { window, ticks, dayStartOffset: leadHours ? positionWithinDay(bounds.start, window) : 0 };
+}
+
 export function buildDayActivityChart(analysis, bounds, now = new Date()) {
   if (!bounds || bounds.period !== 'day') return null;
   const timeline = buildChronologicalActivityTimeline(analysis, bounds.timezone || APP_TIMEZONE);
   const nowDate = toJsDate(now) || new Date();
-  const rows = timeline.entries.filter((entry) => entry.type === 'session').map((entry) => {
-    const startOffset = positionWithinDay(entry.at, bounds);
+  const sessionEntries = timeline.entries.filter((entry) => entry.type === 'session');
+  const { window, ticks, dayStartOffset } = dayChartWindow(sessionEntries, bounds);
+  const rows = sessionEntries.map((entry) => {
+    // Only a night is drawn from before midnight; anything else carried over from the day
+    // before (an open work session) belongs to that day up to midnight.
+    const drawnStart = entry.wholeNight ? entry.displayStartAt : entry.at;
+    const startOffset = positionWithinDay(drawnStart, window);
     const effectiveEnd = entry.active
       ? new Date(Math.min(nowDate.getTime(), bounds.end.getTime()))
       : entry.endAt;
-    const endOffset = positionWithinDay(effectiveEnd, bounds);
-    const hasReliableInterval = startOffset !== null && endOffset !== null && effectiveEnd > entry.at;
+    const endOffset = positionWithinDay(effectiveEnd, window);
+    const hasReliableInterval = startOffset !== null && endOffset !== null && effectiveEnd > drawnStart;
     return {
       ...entry,
       offset: startOffset,
@@ -1554,14 +1609,16 @@ export function buildDayActivityChart(analysis, bounds, now = new Date()) {
   });
   const moments = timeline.entries
     .filter((entry) => entry.type === 'moment' && entry.at)
-    .map((entry) => ({ ...entry, offset: positionWithinDay(entry.at, bounds) }));
+    .map((entry) => ({ ...entry, offset: positionWithinDay(entry.at, window) }));
   const currentOffset = nowDate >= bounds.start && nowDate < bounds.end
-    ? positionWithinDay(nowDate, bounds)
+    ? positionWithinDay(nowDate, window)
     : null;
   return {
     rows,
     moments,
     currentOffset,
+    ticks,
+    dayStartOffset,
     trackedSeconds: Number(analysis?.timedSeconds || 0)
   };
 }

@@ -1,5 +1,7 @@
 const admin = require("firebase-admin");
 
+const RECYCLE_BIN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
 function fail(code, message) {
   const error = new Error(message);
   error.code = code;
@@ -123,6 +125,16 @@ async function deleteActivityEntry(db, uid, data = {}) {
     events.forEach((event, index) => {
       const id = eventIds[index];
       const current = event.data();
+      // A copy waits in the recycle bin for 90 days, so a delete can be undone (restoreActivityEntry):
+      // the tombstone below stops the source from re-sending the event, and nothing else keeps it.
+      tx.set(calendarRef.collection("lifeEventRecycleBin").doc(id), {
+        ...current,
+        id,
+        recycledAt: admin.firestore.FieldValue.serverTimestamp(),
+        recycledBy: uid,
+        recycledWith: eventIds,
+        expiresAt: admin.firestore.Timestamp.fromDate(new Date(Date.now() + RECYCLE_BIN_TTL_MS))
+      });
       tx.set(calendarRef.collection("lifeEventTombstones").doc(id), {
         eventId: id,
         idempotencyKey: current.idempotencyKey || id,
@@ -139,4 +151,45 @@ async function deleteActivityEntry(db, uid, data = {}) {
   return { id: eventId };
 }
 
-module.exports = { editActivityEntry, deleteActivityEntry };
+// Brings a deleted activity back from the recycle bin: the event document is re-created from its copy,
+// the tombstone that blocked its source from re-sending it is removed, and the copy is discarded. A paired
+// session (arrival and departure deleted together) comes back whole.
+async function restoreActivityEntry(db, uid, data = {}) {
+  const calendarId = cleanString(data.calendarId, "calendarId", 200);
+  const eventId = cleanString(data.eventId, "eventId", 200);
+  if (!calendarId || !eventId) fail("invalid-argument", "calendarId and eventId are required.");
+  const calendarRef = db.collection("lifeCalendars").doc(calendarId);
+  const bin = (id) => calendarRef.collection("lifeEventRecycleBin").doc(id);
+  const restored = await db.runTransaction(async (tx) => {
+    const calendar = await tx.get(calendarRef);
+    assertOwner(calendar, uid);
+    const first = await tx.get(bin(eventId));
+    if (!first.exists) fail("not-found", "This activity is no longer in Recently deleted.");
+    const together = Array.isArray(first.data().recycledWith) ? first.data().recycledWith : [];
+    const ids = [...new Set([eventId, ...together])].filter((id) => typeof id === "string" && id);
+    const copies = await Promise.all(ids.map((id) => tx.get(bin(id))));
+    const live = await Promise.all(ids.map((id) => tx.get(calendarRef.collection("lifeEvents").doc(id))));
+    const out = [];
+    copies.forEach((copy, index) => {
+      const id = ids[index];
+      if (!copy.exists) return;
+      const { recycledAt, recycledBy, recycledWith, expiresAt, ...event } = copy.data();
+      if (!live[index].exists) {
+        tx.set(calendarRef.collection("lifeEvents").doc(id), {
+          ...event,
+          id,
+          restoredAt: admin.firestore.FieldValue.serverTimestamp(),
+          restoredBy: uid,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      }
+      tx.delete(calendarRef.collection("lifeEventTombstones").doc(id));
+      tx.delete(bin(id));
+      out.push(id);
+    });
+    return out;
+  });
+  return { ids: restored };
+}
+
+module.exports = { editActivityEntry, deleteActivityEntry, restoreActivityEntry, RECYCLE_BIN_TTL_MS };

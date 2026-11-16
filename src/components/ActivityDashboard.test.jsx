@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { getCategoryDefinition } from '../utils/lifeEventUtils.js';
-import { ActivityEntryDialog, LifeWheel, TimelineEntryList, TotalsView, buildDeleteRequest, buildLocationPatch } from './ActivityDashboard.jsx';
+import { ActivityEntryDialog, LifeWheel, TimelineEntryList, TotalsView, buildDeleteRequest, buildLocationPatch, describeRecycledItem, RecentlyDeleted, isBoundaryEvent } from './ActivityDashboard.jsx';
 
 const allTimeRange = {
   id: 'all',
@@ -138,32 +138,31 @@ describe('LifeWheel', () => {
     <LifeWheel analysis={analysis} categoryAnalysis={null} now={new Date('2026-09-19T12:00:00Z')} onSelect={vi.fn()} period="week" pointAnalysis={null} selectedLabel={null} title="Last week" {...props} />
   );
 
-  it('draws one rounded path per category in that category\'s colour, and no dashed circles', () => {
+  it('draws one rounded slice per category in that category\'s colour, dashing only the slice drawn at the minimum', () => {
     const markup = render();
-    expect(markup.match(/<path /g)).toHaveLength(categories.length);
-    expect(markup).not.toContain('<circle');
-    expect(markup).not.toContain('stroke-dasharray');
+    expect(markup.match(/class="life-wheel-segment/g)).toHaveLength(categories.length);
+    expect(markup.match(/stroke-dasharray="0.6 0.7"/g)).toHaveLength(1);
     categories.forEach((category) => expect(markup).toContain(`fill="${category.color}"`));
     expect(markup).not.toMatch(/NaN|undefined/);
   });
 
   it('keeps an 11 minute slice visible next to a 57 hour one', () => {
     const markup = render();
-    const places = markup.match(/<path[^>]*aria-label="Places, 11m"[^>]*>/)[0];
+    const places = markup.match(/<g class="life-wheel-slice"[^>]*aria-label="Places, 11m[^"]*"[^>]*>\s*<path[^>]*>/)[0];
     expect(places).toMatch(/ d="M [\d.]+ [\d.]+ L/);
   });
 
   it('prints the icon on every slice and the duration where it fits', () => {
     const markup = render();
-    const labels = markup.match(/<div class="life-wheel-labels"[\s\S]*?<\/div>/)[0];
-    expect(labels.match(/<button/g)).toHaveLength(categories.length);
+    const labels = markup.match(/<g class="life-wheel-labels"[\s\S]*?<\/g><\/g>/)[0];
+    expect(labels.match(/<svg /g)).toHaveLength(categories.length);
     expect(labels).toContain('57h');
     expect(labels).toContain('45h');
     expect(labels).not.toContain('11m');
   });
 
   it('does not repeat the category names on the ring, since the legend has them', () => {
-    const labels = render().match(/<div class="life-wheel-labels"[\s\S]*?<\/div>/)[0];
+    const labels = render().match(/<g class="life-wheel-labels"[\s\S]*?<\/g><\/g>/)[0];
     expect(labels).not.toContain('Home');
     expect(labels).not.toContain('Work');
   });
@@ -187,6 +186,18 @@ describe('LifeWheel', () => {
     expect(markup).toContain('5h 15m');
     expect(markup).not.toContain('1 sessions');
     expect(markup).not.toContain('2 sessions');
+  });
+
+  it('shows a night that began the evening before from its bedtime, not from midnight', () => {
+    // As sleepInterval gives it on the wake-up day: clipped to midnight, with the real bedtime kept.
+    const clock = new Intl.DateTimeFormat(undefined, { timeZone: 'America/Toronto', hour: 'numeric', minute: '2-digit' });
+    const bedtime = new Date('2026-11-03T03:51:08Z');
+    const session = { startAt: new Date('2026-11-03T05:00:00Z'), nightStartAt: bedtime, endAt: new Date('2026-11-03T08:37:51Z'), durationSeconds: 14256, active: false };
+    const sleep = { ...categories[2], sessionCount: 1, totalSeconds: 14256, sessions: [session], activeSession: null };
+    const markup = render({ categoryAnalysis: sleep, period: 'day', selectedLabel: 'Sleep' });
+    expect(markup).toContain(`<time>${clock.format(bedtime)} – ${clock.format(session.endAt)}</time>`);
+    expect(markup).not.toContain(clock.format(session.startAt));
+    expect(markup).toContain('3h 58m');
   });
 
   it('shows the session count and the full total, not just the first session\'s window, on a day with two sessions in the same category', () => {
@@ -234,5 +245,28 @@ describe('main-calendar days in the timeline', () => {
     expect(markup).toContain('Cleaning');
     expect(markup).not.toContain('Time not recorded');
     expect(markup.match(/>Edit</g)).toHaveLength(1);
+  });
+});
+
+describe('recently deleted', () => {
+  it('describes a recycled activity by its title, time and how long ago it was deleted', () => {
+    const now = new Date('2026-11-15T21:00:00Z');
+    const described = describeRecycledItem({
+      title: 'Arrived home', eventType: 'arrive_home', occurredAt: '2026-11-14T03:17:49Z', recycledAt: '2026-11-15T20:19:20Z', recycledWith: ['a']
+    }, now);
+    expect(described.title).toBe('Arrived home');
+    expect(described.when).toMatch(/Nov 13/);
+    expect(described.when).toMatch(/10:17/);
+    expect(described.deleted).toBe('deleted today');
+    expect(described.both).toBe(false);
+    expect(describeRecycledItem({ title: 'Home', recycledAt: '2026-11-12T20:00:00Z', recycledWith: ['a', 'b'] }, now)).toMatchObject({ when: 'Unknown time', deleted: 'deleted 3 days ago', both: true });
+  });
+
+  it('renders the panel closed with its summary, and knows a boundary event', () => {
+    const markup = renderToStaticMarkup(<RecentlyDeleted calendarId="cal-1" load={async () => []} restore={async () => ({})} />);
+    expect(markup).toContain('Recently deleted');
+    expect(markup).toContain('cycle-recycle-bin');
+    expect(isBoundaryEvent({ eventType: 'arrive_home' })).toBe(true);
+    expect(isBoundaryEvent({ eventType: 'sleep_session' })).toBe(false);
   });
 });

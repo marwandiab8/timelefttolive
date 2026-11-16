@@ -32,9 +32,21 @@ const LABEL = Object.freeze({ icon: 4.2, iconGlyph: 3, lineHeight: 3, characterW
  * always the real fraction of the total, and `boosted` marks slices that are
  * drawn bigger than that.
  */
+export const UNTRACKED_LABEL = 'Untracked';
+// An untracked remainder under this share of the period is not drawn: it would only be
+// boosted to the minimum slice and claim more attention than it deserves.
+const UNTRACKED_MIN_SHARE = 0.01;
+
 export function buildWheelSegments(items, options = {}) {
-  const { minAngle, gapAngle } = { ...WHEEL, ...options };
-  const valid = (items || []).filter((item) => Number(item.seconds) > 0);
+  const { minAngle, gapAngle, showUntracked = false, periodSeconds = 0 } = { ...WHEEL, ...options };
+  const tracked = (items || []).filter((item) => Number(item.seconds) > 0);
+  const trackedSeconds = tracked.reduce((total, item) => total + item.seconds, 0);
+  const untrackedSeconds = showUntracked && periodSeconds > 0 ? periodSeconds - trackedSeconds : 0;
+  // The frosted remainder of the period. It follows the categories so the ring still reads
+  // largest first, and it is never selectable.
+  const valid = untrackedSeconds > 0 && untrackedSeconds >= periodSeconds * UNTRACKED_MIN_SHARE && tracked.length
+    ? [...tracked, { label: UNTRACKED_LABEL, seconds: untrackedSeconds, untracked: true, color: null }]
+    : tracked;
   if (!valid.length) return [];
 
   const totalSeconds = valid.reduce((total, item) => total + item.seconds, 0);
@@ -188,4 +200,181 @@ export function getWheelLabelMode(segment, textLength, options = {}) {
   if (fits(textWidth, LABEL.icon + LABEL.lineHeight)) return 'full';
   if (fits(LABEL.iconGlyph, LABEL.iconGlyph)) return 'icon';
   return 'none';
+}
+
+/** An arc of the ring at `radius`, from `startAngle` to `endAngle` (degrees clockwise from 12). */
+export function describeArc(radius, startAngle, endAngle, options = {}) {
+  const { center } = { ...WHEEL, ...options };
+  const sweep = endAngle - startAngle;
+  if (!(sweep > 0)) return '';
+  if (sweep >= 360) {
+    return `M ${number(center)} ${number(center - radius)} A ${radius} ${radius} 0 1 1 ${number(center)} ${number(center + radius)} A ${radius} ${radius} 0 1 1 ${number(center)} ${number(center - radius)}`;
+  }
+  const from = polar(center, radius, toRadians(startAngle));
+  const to = polar(center, radius, toRadians(endAngle));
+  return `M ${point(from)} A ${radius} ${radius} 0 ${sweep > 180 ? 1 : 0} 1 ${point(to)}`;
+}
+
+/** A point on the ring, in viewBox units. */
+export function pointOnRing(radius, angle, options = {}) {
+  const { center } = { ...WHEEL, ...options };
+  const { x, y } = polar(center, radius, toRadians(angle));
+  return { x: number(x), y: number(y) };
+}
+
+const normalizeAngle = (angle) => ((angle % 360) + 360) % 360;
+
+/**
+ * Clock layout for a day: every allocated fragment at its real time of day, midnight at
+ * 12 o'clock and noon at 6 o'clock. `fragments` carry `start` and `end` in ms, plus whatever
+ * fields the caller wants back (label, color, session). `dayStart`/`dayEnd` are the day's
+ * bounds in ms, so the ring maps the real day length (23 or 25 hours when the clocks change).
+ * A night that began the evening before (`start` earlier than `dayStart`) wraps back past
+ * 12 o'clock, the way the 24-hour chart draws it. Fragments keep their order by start time.
+ */
+export function buildClockSegments(fragments, options = {}) {
+  const { dayStart, dayEnd, minSweep = 0.8, nowMs = null } = options;
+  const length = dayEnd - dayStart;
+  if (!(length > 0)) return [];
+  const toAngle = (ms) => ((ms - dayStart) / length) * 360;
+  return (fragments || [])
+    .filter((fragment) => Number.isFinite(fragment?.start) && Number.isFinite(fragment?.end) && fragment.end > fragment.start)
+    .map((fragment) => {
+      const end = fragment.active && Number.isFinite(nowMs) ? Math.min(fragment.end, nowMs) : fragment.end;
+      const rawStart = toAngle(Math.max(fragment.start, dayStart - length));
+      const rawEnd = toAngle(Math.min(end, dayEnd));
+      const sweep = Math.min(360, Math.max(minSweep, rawEnd - rawStart));
+      const startAngle = normalizeAngle(rawStart);
+      return {
+        ...fragment,
+        startAngle,
+        endAngle: startAngle + sweep,
+        sweep,
+        midAngle: normalizeAngle(startAngle + sweep / 2),
+        seconds: (end - fragment.start) / 1000,
+        trueShare: (end - fragment.start) / length,
+        boosted: rawEnd - rawStart < minSweep,
+        full: sweep >= 360,
+        clock: true,
+        wrapsMidnight: fragment.start < dayStart
+      };
+    })
+    .sort((left, right) => left.start - right.start);
+}
+
+/** Hour marks for the clock layout, with the real local hour for each one. */
+export function buildClockTicks(options = {}) {
+  const { dayStart, dayEnd, hourAt } = options;
+  const length = dayEnd - dayStart;
+  if (!(length > 0)) return [];
+  const ticks = [];
+  for (let hour = 0; hour < 24; hour += 1) {
+    // `hourAt` gives the instant the local clock shows `hour`; without it the day is taken as
+    // 24 equal hours.
+    const at = typeof hourAt === 'function' ? hourAt(hour) : dayStart + hour * (length / 24);
+    if (!Number.isFinite(at) || at < dayStart || at >= dayEnd) continue;
+    ticks.push({ hour, angle: ((at - dayStart) / length) * 360, major: hour % 6 === 0 });
+  }
+  return ticks;
+}
+
+/**
+ * The comparison ring: for every slice, an arc that starts where the slice starts and runs as
+ * long as that category's time in the period being compared (the previous period, or the recent
+ * normal), on the same scale as the current ring. An arc that outruns its slice says you did
+ * more of it then; one that stops short says less.
+ */
+export function buildComparisonArcs(segments, compareSeconds, options = {}) {
+  const { gapAngle } = { ...WHEEL, ...options };
+  const drawn = (segments || []).filter((segment) => !segment.untracked && !segment.clock);
+  const totalSeconds = drawn.reduce((total, segment) => total + segment.seconds, 0);
+  const totalSweep = drawn.reduce((total, segment) => total + segment.sweep, 0);
+  if (!totalSeconds || !drawn.length) return [];
+  const degreesPerSecond = totalSweep / totalSeconds;
+  const lookup = compareSeconds instanceof Map ? compareSeconds : new Map(Object.entries(compareSeconds || {}));
+  return drawn
+    .map((segment) => {
+      const seconds = Number(lookup.get(segment.label)) || 0;
+      if (!(seconds > 0)) return null;
+      const sweep = Math.min(360 - gapAngle, seconds * degreesPerSecond);
+      return {
+        label: segment.label,
+        color: segment.color,
+        startAngle: segment.startAngle,
+        endAngle: segment.startAngle + sweep,
+        sweep,
+        seconds,
+        deltaSeconds: segment.seconds - seconds,
+        longer: seconds > segment.seconds
+      };
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Moments as beads on the rim. Each `point` has a `label` (its point category), an optional
+ * `angle` (used in the clock layout, from its time of day) and a `segmentLabel` (the slice it
+ * belongs with in the share layout). Beads closer than `clusterAngle` degrees merge into one
+ * with a count. Points with nowhere to go (no angle and no matching slice) are left out.
+ */
+export function buildWheelBeads(points, options = {}) {
+  const { segments = [], layout = 'share', clusterAngle = 5 } = options;
+  const bySegment = new Map(segments.map((segment) => [segment.label, segment]));
+  const placed = [];
+  const grouped = new Map();
+  (points || []).forEach((item) => {
+    if (layout === 'clock' && Number.isFinite(item.angle)) {
+      placed.push({ ...item, angle: normalizeAngle(item.angle) });
+      return;
+    }
+    const segment = bySegment.get(item.segmentLabel) || bySegment.get(item.label);
+    if (!segment) {
+      // No slice to sit with (a journal entry on a day with no Journal time): its own angle, if it has one.
+      if (Number.isFinite(item.angle)) placed.push({ ...item, angle: normalizeAngle(item.angle) });
+      return;
+    }
+    const list = grouped.get(segment.label) || [];
+    list.push(item);
+    grouped.set(segment.label, list);
+  });
+  // In the share layout the beads of a slice are spread across its middle 70 percent.
+  grouped.forEach((list, label) => {
+    const segment = bySegment.get(label);
+    const inset = segment.sweep * 0.15;
+    const span = segment.sweep - inset * 2;
+    list.forEach((item, index) => {
+      const fraction = list.length === 1 ? 0.5 : index / (list.length - 1);
+      placed.push({ ...item, angle: normalizeAngle(segment.startAngle + inset + span * fraction) });
+    });
+  });
+  placed.sort((left, right) => left.angle - right.angle);
+  const beads = [];
+  placed.forEach((item) => {
+    const last = beads.at(-1);
+    if (last && item.angle - last.lastAngle < clusterAngle && last.label === item.label) {
+      last.items.push(item);
+      last.count += item.count || 1;
+      last.lastAngle = item.angle;
+      last.angle = (last.firstAngle + item.angle) / 2;
+      return;
+    }
+    beads.push({ id: item.id, label: item.label, color: item.color, angle: item.angle, firstAngle: item.angle, lastAngle: item.angle, count: item.count || 1, items: [item] });
+  });
+  return beads.map(({ firstAngle, lastAngle, ...bead }) => bead);
+}
+
+/**
+ * Where a target sits on a slice: the angle at which the slice would end if the category had
+ * exactly the target's seconds, on the current ring's scale. `null` when the mark would lap the
+ * ring (more than 300 degrees past the slice's start).
+ */
+export function targetAngle(segment, targetSeconds, segments) {
+  if (!segment || !(targetSeconds > 0)) return null;
+  const drawn = (segments || [segment]).filter((candidate) => !candidate.untracked);
+  const totalSeconds = drawn.reduce((total, candidate) => total + candidate.seconds, 0);
+  const totalSweep = drawn.reduce((total, candidate) => total + candidate.sweep, 0);
+  if (!totalSeconds) return null;
+  const sweep = targetSeconds * (totalSweep / totalSeconds);
+  if (sweep > 300) return null;
+  return { angle: normalizeAngle(segment.startAngle + sweep), met: segment.seconds >= targetSeconds, sweep };
 }

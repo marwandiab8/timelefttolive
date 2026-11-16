@@ -18,7 +18,7 @@ const {
   createActivityMediaHandler,
   createJournalDetailsHandler
 } = require("./src/activityJournal");
-const { editActivityEntry, deleteActivityEntry } = require("./src/activityEntries");
+const { editActivityEntry, deleteActivityEntry, restoreActivityEntry } = require("./src/activityEntries");
 const { syncCalendarEventLifeEvents, carryOngoingCalendarEvents } = require("./src/calendarLifeEvents");
 
 admin.initializeApp();
@@ -69,6 +69,15 @@ exports.deleteActivityEntry = onCall({ region }, async (request) => {
     return await deleteActivityEntry(admin.firestore(), request.auth.uid, request.data || {});
   } catch (error) {
     throw new HttpsError(error.code || "internal", error.message || "Unable to delete activity.");
+  }
+});
+
+exports.restoreActivityEntry = onCall({ region }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in to restore activities.");
+  try {
+    return await restoreActivityEntry(admin.firestore(), request.auth.uid, request.data || {});
+  } catch (error) {
+    throw new HttpsError(error.code || "internal", error.message || "Unable to restore activity.");
   }
 });
 
