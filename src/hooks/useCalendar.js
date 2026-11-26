@@ -548,3 +548,36 @@ export function useWrittenDates(calendarId, role, enabled = true) {
 
   return { dates, error };
 }
+
+/** The children's measurements (see utils/childMeasurements.js). A viewer gets only the ones shared with viewers. */
+export function useChildMeasurements(calendarId, role) {
+  const [measurements, setMeasurements] = useState([]);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!calendarId) {
+      setMeasurements([]);
+      return undefined;
+    }
+    const measurementsRef = collection(db, 'lifeCalendars', calendarId, 'childMeasurements');
+    const measurementsQuery = role === 'owner' ? measurementsRef : query(measurementsRef, where('visibility', '==', 'viewers'));
+    return onSnapshot(measurementsQuery, (snapshot) => {
+      setError('');
+      setMeasurements(snapshot.docs.map((measurementDoc) => ({ id: measurementDoc.id, ...measurementDoc.data() })));
+    }, (err) => setError(err.message));
+  }, [calendarId, role]);
+
+  return { measurements, error };
+}
+
+/** Saves a measurement from buildMeasurement ({ id, data }); the id is stable per child, kind and day. */
+export function saveChildMeasurement(calendarId, measurement) {
+  return setDoc(doc(db, 'lifeCalendars', calendarId, 'childMeasurements', measurement.id), {
+    ...measurement.data,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+}
+
+export function deleteChildMeasurement(calendarId, measurementId) {
+  return deleteDoc(doc(db, 'lifeCalendars', calendarId, 'childMeasurements', measurementId));
+}

@@ -10,6 +10,7 @@ A private life-calendar and mortality-awareness dashboard. Users sign in, create
 - **Colour lived weeks by** Events (the default), **How the week went** (the weekly review's rating, one colour ramp from Rough to Great) or **With the boys** (how many of the week's days were yours under the schedule, from the day it began: `custodySchedule.since`, set in Edit kids and schedule). In the last two, a dot marks a week with a note or journal entry, and event wedges are hidden. The choice is remembered on the device (`lifeHeatmapLivedMode`). Logic in `src/utils/livedWeeks.js`.
 - Click any week to see the seven individual dates inside that week.
 - **Still ahead**, under the summary: the weekends, summers, Christmases and birthdays left before your target age. **Time with my boys**: who has them this week under the every-other-week schedule, and a card per child with age, grade (moves up each September), school, your notes, weeks left with you before 18, the summers, Christmases and birthdays left before 18, and whose week the next birthday falls in.
+- **Kids' milestones and heights.** Each card names the next milestone: the 16th birthday (an Ontario G1 licence), the end of Grade 8 and of Grade 12 (June of that school year, from the grade) or the 18th, with a countdown and, for a birthday, whose week it falls in. A **Coming up** list under the cards gives the next six across the family (`src/utils/childMilestones.js`). Each card also shows the child's height history: the latest height, the change since the reading before, a small growth line, and any reading kept as written because it doesn't read cleanly (`5' 10 9/8"`), flagged to check. **Heights** (owner only) adds a height by date in feet, inches and fractions (or cm), corrects one, or removes one; heights are private unless shared with viewers (`src/utils/childMeasurements.js`). Detail rows already copied into the history are no longer shown twice.
 - **Weekly review** (owner only): while last week's square has no review (or on the last day of this one), a card under Still ahead asks how the week went. The review shows the week in numbers (days with the boys, tracked time by category, targets met, days with something written down), asks whether last week's intention happened, and takes a rating (Rough to Great), what mattered, one moment, and one intention for next week, which the card then carries through the week. A week can be skipped. A reviewed week shows its review at the top of the week view, where any past week can also be reviewed. Reviews are owner-only unless shared with viewers. Logic in `src/utils/weeklyReview.js`.
 - Daily journals, tags, links, file/image uploads, and external Firebase record metadata links.
 - Date-range events with visibility and overlap indicators.
@@ -141,6 +142,7 @@ lifeCalendars/{calendarId}/dailyEntries/{YYYY-MM-DD}
 lifeCalendars/{calendarId}/dailyEntries/{YYYY-MM-DD}/attachments/{attachmentId}
 lifeCalendars/{calendarId}/dailyEntries/{YYYY-MM-DD}/externalItems/{externalItemId}
 lifeCalendars/{calendarId}/weeklyReviews/{YYYY-MM-DD}
+lifeCalendars/{calendarId}/childMeasurements/{childId-kind-YYYY-MM-DD}
 lifeCalendars/{calendarId}/sourceConnections/{connectionId}
 lifeCalendars/{calendarId}/lifeEvents/{lifeEventId}
 ```
@@ -148,6 +150,8 @@ lifeCalendars/{calendarId}/lifeEvents/{lifeEventId}
 Server-only collections (no client access) under each calendar: `sourceConnectionSecrets`, `lifeEventTombstones`, `ingestionDeadLetters`, `rawIngestionPayloads`. `externalIndex` and `externalNeedsDateReview` are owner-readable but server-written. `lifeEvents` is owner-read-only; every write goes through Cloud Functions.
 
 `weeklyReviews/{weekStart}` holds one review per life-calendar square, keyed by the square's first day (squares start on the birthday's weekday, so this is not a Monday): `weekStart`, `weekEnd`, `rating` (1 to 5 or null), `mattered`, `moment`, `intention`, `intentionKept` (`yes`, `partly`, `no` or null, about the previous week's intention), `numbers` (the week's totals when it was saved), `visibility` (`ownerOnly` by default, or `viewers`), `createdAt`, `updatedAt`. The rules check the key matches `weekStart`, the visibility and the rating.
+
+`childMeasurements/{childId-kind-date}` holds one reading per child, kind and day (so saving the same day again corrects it): `childId`, `kind` (`height` for now), `measuredOn`, `valueMm` (whole millimetres, or null when the text doesn't read cleanly), `asWritten` (the text as entered), `needsCheck`, `note`, `visibility` (`ownerOnly` by default, or `viewers`), `source` (`manual` or `migratedDetail`). The rules check the kind, the date, the visibility and that `valueMm` is null or a whole number from 1 to 2,999.
 
 Storage uploads are stored at:
 
@@ -194,6 +198,7 @@ The Admin-SDK scripts need Application Default Credentials and an explicit `--pr
 - `npm run backfill:life-events -- --project=ID [--calendar-id=ID]` backfills legacy external items into canonical `lifeEvents`. It is a dry run unless `--apply` is passed.
 - `npm run enrich:gridline-journals -- --project=ID` enriches journal life events from their legacy records. It is a dry run unless `--apply` is passed, and `--apply` also requires `--confirm-project=ID`.
 - `npm run sync:calendar-life-events -- --project=ID [--calendar-id=ID]` brings every main-calendar event's life events in line, as the trigger does on each write, and removes ones whose event is gone. It is a dry run unless `--apply` is passed.
+- `npm run migrate:heights -- --project=ID` copies the children's "Height, <date>" detail rows into `childMeasurements` (owner-only, stable ids, existing ones left alone). It is a dry run unless `--apply` is passed with `--calendar=ID` and `--confirm-project=ID`; `--remove-details` (with `--apply`) then removes only the detail rows whose measurement exists.
 - `npm run staging:fixture:create`, `staging:fixture:cleanup` and `staging:smoke-test` only run against the staging project.
 
 ## Notes

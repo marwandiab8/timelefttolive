@@ -81,3 +81,50 @@ describe('FamilyTimePanel', () => {
     expect(renderToStaticMarkup(<FamilyTimePanel calendar={calendar} today="2026-11-02" canEdit={false} />)).not.toContain('<button');
   });
 });
+
+describe('FamilyTimePanel milestones and heights', () => {
+  const kid = {
+    id: 'a',
+    name: 'David',
+    birthDate: '2010-06-28',
+    grade: '11',
+    gradeSchoolYear: 2026,
+    details: [
+      { id: 'h1', label: 'Height, Nov 23, 2026', value: `5' 11"` },
+      { id: 'h2', label: 'Height, Feb 10, 2025', value: `5' 8 1/2"` },
+      { id: 'h3', label: 'Height, Sep 27, 2026', value: `5' 10 9/8"` },
+      { id: 'x', label: 'Teacher', value: 'Ms. Lee' }
+    ]
+  };
+  const heights = [
+    { id: 'a-height-2026-11-23', childId: 'a', kind: 'height', measuredOn: '2026-11-23', valueMm: 1803, asWritten: `5' 11"` },
+    { id: 'a-height-2025-02-10', childId: 'a', kind: 'height', measuredOn: '2025-02-10', valueMm: 1740, asWritten: `5' 8 1/2"` },
+    { id: 'a-height-2026-09-27', childId: 'a', kind: 'height', measuredOn: '2026-09-27', valueMm: null, asWritten: `5' 10 9/8"`, needsCheck: true }
+  ];
+  const render = (props) => renderToStaticMarkup(<FamilyTimePanel calendar={{ ...calendar, children: [kid] }} today="2026-11-26" canEdit {...props} />);
+
+  it('shows the next milestone on the card and the ones coming up for the family', () => {
+    const html = render({});
+    expect(html).toContain('Turns 18 in');
+    expect(html).toContain('Coming up');
+    expect(html).toContain('David graduates high school in');
+  });
+
+  it('draws the height history, flags the one to check and hides the detail rows it came from', () => {
+    const html = render({ measurements: heights, onOpenMeasurements: () => {} });
+    expect(html).toContain('<svg class="growth-chart"');
+    expect(html).toContain('+2 1/2&quot; since');
+    expect(html).toContain(`5&#x27; 10 9/8&quot; (`);
+    expect(html).toContain('needs checking');
+    expect(html).not.toContain('Height, Nov 23, 2026');
+    expect(html).toContain('Ms. Lee');
+    expect(html).toContain('>Heights<');
+  });
+
+  it('keeps the detail rows while they have no measurement, and offers to add one only to the owner', () => {
+    const html = render({ onOpenMeasurements: () => {} });
+    expect(html).toContain('Height, Nov 23, 2026');
+    expect(html).toContain('Add a height');
+    expect(render({ canEdit: false, onOpenMeasurements: () => {} })).not.toContain('Add a height');
+  });
+});

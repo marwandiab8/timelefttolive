@@ -543,6 +543,137 @@ legend {
   font-variant-numeric: tabular-nums;
 }
 
+.family-time-panel .kid-next {
+  margin-top: 8px;
+  font-size: 0.86rem;
+}
+
+.family-time-panel .kid-next span,
+.kid-growth-head span {
+  color: var(--card-accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.kid-growth {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--card-border);
+}
+
+.family-time-panel .kid-growth-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 10px;
+  font-size: 0.9rem;
+}
+
+.growth-chart {
+  width: 100%;
+  max-width: 260px;
+  height: auto;
+  margin-top: 4px;
+  overflow: visible;
+}
+
+.growth-chart path {
+  fill: none;
+  stroke: var(--card-accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.growth-chart circle {
+  fill: var(--card-surface, #141b20);
+  stroke: var(--card-accent);
+  stroke-width: 1.6;
+}
+
+.growth-chart circle.latest {
+  fill: var(--card-accent);
+}
+
+.family-time-panel .kid-flag {
+  margin-top: 2px;
+  color: var(--danger-text, #ffb4a8);
+  font-size: 0.82rem;
+}
+
+.kid-heights-button {
+  margin-top: 10px;
+  padding-left: 0;
+}
+
+.family-milestones {
+  max-width: 44rem;
+  margin-top: 18px;
+}
+
+.family-milestones ol {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.92rem;
+}
+
+.measurements-dialog {
+  background: #141b20;
+}
+
+.measurement-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 12px;
+}
+
+.field-hint.warning {
+  color: var(--danger-text, #ffb4a8);
+}
+
+.measurement-list {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.measurement-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+}
+
+.measurement-list li.needs-check {
+  border-color: color-mix(in srgb, var(--danger-text, #ffb4a8) 60%, transparent);
+}
+
+.measurement-flag,
+.measurement-note {
+  display: block;
+  font-size: 0.84rem;
+}
+
+.measurement-flag {
+  color: var(--danger-text, #ffb4a8);
+}
+
+.measurement-actions {
+  display: flex;
+  gap: 6px;
+}
+
 .kid-details {
   display: grid;
   gap: 6px;
@@ -1735,6 +1866,7 @@ legend {
   color: #8a5f0a;
 }
 
+.app-shell[data-calendar-theme="light"] .measurements-dialog,
 .app-shell[data-calendar-theme="light"] .weekly-review-dialog {
   background: #ffffff;
 }

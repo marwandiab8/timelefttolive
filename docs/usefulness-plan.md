@@ -42,7 +42,7 @@ It then asks four short things: a 1 to 5 rating, what mattered, one moment, and 
 ### 2. Lived weeks that mean something (M) — done on `feat/lived-weeks`
 The life calendar gets a "Colour lived weeks by" control: **Events** (today's view), **How the week went** (rating tint), or **With the boys**. In each mode the reviewed or custody weeks show and everything else stays plain. A week with a journal or photo gets a small dot. Data comes from `weeklyReviews` (one query for the whole life, at most about 4,700 small documents) and from custody computed from its new `since` date. The square's tooltip and the week view show the review. This depends on item 1, so building it first would light up almost nothing.
 
-### 3. Kids: milestones, then measurements (S + M)
+### 3. Kids: milestones, then measurements (S + M) — done on `feat/kids-milestones-measurements`
 - **Milestones (S, no data model).** `childMilestones.js` derives each boy's:
   - 16th birthday, when an Ontario G1 licence becomes possible;
   - end of Grade 8 and of Grade 12 (last school day of June in that school year, from `currentGrade`);
