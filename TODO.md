@@ -84,6 +84,10 @@ The two Activity dashboard bugs are fixed and tested (details in [docs/activity-
 
 The `email_verified` rules change from the same day is deployed too. Email/password viewers who accepted an invite without verifying lose access until they verify; Google accounts are unaffected.
 
+## Usefulness plan
+
+`docs/usefulness-plan.md` is the ranked plan for making the app useful week to week (from `docs/prompts/make-it-useful-prompt.md`), approved 2026-11-26 in its ranked order, with measurements and new journal entries private by default. Item 0 (the Surface can build, test and run the emulators; `npm run seed:emulators` makes a demo calendar) is on `feat/windows-dev-setup`. Items 1 to 9 follow, one branch each.
+
 ## Housekeeping
 
 - Everything is pushed (`origin/main` is at the merge commit `7c43551`). `main` has no upstream configured, so `git push` needs `origin main` spelled out, or run `git push -u origin main` once.

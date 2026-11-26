@@ -63,7 +63,17 @@ npm ci
 npm run dev
 ```
 
-To click through the app without touching real data, start the Auth, Firestore and Storage emulators for `demo-timelefttolive`, create a user and a calendar in them, and run `npm run dev:emulators` (port 5174). It points the app at the emulators with demo settings; a real build never does.
+To click through the app without touching real data, use the emulators of the `demo-timelefttolive` project, in three terminals:
+
+```bash
+npm run emulators         # Auth, Firestore and Storage emulators (needs Java 21)
+npm run seed:emulators    # a demo calendar: four kids, a custody schedule, events, notes, two weeks of activity
+npm run dev:emulators     # the app at http://localhost:5174, pointed at the emulators
+```
+
+Sign in with the demo owner or viewer account; the emulator-only passwords are at the top of `scripts/seed-emulators.mjs`. Run the seed again to reset the demo data. The demo settings live in `vite.config.js` under the `emulators` mode, so the scripts work the same in cmd.exe, PowerShell and POSIX shells; a real build never uses them.
+
+On Windows (the Surface), the project runs on a portable Node 22 and Temurin JDK 21 in `C:\Users\ashtr\tools` (`node-22`, `jdk-21`). The JDK is on the user `PATH` with `JAVA_HOME` set; put `C:\Users\ashtr\tools\node-22` first on `PATH` in the terminal you use for this repo, since the system Node is newer than the functions' Node 22.
 
 ## Build
 
