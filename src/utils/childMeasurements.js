@@ -181,3 +181,17 @@ export function growthChartGeometry(points, { width = 220, height = 70, pad = 6 
     path: positions.map((point, index) => `${index ? 'L' : 'M'}${point.x} ${point.y}`).join(' ')
   };
 }
+
+/**
+ * Moving a child's height notes into the history, from the app: which notes still need copying, and which notes are
+ * already in the history and so can come off the profile (where viewers can read them).
+ */
+export function planHeightNoteMove(child, measurements = []) {
+  const saved = new Set(measurements.map((item) => item.id));
+  const { measurements: rows, skipped } = heightRowsFromDetails(child);
+  return {
+    toCopy: rows.filter((row) => !saved.has(row.id)),
+    removable: rows.filter((row) => saved.has(row.id)).map((row) => row.detailId),
+    skipped
+  };
+}

@@ -8,6 +8,7 @@ import {
   measurementId,
   parseHeight,
   parseLooseDate,
+  planHeightNoteMove,
   summarizeHeights
 } from './childMeasurements.js';
 
@@ -124,5 +125,28 @@ describe('summarizeHeights and growthChartGeometry', () => {
     expect(second.y).toBeGreaterThan(third.y);
     expect(chart.path.startsWith('M5 ')).toBe(true);
     expect(growthChartGeometry([{ measuredOn: '2026-01-01', mm: 1500 }])).toBeNull();
+  });
+});
+
+describe('planHeightNoteMove', () => {
+  const child = {
+    id: 'd',
+    details: [
+      { id: '1', label: 'Height, Nov 23, 2026', value: `5' 11"` },
+      { id: '2', label: 'Height, Sep 27, 2026', value: `5' 10 9/8"` },
+      { id: '3', label: 'Shoe size', value: '11' }
+    ]
+  };
+
+  it('copies the notes not yet in the history, and only then offers to take them off the profile', () => {
+    const fresh = planHeightNoteMove(child, []);
+    expect(fresh.toCopy.map((row) => row.id)).toEqual(['d-height-2026-11-23', 'd-height-2026-09-27']);
+    expect(fresh.removable).toEqual([]);
+    const half = planHeightNoteMove(child, [{ id: 'd-height-2026-11-23' }]);
+    expect(half.toCopy.map((row) => row.detailId)).toEqual(['2']);
+    expect(half.removable).toEqual(['1']);
+    const done = planHeightNoteMove(child, [{ id: 'd-height-2026-11-23' }, { id: 'd-height-2026-09-27' }]);
+    expect(done).toMatchObject({ toCopy: [], removable: ['1', '2'] });
+    expect(planHeightNoteMove({ id: 'x', details: [] }, [])).toMatchObject({ toCopy: [], removable: [] });
   });
 });

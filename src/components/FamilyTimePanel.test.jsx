@@ -121,10 +121,12 @@ describe('FamilyTimePanel milestones and heights', () => {
     expect(html).toContain('>Heights<');
   });
 
-  it('keeps the detail rows while they have no measurement, and offers to add one only to the owner', () => {
+  it('keeps the detail rows while they have no measurement, and offers to move them, to the owner only', () => {
     const html = render({ onOpenMeasurements: () => {} });
     expect(html).toContain('Height, Nov 23, 2026');
-    expect(html).toContain('Add a height');
-    expect(render({ canEdit: false, onOpenMeasurements: () => {} })).not.toContain('Add a height');
+    expect(html).toContain('Move height notes');
+    expect(render({ canEdit: false, onOpenMeasurements: () => {} })).not.toContain('Move height notes');
+    const plain = renderToStaticMarkup(<FamilyTimePanel calendar={{ ...calendar, children: [{ ...kid, details: [] }] }} today="2026-11-26" canEdit onOpenMeasurements={() => {}} />);
+    expect(plain).toContain('Add a height');
   });
 });
