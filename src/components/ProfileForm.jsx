@@ -169,6 +169,14 @@ export default function ProfileForm({ user, calendar, onSaved }) {
           />
           <span className="field-hint">{schedulePreview}</span>
         </label>
+        <label>This schedule began on
+          <input
+            value={form.custodySchedule.since || ''}
+            onChange={(event) => updateCustody('since', event.target.value)}
+            type="date"
+          />
+          <span className="field-hint">Optional. The life calendar colours your weeks with the boys from this day on.</span>
+        </label>
         <label>Every
           <input
             value={form.custodySchedule.cycleWeeks}

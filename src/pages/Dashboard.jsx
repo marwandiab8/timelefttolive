@@ -16,16 +16,26 @@ import WeekDetailPanel from '../components/WeekDetailPanel.jsx';
 import WhatsLeft from '../components/WhatsLeft.jsx';
 import { WeeklyReviewCard, WeeklyReviewDialog } from '../components/WeeklyReview.jsx';
 import { useAuth } from '../hooks/useAuth.jsx';
-import { acceptViewerInvite, useEvents, useOwnedCalendar, useSharedCalendar, useViewerInvites, useViewers, useWeeklyReviews } from '../hooks/useCalendar.js';
+import { acceptViewerInvite, useEvents, useOwnedCalendar, useSharedCalendar, useViewerInvites, useViewers, useWeeklyReviews, useWrittenDates } from '../hooks/useCalendar.js';
 import { logOut } from '../services/firebase.js';
 import { useCurrentDay } from '../hooks/useCurrentDay.js';
 import { formatDateId, getLifeStats, getTodayCalendarView, parseDateId, sameCalendarView, withOngoingEvents } from '../utils/dateUtils.js';
 import { clampHeatmapZoom } from '../utils/heatmapViewport.js';
 import { readCalendarTheme, toggleCalendarTheme, writeCalendarTheme } from '../utils/theme.js';
 import { lifeWeekFor } from '../utils/weeklyReview.js';
+import { normalizeLivedMode } from '../utils/livedWeeks.js';
 
 function readStoredZoom() {
   return clampHeatmapZoom(localStorage.getItem('lifeHeatmapZoom') || 1);
+}
+
+// Which colouring the life calendar uses for lived weeks, remembered on this device.
+function readStoredLivedMode() {
+  try {
+    return localStorage.getItem('lifeHeatmapLivedMode') || 'events';
+  } catch {
+    return 'events';
+  }
 }
 
 function readStoredFitMode() {
@@ -56,6 +66,17 @@ export default function Dashboard() {
   const viewers = viewerState.viewers;
   const reviewState = useWeeklyReviews(calendar?.id, role);
   const [reviewWeek, setReviewWeek] = useState(null);
+  const [storedLivedMode, setStoredLivedMode] = useState(readStoredLivedMode);
+  const livedMode = normalizeLivedMode(storedLivedMode, { hasCustody: Boolean(calendar?.custodySchedule?.enabled && calendar?.custodySchedule?.nextStartDate) });
+  const writtenState = useWrittenDates(calendar?.id, role, livedMode !== 'events');
+  const updateLivedMode = useCallback((value) => {
+    setStoredLivedMode(value);
+    try {
+      localStorage.setItem('lifeHeatmapLivedMode', value);
+    } catch {
+      // Not remembered in a private window; the choice still applies now.
+    }
+  }, []);
   const [editingProfile, setEditingProfile] = useState(false);
   const [showEvents, setShowEvents] = useState(false);
   const [showSources, setShowSources] = useState(false);
@@ -72,7 +93,7 @@ export default function Dashboard() {
   const heatmapRef = useRef(null);
   const viewScrollPositions = useRef({ activity: { left: 0, top: 0 }, calendar: { left: 0, top: 0 } });
   const stats = useMemo(() => calendar ? getLifeStats(calendar.birthDate, calendar.targetAge, parseDateId(currentDay)) : null, [calendar, currentDay]);
-  const dataError = owned.error || inviteState.error || shared.error || eventState.error || viewerState.error || reviewState.error;
+  const dataError = owned.error || inviteState.error || shared.error || eventState.error || viewerState.error || reviewState.error || writtenState.error;
   const pendingInvite = invites.find((invite) => invite.status === 'pending');
   // Moving between the calendar's levels is a step in the browser's history, so Back (the browser's, or a phone's
   // swipe) goes up the way you came and Forward down again. Each step remembers where you were on it: the week you
@@ -343,6 +364,10 @@ export default function Dashboard() {
           fitMode={fitMode}
           onZoomChange={updateZoom}
           onFitModeChange={updateFitMode}
+          livedMode={livedMode}
+          onLivedModeChange={updateLivedMode}
+          reviews={reviewState.reviews}
+          writtenDateIds={writtenState.dates}
         />
       )}
 

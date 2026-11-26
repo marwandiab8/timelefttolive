@@ -27,6 +27,7 @@ import {
 import { useCurrentDay } from '../hooks/useCurrentDay.js';
 import { buildWedgeGradient, pickWeekWedges } from '../utils/eventWedges.js';
 import HeatmapZoomToolbar from './HeatmapZoomToolbar.jsx';
+import { KIDS_COLOR, LIVED_WEEK_MODES, buildLivedWeekMarks, kidsModeNote, ratingLegend } from '../utils/livedWeeks.js';
 
 // Matches the horizontal padding of `.heatmap-scroll` in app.css.
 const FIT_PADDING = 6;
@@ -42,7 +43,11 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
   zoom,
   fitMode,
   onZoomChange,
-  onFitModeChange
+  onFitModeChange,
+  livedMode = 'events',
+  onLivedModeChange = null,
+  reviews = {},
+  writtenDateIds = null
 }, ref) {
   const rows = useMemo(() => getLifeYearsWeeks(calendar.birthDate, calendar.targetAge), [calendar.birthDate, calendar.targetAge]);
   const defaultEventColor = calendar.settings?.defaultEventColor || '#7c9cff';
@@ -69,7 +74,18 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
   const [geometry, setGeometry] = useState({ baseCellSize: 18, viewportWidth: 0 });
   const settings = calendar.settings || {};
   // Changes at midnight, so which week is current stays right in a tab left open overnight.
-  const today = parseDateId(useCurrentDay());
+  const todayId = useCurrentDay();
+  const today = parseDateId(todayId);
+  const hasCustody = Boolean(calendar.custodySchedule?.enabled && calendar.custodySchedule?.nextStartDate);
+  const livedMarks = useMemo(() => buildLivedWeekMarks({
+    mode: livedMode,
+    weeks: rows.flatMap((row) => row.weeks),
+    reviews,
+    custodySchedule: calendar.custodySchedule,
+    writtenDateIds: writtenDateIds || new Set(),
+    today: todayId
+  }), [calendar.custodySchedule, livedMode, reviews, rows, todayId, writtenDateIds]);
+  const showEvents = livedMode === 'events';
 
   // Bring one week's cell to the middle of the screen (and pulse it, unless announce is false): this week, or the
   // week containing a given day, such as the week you just came back from.
@@ -287,12 +303,36 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
   return (
     <section className="heatmap-section">
       <div className="heatmap-controls">
+        {onLivedModeChange && (
+          <div className="lived-mode" role="group" aria-label="Colour lived weeks by">
+            <span>Colour lived weeks by</span>
+            {LIVED_WEEK_MODES.filter((mode) => mode.value !== 'kids' || hasCustody).map((mode) => (
+              <button
+                aria-pressed={livedMode === mode.value}
+                className={livedMode === mode.value ? 'selected' : ''}
+                key={mode.value}
+                type="button"
+                onClick={() => onLivedModeChange(mode.value)}
+              >
+                {mode.label}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="heat-legend" aria-label="Legend">
-          <span><i className="swatch-past" />Past</span>
+          <span><i className="swatch-past" />{showEvents ? 'Past' : 'Lived'}</span>
           <span><i className="swatch-current" />Current</span>
           <span><i className="swatch-future" />Future</span>
-          <span><i className="swatch-events" />Events</span>
+          {showEvents && <span><i className="swatch-events" />Events</span>}
+          {livedMode === 'rating' && ratingLegend().map((item) => (
+            <span key={item.label}><i style={{ background: item.color }} />{item.label}</span>
+          ))}
+          {livedMode === 'kids' && <span><i className="swatch-kids" style={{ '--kids-color': KIDS_COLOR }} />With the boys (stronger for more days)</span>}
+          {!showEvents && <span><i className="swatch-written" />Something written down</span>}
         </div>
+        {livedMode === 'kids' && kidsModeNote(calendar.custodySchedule) && (
+          <p className="lived-mode-note">{kidsModeNote(calendar.custodySchedule)}</p>
+        )}
         <HeatmapZoomToolbar
           fitMode={fitMode}
           zoom={zoom}
@@ -337,7 +377,9 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
                   const eventNames = weekEvents.length
                     ? `: ${week.wedges.map((wedge) => wedge.title).join(', ')}${week.wedgeOverflow ? ` and ${week.wedgeOverflow} more` : ''}`
                     : '';
-                  const title = `${formatDateId(week.start)} to ${formatDateId(week.end)} · Age ${row.age} · ${weekEvents.length} ${weekEvents.length === 1 ? 'event' : 'events'}${eventNames}`;
+                  const mark = showEvents ? null : livedMarks.get(week.dateId);
+                  const markNote = mark ? [mark.label, mark.dot ? 'something written down' : ''].filter(Boolean).join(' · ') : '';
+                  const title = `${formatDateId(week.start)} to ${formatDateId(week.end)} · Age ${row.age} · ${weekEvents.length} ${weekEvents.length === 1 ? 'event' : 'events'}${eventNames}${markNote ? ` · ${markNote}` : ''}`;
                   return (
                     <button
                       ref={(node) => node && cellRefs.current.set(week.dateId, node)}
@@ -348,14 +390,15 @@ const LifeHeatmap = forwardRef(function LifeHeatmap({
                       aria-label={title}
                       onClick={() => onSelectWeek({ ...week, events: weekEvents })}
                       style={{
-                        '--cell-fill': baseColor,
+                        '--cell-fill': state === 'past' && mark?.fill ? mark.fill : baseColor,
                         '--current-color': settings.currentWeekColor
                       }}
                     >
-                      {week.wedges.length > 0 && (
+                      {showEvents && week.wedges.length > 0 && (
                         <span aria-hidden="true" className="event-wedges" style={{ background: week.wedgeBackground }} />
                       )}
-                      {week.wedgeOverflow > 0 && <span className="event-count">{weekEvents.length}</span>}
+                      {showEvents && week.wedgeOverflow > 0 && <span className="event-count">{weekEvents.length}</span>}
+                      {mark?.dot && <span aria-hidden="true" className="written-dot" />}
                     </button>
                   );
                 })}

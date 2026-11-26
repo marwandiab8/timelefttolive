@@ -11,6 +11,7 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { Timestamp, getFirestore } from 'firebase-admin/firestore';
+import { lifeWeekFor, previousLifeWeek } from '../src/utils/weeklyReview.js';
 
 export const DEMO_PROJECT_ID = 'demo-timelefttolive';
 export const DEMO_EMAIL = 'owner@demo.test';
@@ -145,7 +146,7 @@ export function buildDemoCalendar(today) {
       { id: 'child-drew', name: 'Drew', birthDate: '2013-10-09', grade: '8', gradeSchoolYear: 2026, school: 'Maple PS', details: [] }
     ],
     custodySchedule: {
-      enabled: true, nextStartDate: sunday, cycleWeeks: 2, withParentWeeks: 1, countUntilChildAge: 18,
+      enabled: true, nextStartDate: sunday, since: '2024-09-01', cycleWeeks: 2, withParentWeeks: 1, countUntilChildAge: 18,
       childIds: ['child-alex', 'child-ben', 'child-charlie', 'child-drew']
     },
     settings: { pastColor: '#46505c', currentWeekColor: '#f4c542', futureColor: '#17222c', defaultEventColor: '#7c9cff' },
@@ -175,6 +176,27 @@ export function buildDemoDailyEntries(today) {
     entry(dayId(today, -9), 'Quiet week. Read before bed most nights.'),
     entry(dayId(new Date(today.getFullYear() - 1, today.getMonth(), today.getDate())), 'Montreal: Alex ate three bagels in a row.')
   ];
+}
+
+// Reviews for most of the twelve weeks before last week (last week is left for you to review), so the life calendar's
+// "How the week went" view has something to show.
+export function buildDemoReviews(today) {
+  const ratings = [4, 3, null, 5, 2, 4, 3, 4, null, 1, 3, 4];
+  const words = ['Cottage plans with the boys', 'Long site week', '', 'Hockey final, all four of us', 'Sick most of the week', 'Good gym streak', 'Quiet', 'Parent-teacher nights', '', 'Rough one at work', 'Back on track', 'Wings after hockey'];
+  const reviews = [];
+  let week = previousLifeWeek('1985-03-14', lifeWeekFor('1985-03-14', dayId(today)));
+  for (let index = 0; index < ratings.length; index += 1) {
+    week = previousLifeWeek('1985-03-14', week);
+    if (ratings[index] === null) continue;
+    reviews.push({
+      id: week.start,
+      data: {
+        weekStart: week.start, weekEnd: week.end, rating: ratings[index], mattered: words[index], moment: '', intention: index === 0 ? 'Sleep by 11 on school nights' : '',
+        intentionKept: null, numbers: null, visibility: index % 4 === 0 ? 'viewers' : 'ownerOnly', createdAt: Timestamp.now(), updatedAt: Timestamp.now()
+      }
+    });
+  }
+  return reviews;
 }
 
 async function upsertUser(auth, uid, email, password, displayName) {
@@ -212,6 +234,7 @@ async function main() {
     ...buildDemoEvents(today).map(({ id, data }) => calendarRef.collection('events').doc(id).set(data)),
     ...buildDemoDailyEntries(today).map(({ id, data }) => calendarRef.collection('dailyEntries').doc(id).set(data)),
     ...buildDemoLifeEvents(today).map(({ id, data }) => calendarRef.collection('lifeEvents').doc(id).set(data)),
+    ...buildDemoReviews(today).map(({ id, data }) => calendarRef.collection('weeklyReviews').doc(id).set(data)),
     calendarRef.collection('viewers').doc(DEMO_VIEWER_EMAIL).set({
       uid: 'demo-viewer', email: DEMO_VIEWER_EMAIL, role: 'viewer', status: 'accepted', invitedAt: Timestamp.now(), acceptedAt: Timestamp.now()
     })
