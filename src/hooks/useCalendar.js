@@ -581,3 +581,14 @@ export function saveChildMeasurement(calendarId, measurement) {
 export function deleteChildMeasurement(calendarId, measurementId) {
   return deleteDoc(doc(db, 'lifeCalendars', calendarId, 'childMeasurements', measurementId));
 }
+
+/** Removes some of one child's detail rows from the calendar profile, leaving everything else as it is. */
+export function removeChildDetails(calendarId, children, childId, detailIds) {
+  const remove = new Set(detailIds);
+  return updateDoc(doc(db, 'lifeCalendars', calendarId), {
+    children: (children || []).map((child) => (child.id === childId
+      ? { ...child, details: (child.details || []).filter((detail) => !remove.has(detail.id)) }
+      : child)),
+    updatedAt: serverTimestamp()
+  });
+}

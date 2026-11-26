@@ -3,7 +3,7 @@ import { defaultCustodySchedule, getCustodyStats, getCustodyWeekStatus } from '.
 import { formatDateId, getAge, parseDateId } from '../utils/dateUtils.js';
 import { getChildAhead, getNextBirthday } from '../utils/whatsLeft.js';
 import { describeMilestone, getChildMilestones, getFamilyMilestones } from '../utils/childMilestones.js';
-import { heightRowsFromDetails } from '../utils/childMeasurements.js';
+import { heightRowsFromDetails, planHeightNoteMove } from '../utils/childMeasurements.js';
 import { GrowthChart, describeHeights } from './ChildMeasurements.jsx';
 
 const number = (value) => Number(value).toLocaleString();
@@ -140,7 +140,7 @@ export default function FamilyTimePanel({ calendar, today, canEdit, onEdit, meas
             )}
             {canEdit && onOpenMeasurements && (
               <button className="quiet-button kid-heights-button" type="button" onClick={() => onOpenMeasurements(child.id)}>
-                {heights ? 'Heights' : 'Add a height'}
+                {heights ? 'Heights' : planHeightNoteMove(source, childMeasurements).toCopy.length ? 'Move height notes' : 'Add a height'}
               </button>
             )}
             {details.length > 0 && (

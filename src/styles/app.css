@@ -626,6 +626,28 @@ legend {
   background: #141b20;
 }
 
+.height-notes-move {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--card-accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--card-accent) 8%, transparent);
+}
+
+.height-notes-move p,
+.height-notes-move ul {
+  margin: 0;
+}
+
+.height-notes-move ul {
+  display: grid;
+  gap: 4px;
+  padding-left: 1.2rem;
+}
+
 .measurement-fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));

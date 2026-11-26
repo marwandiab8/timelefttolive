@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { deleteChildMeasurement, saveChildMeasurement } from '../hooks/useCalendar.js';
-import { buildMeasurement, formatHeight, formatHeightChange, growthChartGeometry, parseHeight, summarizeHeights } from '../utils/childMeasurements.js';
+import { deleteChildMeasurement, removeChildDetails, saveChildMeasurement } from '../hooks/useCalendar.js';
+import { buildMeasurement, formatHeight, formatHeightChange, growthChartGeometry, parseHeight, planHeightNoteMove, summarizeHeights } from '../utils/childMeasurements.js';
 import { parseDateId } from '../utils/dateUtils.js';
 
 const dateLabel = (dateId) => parseDateId(dateId).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -40,7 +40,58 @@ const today = () => {
 };
 
 /** Add, correct and remove one child's heights. Owner only. */
-export function MeasurementsDialog({ calendarId, child, measurements, onClose }) {
+/**
+ * The child's "Height, <date>" notes on the profile: copy them into the history (they stay private), then, once
+ * copied, take them off the profile, where viewers can read them. Each step is its own button.
+ */
+function HeightNotesMove({ calendarId, child, allChildren, measurements }) {
+  const plan = planHeightNoteMove(child, measurements);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  if (!plan.toCopy.length && !plan.removable.length) return null;
+
+  async function run(step) {
+    setBusy(true);
+    setError('');
+    try {
+      await step();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const copy = () => run(() => Promise.all(plan.toCopy.map(({ detailId, ...measurement }) => saveChildMeasurement(calendarId, measurement))));
+  const remove = () => run(() => removeChildDetails(calendarId, allChildren, child.id, plan.removable));
+
+  return (
+    <section className="height-notes-move" aria-label="Height notes on the profile">
+      {plan.toCopy.length > 0 ? (
+        <>
+          <p><strong>{plan.toCopy.length} height {plan.toCopy.length === 1 ? 'note' : 'notes'}</strong> on {child.name || 'this'}'s profile can go into this history. They stay private.</p>
+          <ul>
+            {plan.toCopy.map((row) => (
+              <li key={row.id}>
+                {dateLabel(row.data.measuredOn)}: {row.data.asWritten}
+                {row.data.needsCheck && <span className="measurement-flag">Kept as written and flagged to check.</span>}
+              </li>
+            ))}
+          </ul>
+          <button className="primary" type="button" disabled={busy} onClick={copy}>{busy ? 'Copying…' : 'Copy them in'}</button>
+        </>
+      ) : (
+        <>
+          <p>The {plan.removable.length} height {plan.removable.length === 1 ? 'note is' : 'notes are'} in the history now, and still on the profile too, where viewers can see {plan.removable.length === 1 ? 'it' : 'them'}.</p>
+          <button className="secondary" type="button" disabled={busy} onClick={remove}>{busy ? 'Removing…' : 'Take them off the profile'}</button>
+        </>
+      )}
+      {error && <p className="error">{error}</p>}
+    </section>
+  );
+}
+
+export function MeasurementsDialog({ calendarId, child, allChildren = [], measurements, onClose }) {
   const heights = useMemo(() => summarizeHeights(measurements.filter((item) => item.childId === child.id)).heights.slice().reverse(), [child.id, measurements]);
   const [form, setForm] = useState({ measuredOn: today(), asWritten: '', note: '', shareWithViewers: false });
   const [error, setError] = useState('');
@@ -85,6 +136,8 @@ export function MeasurementsDialog({ calendarId, child, measurements, onClose })
           </div>
           <button className="ghost" type="button" onClick={onClose}>Close</button>
         </header>
+
+        <HeightNotesMove calendarId={calendarId} child={child} allChildren={allChildren} measurements={measurements.filter((item) => item.childId === child.id)} />
 
         <form className="stack" onSubmit={handleSubmit}>
           <div className="measurement-fields">

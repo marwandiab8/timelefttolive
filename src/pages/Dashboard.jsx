@@ -421,6 +421,7 @@ export default function Dashboard() {
         <MeasurementsDialog
           calendarId={calendar.id}
           child={calendar.children.find((child) => child.id === measuringChildId)}
+          allChildren={calendar.children}
           measurements={measurementState.measurements}
           onClose={() => setMeasuringChildId(null)}
         />
