@@ -615,6 +615,147 @@ legend {
   margin: 0;
 }
 
+/* The weekly review: a card under "Still ahead" while a week waits for its review, the dialog, and the summary at the
+   top of a reviewed week. */
+.weekly-review-card {
+  max-width: 44rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px 24px;
+  margin: 0 0 36px;
+  padding: 2px 0 2px 18px;
+  border-left: 3px solid color-mix(in srgb, #7fc8a9 70%, transparent);
+}
+
+.weekly-review-card h2 {
+  margin: 0 0 4px;
+  font-family: var(--display);
+  font-size: 1.45rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.weekly-review-card p {
+  margin: 0;
+}
+
+.weekly-review-label {
+  margin: 0 0 4px;
+  color: #e5b95f;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.weekly-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Opaque, so the page behind never shows through the writing. */
+.weekly-review-dialog {
+  background: #141b20;
+}
+
+.weekly-review-dialog .panel-header h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 500;
+}
+
+.weekly-review-numbers {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  list-style: none;
+  background: var(--card-well);
+  border-radius: 8px;
+  font-size: 0.92rem;
+}
+
+.weekly-review-choice {
+  padding: 12px 14px 14px;
+}
+
+.weekly-review-choice legend {
+  padding: 0 6px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.choice-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  color: var(--card-text);
+  cursor: pointer;
+}
+
+.choice-chip input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  opacity: 0;
+}
+
+.choice-chip.selected {
+  border-color: var(--card-accent);
+  background: color-mix(in srgb, var(--card-accent) 18%, transparent);
+  font-weight: 700;
+}
+
+.choice-chip:focus-within {
+  outline: 2px solid var(--card-accent);
+  outline-offset: 2px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.checkbox-row input {
+  width: auto;
+  min-height: 0;
+}
+
+.week-review-summary {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-left: 3px solid #7fc8a9;
+  border-radius: 8px;
+  color: var(--card-text);
+}
+
+.week-review-summary p {
+  margin: 0;
+}
+
+.week-review-moment {
+  font-family: var(--display);
+  font-style: italic;
+}
+
 .heatmap-section {
   width: 100%;
 }
@@ -1506,6 +1647,22 @@ legend {
 
 .app-shell[data-calendar-theme="light"] .whats-left span {
   color: #4f625b;
+}
+
+.app-shell[data-calendar-theme="light"] .weekly-review-card {
+  border-left-color: rgba(31, 120, 86, 0.6);
+}
+
+.app-shell[data-calendar-theme="light"] .weekly-review-label {
+  color: #8a5f0a;
+}
+
+.app-shell[data-calendar-theme="light"] .weekly-review-dialog {
+  background: #ffffff;
+}
+
+.app-shell[data-calendar-theme="light"] .week-review-summary {
+  border-left-color: #2f8a64;
 }
 
 .app-shell[data-calendar-theme="light"] .field-hint {

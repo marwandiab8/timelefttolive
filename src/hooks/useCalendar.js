@@ -481,3 +481,42 @@ export { defaultSettings };
 export function saveActivityTargets(calendarId, activityTargets) {
   return updateDoc(doc(db, 'lifeCalendars', calendarId), { activityTargets, updatedAt: serverTimestamp() });
 }
+
+/**
+ * Weekly reviews keyed by week start (see utils/weeklyReview.js). The owner gets every review; a viewer only the ones
+ * shared with viewers, which is all the rules let them read.
+ */
+export function useWeeklyReviews(calendarId, role) {
+  const [reviews, setReviews] = useState({});
+  const [loading, setLoading] = useState(Boolean(calendarId));
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!calendarId) {
+      setReviews({});
+      setLoading(false);
+      return undefined;
+    }
+    const reviewsRef = collection(db, 'lifeCalendars', calendarId, 'weeklyReviews');
+    const reviewsQuery = role === 'owner' ? reviewsRef : query(reviewsRef, where('visibility', '==', 'viewers'));
+    return onSnapshot(reviewsQuery, (snapshot) => {
+      setError('');
+      setReviews(Object.fromEntries(snapshot.docs.map((reviewDoc) => [reviewDoc.id, { id: reviewDoc.id, ...reviewDoc.data() }])));
+      setLoading(false);
+    }, (err) => {
+      setError(err.message);
+      setLoading(false);
+    });
+  }, [calendarId, role]);
+
+  return { reviews, loading, error };
+}
+
+/** Saves the review of one life-calendar week at `weeklyReviews/{weekStart}`; `review` is from buildReviewDocument. */
+export function saveWeeklyReview(calendarId, review, existing = null) {
+  return setDoc(doc(db, 'lifeCalendars', calendarId, 'weeklyReviews', review.weekStart), {
+    ...review,
+    createdAt: existing?.createdAt || serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}

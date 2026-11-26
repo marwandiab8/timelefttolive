@@ -86,7 +86,7 @@ The `email_verified` rules change from the same day is deployed too. Email/passw
 
 ## Usefulness plan
 
-`docs/usefulness-plan.md` is the ranked plan for making the app useful week to week (from `docs/prompts/make-it-useful-prompt.md`), approved 2026-11-26 in its ranked order, with measurements and new journal entries private by default. Item 0 (the Surface can build, test and run the emulators; `npm run seed:emulators` makes a demo calendar) is on `feat/windows-dev-setup`. Items 1 to 9 follow, one branch each.
+`docs/usefulness-plan.md` is the ranked plan for making the app useful week to week (from `docs/prompts/make-it-useful-prompt.md`), approved 2026-11-26 in its ranked order, with measurements and new journal entries private by default. Item 0 (the Surface can build, test and run the emulators; `npm run seed:emulators` makes a demo calendar) is on `feat/windows-dev-setup`. Item 1 (weekly review) is on `feat/weekly-review`, stacked on item 0: it adds `weeklyReviews` and its rules, so it needs a rules deploy as well as hosting when it ships. Items 2 to 9 follow, one branch each.
 
 ## Housekeeping
 

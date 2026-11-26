@@ -30,7 +30,7 @@ Phase 0 of `docs/prompts/make-it-useful-prompt.md`: the brief checked against th
 ### 0. Make the Surface able to build, test and run the emulators (S) — done on `feat/windows-dev-setup`
 Install dependencies (`npm ci` at the root and in `functions/`), a JDK 21 for the emulators, and Node 22 next to Node 26. I'll ask before installing software. Replace the POSIX variables in `dev:emulators` with `vite --mode emulators` plus a committed `.env.emulators` holding only the existing demo values, which are not secrets and need no new dependency. Nothing in items 1 to 8 can be tested until this works.
 
-### 1. Weekly review (M)
+### 1. Weekly review (M) — done on `feat/weekly-review`
 On Sunday evening, or any day while last week's square is unreviewed, a card at the top of the calendar shows the week with real numbers:
 - tracked time by category;
 - targets met and missed (`evaluateTarget`);

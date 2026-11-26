@@ -9,6 +9,7 @@ A private life-calendar and mortality-awareness dashboard. Users sign in, create
 - Full-width 52-week life heatmap: weeks lived are solid, weeks ahead are outlines, the current week is highlighted, a gap follows every tenth year, each week's square is split into coloured wedges, one per event (up to four, then a count). A summary above it leads with the weeks you have left.
 - Click any week to see the seven individual dates inside that week.
 - **Still ahead**, under the summary: the weekends, summers, Christmases and birthdays left before your target age. **Time with my boys**: who has them this week under the every-other-week schedule, and a card per child with age, grade (moves up each September), school, your notes, weeks left with you before 18, the summers, Christmases and birthdays left before 18, and whose week the next birthday falls in.
+- **Weekly review** (owner only): while last week's square has no review (or on the last day of this one), a card under Still ahead asks how the week went. The review shows the week in numbers (days with the boys, tracked time by category, targets met, days with something written down), asks whether last week's intention happened, and takes a rating (Rough to Great), what mattered, one moment, and one intention for next week, which the card then carries through the week. A week can be skipped. A reviewed week shows its review at the top of the week view, where any past week can also be reviewed. Reviews are owner-only unless shared with viewers. Logic in `src/utils/weeklyReview.js`.
 - Daily journals, tags, links, file/image uploads, and external Firebase record metadata links.
 - Date-range events with visibility and overlap indicators.
 - Viewer invites with read-only access for accepted viewers.
@@ -123,7 +124,8 @@ When that viewer signs in with the same email, they can accept the invite. The e
 - the calendar profile,
 - events marked `visibility: "viewers"`,
 - daily entries marked `visibility: "viewers"`,
-- attachments marked `visibility: "viewers"`.
+- attachments marked `visibility: "viewers"`,
+- weekly reviews shared with viewers (`visibility: "viewers"`).
 
 Viewers cannot create, edit, upload, or delete data. Owner-only records are hidden by Firestore rules and filtered in the UI.
 
@@ -137,11 +139,14 @@ lifeCalendars/{calendarId}/events/{eventId}
 lifeCalendars/{calendarId}/dailyEntries/{YYYY-MM-DD}
 lifeCalendars/{calendarId}/dailyEntries/{YYYY-MM-DD}/attachments/{attachmentId}
 lifeCalendars/{calendarId}/dailyEntries/{YYYY-MM-DD}/externalItems/{externalItemId}
+lifeCalendars/{calendarId}/weeklyReviews/{YYYY-MM-DD}
 lifeCalendars/{calendarId}/sourceConnections/{connectionId}
 lifeCalendars/{calendarId}/lifeEvents/{lifeEventId}
 ```
 
 Server-only collections (no client access) under each calendar: `sourceConnectionSecrets`, `lifeEventTombstones`, `ingestionDeadLetters`, `rawIngestionPayloads`. `externalIndex` and `externalNeedsDateReview` are owner-readable but server-written. `lifeEvents` is owner-read-only; every write goes through Cloud Functions.
+
+`weeklyReviews/{weekStart}` holds one review per life-calendar square, keyed by the square's first day (squares start on the birthday's weekday, so this is not a Monday): `weekStart`, `weekEnd`, `rating` (1 to 5 or null), `mattered`, `moment`, `intention`, `intentionKept` (`yes`, `partly`, `no` or null, about the previous week's intention), `numbers` (the week's totals when it was saved), `visibility` (`ownerOnly` by default, or `viewers`), `createdAt`, `updatedAt`. The rules check the key matches `weekStart`, the visibility and the rating.
 
 Storage uploads are stored at:
 

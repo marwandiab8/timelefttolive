@@ -14,13 +14,15 @@ import ProfileForm from '../components/ProfileForm.jsx';
 import ViewerManager from '../components/ViewerManager.jsx';
 import WeekDetailPanel from '../components/WeekDetailPanel.jsx';
 import WhatsLeft from '../components/WhatsLeft.jsx';
+import { WeeklyReviewCard, WeeklyReviewDialog } from '../components/WeeklyReview.jsx';
 import { useAuth } from '../hooks/useAuth.jsx';
-import { acceptViewerInvite, useEvents, useOwnedCalendar, useSharedCalendar, useViewerInvites, useViewers } from '../hooks/useCalendar.js';
+import { acceptViewerInvite, useEvents, useOwnedCalendar, useSharedCalendar, useViewerInvites, useViewers, useWeeklyReviews } from '../hooks/useCalendar.js';
 import { logOut } from '../services/firebase.js';
 import { useCurrentDay } from '../hooks/useCurrentDay.js';
 import { formatDateId, getLifeStats, getTodayCalendarView, parseDateId, sameCalendarView, withOngoingEvents } from '../utils/dateUtils.js';
 import { clampHeatmapZoom } from '../utils/heatmapViewport.js';
 import { readCalendarTheme, toggleCalendarTheme, writeCalendarTheme } from '../utils/theme.js';
+import { lifeWeekFor } from '../utils/weeklyReview.js';
 
 function readStoredZoom() {
   return clampHeatmapZoom(localStorage.getItem('lifeHeatmapZoom') || 1);
@@ -52,6 +54,8 @@ export default function Dashboard() {
   const viewerState = useViewers(role === 'owner' ? calendar?.id : null);
   const events = useMemo(() => withOngoingEvents(eventState.events, currentDay), [eventState.events, currentDay]);
   const viewers = viewerState.viewers;
+  const reviewState = useWeeklyReviews(calendar?.id, role);
+  const [reviewWeek, setReviewWeek] = useState(null);
   const [editingProfile, setEditingProfile] = useState(false);
   const [showEvents, setShowEvents] = useState(false);
   const [showSources, setShowSources] = useState(false);
@@ -68,7 +72,7 @@ export default function Dashboard() {
   const heatmapRef = useRef(null);
   const viewScrollPositions = useRef({ activity: { left: 0, top: 0 }, calendar: { left: 0, top: 0 } });
   const stats = useMemo(() => calendar ? getLifeStats(calendar.birthDate, calendar.targetAge, parseDateId(currentDay)) : null, [calendar, currentDay]);
-  const dataError = owned.error || inviteState.error || shared.error || eventState.error || viewerState.error;
+  const dataError = owned.error || inviteState.error || shared.error || eventState.error || viewerState.error || reviewState.error;
   const pendingInvite = invites.find((invite) => invite.status === 'pending');
   // Moving between the calendar's levels is a step in the browser's history, so Back (the browser's, or a phone's
   // swipe) goes up the way you came and Forward down again. Each step remembers where you were on it: the week you
@@ -319,6 +323,9 @@ export default function Dashboard() {
 
       <LifeSummary stats={stats} />
       <WhatsLeft calendar={calendar} today={currentDay} />
+      {role === 'owner' && !reviewState.loading && (
+        <WeeklyReviewCard calendar={calendar} today={currentDay} reviews={reviewState.reviews} onOpen={setReviewWeek} />
+      )}
       {calendar.children?.length > 0 && (
         <FamilyTimePanel calendar={calendar} today={currentDay} canEdit={role === 'owner'} onEdit={() => setEditingProfile(true)} />
       )}
@@ -348,7 +355,18 @@ export default function Dashboard() {
       )}
 
       {calendarView.view === 'week' && (
-        <WeekDetailView calendar={calendar} age={calendarView.age} monthId={calendarView.monthId} weekStart={calendarView.weekStart} weekEnd={calendarView.weekEnd} events={events} role={role} onNavigate={navigateCalendar} />
+        <WeekDetailView
+          calendar={calendar}
+          age={calendarView.age}
+          monthId={calendarView.monthId}
+          weekStart={calendarView.weekStart}
+          weekEnd={calendarView.weekEnd}
+          events={events}
+          role={role}
+          onNavigate={navigateCalendar}
+          review={reviewState.reviews[lifeWeekFor(calendar.birthDate, calendarView.weekStart)?.start] || null}
+          onReview={role === 'owner' && calendarView.weekStart <= currentDay ? () => setReviewWeek(lifeWeekFor(calendar.birthDate, calendarView.weekStart)) : null}
+        />
       )}
 
       {calendarView.view === 'day' && (
@@ -363,6 +381,9 @@ export default function Dashboard() {
           role={role}
           onClose={() => setSelectedWeek(null)}
         />
+      )}
+      {reviewWeek && (
+        <WeeklyReviewDialog key={reviewWeek.start} calendar={calendar} week={reviewWeek} reviews={reviewState.reviews} onClose={() => setReviewWeek(null)} />
       )}
       {showEvents && <EventManager calendar={calendar} events={events} role={role} onClose={() => setShowEvents(false)} />}
       {showSources && <ExternalSourcesManager calendarId={calendar.id} onClose={() => setShowSources(false)} />}
