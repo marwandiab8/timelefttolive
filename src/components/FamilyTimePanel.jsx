@@ -2,6 +2,9 @@ import { currentGrade, gradeLabel } from '../utils/childInfo.js';
 import { defaultCustodySchedule, getCustodyStats, getCustodyWeekStatus } from '../utils/custodyUtils.js';
 import { formatDateId, getAge, parseDateId } from '../utils/dateUtils.js';
 import { getChildAhead, getNextBirthday } from '../utils/whatsLeft.js';
+import { describeMilestone, getChildMilestones, getFamilyMilestones } from '../utils/childMilestones.js';
+import { heightRowsFromDetails } from '../utils/childMeasurements.js';
+import { GrowthChart, describeHeights } from './ChildMeasurements.jsx';
 
 const number = (value) => Number(value).toLocaleString();
 const counted = (count, one, many) => `${number(count)}\u00a0${count === 1 ? one : many}`;
@@ -71,7 +74,14 @@ export function describeChild(child, { time, untilAge, custody }, now, date = da
   };
 }
 
-export default function FamilyTimePanel({ calendar, today, canEdit, onEdit }) {
+/** Detail rows already copied into the height history are shown there instead, not twice. */
+export function detailsWithoutMigratedHeights(child, measurements = []) {
+  const saved = new Set(measurements.map((item) => item.id));
+  const migrated = new Set(heightRowsFromDetails(child).measurements.filter((item) => saved.has(item.id)).map((item) => item.detailId));
+  return (child.details || []).filter((detail) => !migrated.has(detail.id));
+}
+
+export default function FamilyTimePanel({ calendar, today, canEdit, onEdit, measurements = [], onOpenMeasurements = null }) {
   const now = parseDateId(today);
   const stats = getCustodyStats(calendar, now);
   const status = describeCustodyStatus(stats?.status);
@@ -82,6 +92,8 @@ export default function FamilyTimePanel({ calendar, today, canEdit, onEdit }) {
     untilAge,
     custody: times.has(child.id) ? calendar.custodySchedule : null
   }, now));
+  const milestoneOptions = { now, custodySchedule: calendar.custodySchedule };
+  const upcoming = getFamilyMilestones(calendar.children || [], milestoneOptions, 6);
 
   return (
     <section className="family-time-panel" aria-label="Time with my boys">
@@ -94,7 +106,13 @@ export default function FamilyTimePanel({ calendar, today, canEdit, onEdit }) {
         {canEdit && <button className="secondary" type="button" onClick={onEdit}>Edit kids and schedule</button>}
       </div>
       <ul className="kid-cards">
-        {children.map((child) => (
+        {children.map((child) => {
+          const source = (calendar.children || []).find((item) => item.id === child.id) || {};
+          const next = getChildMilestones(source, milestoneOptions)[0];
+          const childMeasurements = measurements.filter((item) => item.childId === child.id);
+          const heights = describeHeights(childMeasurements);
+          const details = detailsWithoutMigratedHeights(source, childMeasurements).filter((detail) => detail.label || detail.value);
+          return (
           <li className="kid-card" key={child.id}>
             <h3>{child.name}</h3>
             {child.meta.length > 0 && <p className="kid-meta">{child.meta.join(' · ')}</p>}
@@ -111,9 +129,23 @@ export default function FamilyTimePanel({ calendar, today, canEdit, onEdit }) {
                 {child.nextBirthday}
               </p>
             )}
-            {child.details.length > 0 && (
+            {next && <p className="kid-next"><span>Next</span> {describeMilestone(next, { withName: false })}</p>}
+            {heights && (
+              <div className="kid-growth">
+                <p className="kid-growth-head"><span>Height</span>{heights.latest && <strong>{heights.latest}</strong>}</p>
+                {heights.change && <p className="kid-note">{heights.change}</p>}
+                <GrowthChart points={heights.summary.points} label={`${child.name}'s height over time`} />
+                {heights.needsCheck.map((line) => <p className="kid-flag" key={line}>{line}</p>)}
+              </div>
+            )}
+            {canEdit && onOpenMeasurements && (
+              <button className="quiet-button kid-heights-button" type="button" onClick={() => onOpenMeasurements(child.id)}>
+                {heights ? 'Heights' : 'Add a height'}
+              </button>
+            )}
+            {details.length > 0 && (
               <dl className="kid-details">
-                {child.details.map((detail) => (
+                {details.map((detail) => (
                   <div key={detail.id}>
                     {detail.label && <dt>{detail.label}</dt>}
                     <dd>{detail.value}</dd>
@@ -122,8 +154,19 @@ export default function FamilyTimePanel({ calendar, today, canEdit, onEdit }) {
               </dl>
             )}
           </li>
-        ))}
+          );
+        })}
       </ul>
+      {upcoming.length > 0 && (
+        <div className="family-milestones">
+          <p className="family-time-label">Coming up</p>
+          <ol>
+            {upcoming.map((milestone) => (
+              <li key={`${milestone.childId}-${milestone.key}`}>{describeMilestone(milestone)}</li>
+            ))}
+          </ol>
+        </div>
+      )}
     </section>
   );
 }
