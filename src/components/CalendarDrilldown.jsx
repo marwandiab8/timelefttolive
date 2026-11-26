@@ -15,6 +15,7 @@ import {
 import { buildWedgeGradient, isSafeColor, pickWeekWedges } from '../utils/eventWedges.js';
 import { useRangeEntries } from '../hooks/useCalendar.js';
 import { useRangeExternalItems } from '../services/externalSources/externalDailyItems.js';
+import { describeWeekNumbers, ratingLabel } from '../utils/weeklyReview.js';
 
 export function YearDetailView({ calendar, age, events, role, onNavigate }) {
   const lifeYear = getLifeYearRange(calendar.birthDate, age);
@@ -105,7 +106,7 @@ export function MonthDetailView({ calendar, age, monthId, events, role, onNaviga
   );
 }
 
-export function WeekDetailView({ calendar, age, monthId, weekStart, weekEnd, events, role, onNavigate }) {
+export function WeekDetailView({ calendar, age, monthId, weekStart, weekEnd, events, role, onNavigate, review = null, onReview = null }) {
   // The heatmap's weeks start on the birth date's weekday, so use the exact days of
   // the week that was opened instead of snapping to Sunday.
   const days = getDaysForWeekRange(weekStart, weekEnd);
@@ -122,7 +123,9 @@ export function WeekDetailView({ calendar, age, monthId, weekStart, weekEnd, eve
           <h2>{shortDate(days[0])} to {shortDate(days.at(-1), true)}</h2>
           <p className="muted">{startId} to {endId}</p>
         </div>
+        {onReview && <button className="secondary" type="button" onClick={onReview}>{review ? 'Edit the review' : 'Review this week'}</button>}
       </div>
+      {review && <WeekReviewSummary review={review} />}
       {(entryState.error || externalState.error) && <p className="error">{entryState.error || externalState.error}</p>}
       <div className="day-card-grid">
         {days.map((day) => {
@@ -206,5 +209,19 @@ function EventList({ events }) {
       ))}
       {events.length > 3 && <b>+{events.length - 3} more</b>}
     </span>
+  );
+}
+
+// A saved weekly review, shown at the top of its week: the rating, the words, the intention, the numbers.
+export function WeekReviewSummary({ review }) {
+  const lines = describeWeekNumbers(review.numbers);
+  return (
+    <article className="week-review-summary">
+      <p className="weekly-review-label">{review.rating ? `The week was ${ratingLabel(review.rating).toLowerCase()}` : 'Your review'}</p>
+      {review.mattered && <p>{review.mattered}</p>}
+      {review.moment && <p className="week-review-moment">{review.moment}</p>}
+      {review.intention && <p className="muted">Intention for the next week: {review.intention}</p>}
+      {lines.length > 0 && <p className="muted">{lines.join(' · ')}</p>}
+    </article>
   );
 }

@@ -131,6 +131,18 @@ service cloud.firestore {
         allow write: if isOwner(calendarId);
       }
 
+      // One review per life-calendar week, keyed by its first day. Owner-only unless the owner shares it.
+      match /weeklyReviews/{weekStart} {
+        allow read: if isOwner(calendarId) || (isAcceptedViewer(calendarId) && isViewerVisible());
+        allow delete: if isOwner(calendarId);
+        allow create, update: if isOwner(calendarId)
+          && weekStart.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && request.resource.data.weekStart == weekStart
+          && request.resource.data.visibility in ["ownerOnly", "viewers"]
+          && (request.resource.data.rating == null
+            || (request.resource.data.rating is int && request.resource.data.rating >= 1 && request.resource.data.rating <= 5));
+      }
+
       match /dailyEntries/{dateId} {
         allow read: if isOwner(calendarId) || (isAcceptedViewer(calendarId) && isViewerVisible());
         allow write: if isOwner(calendarId);
