@@ -8,7 +8,9 @@ export const defaultCustodySchedule = {
   cycleWeeks: 2,
   withParentWeeks: 1,
   childIds: [],
-  countUntilChildAge: 18
+  countUntilChildAge: 18,
+  // The day this arrangement began (YYYY-MM-DD), so the life calendar colours only the weeks it really covered.
+  since: ''
 };
 
 function maxDate(a, b) {

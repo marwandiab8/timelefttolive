@@ -520,3 +520,31 @@ export function saveWeeklyReview(calendarId, review, existing = null) {
     updatedAt: serverTimestamp()
   });
 }
+
+/**
+ * The days that have a note or journal entry, as a Set of YYYY-MM-DD, for the dots on the life calendar. Only
+ * subscribed while it is needed; a viewer gets only the days shared with viewers.
+ */
+export function useWrittenDates(calendarId, role, enabled = true) {
+  const [dates, setDates] = useState(() => new Set());
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!calendarId || !enabled) {
+      setDates(new Set());
+      return undefined;
+    }
+    const entriesRef = collection(db, 'lifeCalendars', calendarId, 'dailyEntries');
+    const entriesQuery = role === 'owner' ? entriesRef : query(entriesRef, where('visibility', '==', 'viewers'));
+    return onSnapshot(entriesQuery, (snapshot) => {
+      setError('');
+      setDates(new Set(snapshot.docs
+        .map((entryDoc) => entryDoc.data())
+        .filter((entry) => String(entry.notes || entry.journalText || '').trim())
+        .map((entry) => entry.dateId)
+        .filter(Boolean)));
+    }, (err) => setError(err.message));
+  }, [calendarId, enabled, role]);
+
+  return { dates, error };
+}

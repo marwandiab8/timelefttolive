@@ -89,3 +89,45 @@ describe('LifeHeatmap events', () => {
     expect(render([])).toContain('swatch-events');
   });
 });
+
+describe('LifeHeatmap lived-week views', () => {
+  // 1988-06-15: the life year from June 2011 has squares from Wednesday to Tuesday; 2012-05-09 to 2012-05-15 is one.
+  const renderMode = (livedMode, extra = {}) => renderToStaticMarkup(
+    <LifeHeatmap
+      calendar={{ ...calendar, ...extra.calendar }}
+      events={[event('a', 'Course', '2012-05-11', '2012-05-12', '#111111')]}
+      fitMode="fit"
+      zoom={1}
+      livedMode={livedMode}
+      onLivedModeChange={vi.fn()}
+      reviews={extra.reviews || {}}
+      writtenDateIds={extra.written || new Set()}
+      onAgeClick={vi.fn()}
+      onFitModeChange={vi.fn()}
+      onSelectWeek={vi.fn()}
+      onZoomChange={vi.fn()}
+    />
+  );
+
+  it('offers the views, with the kids one only when there is a schedule', () => {
+    expect(renderMode('events')).toContain('Colour lived weeks by');
+    expect(renderMode('events')).not.toContain('With the boys');
+    expect(renderMode('events', { calendar: { custodySchedule: { enabled: true, nextStartDate: '2012-05-13' } } })).toContain('With the boys');
+  });
+
+  it('colours a reviewed week by its rating, dots a written week and hides the event wedges', () => {
+    const markup = renderMode('rating', { reviews: { '2012-05-09': { rating: 5 } }, written: new Set(['2012-05-14']) });
+    const [cell] = cellsWith(markup, '2012-05-09 to 2012-05-15');
+    expect(cell).toContain('Reviewed: great · something written down');
+    expect(cell).toContain('--cell-fill:#f2d66b');
+    expect(markup).not.toContain('event-wedges');
+    expect(markup).toContain('written-dot');
+    expect(markup).toContain('Great');
+  });
+
+  it('asks for the schedule start before colouring weeks with the boys', () => {
+    const markup = renderMode('kids', { calendar: { custodySchedule: { enabled: true, nextStartDate: '2012-05-13', cycleWeeks: 2, withParentWeeks: 1 } } });
+    expect(markup).toContain('Add the day this schedule began');
+    expect(cellsWith(markup, 'with the boys')).toHaveLength(0);
+  });
+});

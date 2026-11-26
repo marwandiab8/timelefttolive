@@ -807,6 +807,68 @@ legend {
   background: conic-gradient(from 0deg, #7c9cff 0% 33.3%, #f4a261 33.3% 66.7%, #65d6ad 66.7% 100%);
 }
 
+/* What the lived weeks are coloured by: events (the default), how the week went, or the days with the boys. */
+.lived-mode {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: #aeb8b8;
+  font-size: 0.85rem;
+}
+
+.lived-mode > span {
+  margin-right: 4px;
+}
+
+.lived-mode button {
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: transparent;
+  color: #e7ecea;
+  font-size: 0.85rem;
+}
+
+.lived-mode button.selected {
+  border-color: #e5b95f;
+  background: rgba(229, 185, 95, 0.16);
+  color: #f7f0e5;
+  font-weight: 700;
+}
+
+.lived-mode-note {
+  flex: 1 1 100%;
+  margin: 0;
+  color: #aeb8b8;
+  font-size: 0.85rem;
+}
+
+.swatch-kids {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--kids-color) 40%, var(--life-past, #46505c)), var(--kids-color));
+}
+
+.swatch-written {
+  background: var(--life-past, #46505c);
+  position: relative;
+}
+
+.swatch-written::after,
+.written-dot {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 34%;
+  height: 34%;
+  border-radius: 50%;
+  background: #f7f0e5;
+  box-shadow: 0 0 0 1px rgba(13, 17, 20, 0.55);
+  transform: translate(-50%, -50%);
+}
+
 .legend span {
   display: inline-flex;
   align-items: center;
@@ -1647,6 +1709,22 @@ legend {
 
 .app-shell[data-calendar-theme="light"] .whats-left span {
   color: #4f625b;
+}
+
+.app-shell[data-calendar-theme="light"] .lived-mode,
+.app-shell[data-calendar-theme="light"] .lived-mode-note {
+  color: #4f625b;
+}
+
+.app-shell[data-calendar-theme="light"] .lived-mode button {
+  border-color: rgba(30, 57, 48, 0.2);
+  color: #24352f;
+}
+
+.app-shell[data-calendar-theme="light"] .lived-mode button.selected {
+  border-color: #a16f14;
+  background: rgba(161, 111, 20, 0.12);
+  color: #24352f;
 }
 
 .app-shell[data-calendar-theme="light"] .weekly-review-card {

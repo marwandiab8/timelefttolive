@@ -39,7 +39,7 @@ On Sunday evening, or any day while last week's square is unreviewed, a card at 
 
 It then asks four short things: a 1 to 5 rating, what mattered, one moment, and one intention for next week. Next week's card opens with that intention and asks whether it happened. It's skippable, and a skipped week stays visibly unreviewed. It's built with pure `weeklyReview.js` functions (week numbers, carry-forward, streaks of reviewed weeks), a thin card, and a review dialog that also opens from any past square.
 
-### 2. Lived weeks that mean something (M)
+### 2. Lived weeks that mean something (M) — done on `feat/lived-weeks`
 The life calendar gets a "Colour lived weeks by" control: **Events** (today's view), **How the week went** (rating tint), or **With the boys**. In each mode the reviewed or custody weeks show and everything else stays plain. A week with a journal or photo gets a small dot. Data comes from `weeklyReviews` (one query for the whole life, at most about 4,700 small documents) and from custody computed from its new `since` date. The square's tooltip and the week view show the review. This depends on item 1, so building it first would light up almost nothing.
 
 ### 3. Kids: milestones, then measurements (S + M)
@@ -105,7 +105,7 @@ All of these sit under `lifeCalendars/{calendarId}/`. The owner can read and wri
 | `childMeasurements/{id}` | `childId`, `kind` (`height` first), `measuredOn` (YYYY-MM-DD), `valueMm` (null if unparsed), `asWritten`, `needsCheck`, `note`, `visibility`, `source` (`manual` / `migratedDetail`), `createdAt` | 3 |
 | `plans/{id}` | `title`, `notes`, `who` (`me` or child ids), `deadline` (`{ kind: 'age', personId, age }` / `{ kind: 'season', season, year }` / `{ kind: 'date', date }` / null), `plannedWeekStart`, `doneOn`, `visibility`, `createdAt`, `updatedAt` | 4 |
 | `activityGapNotes/{key}` | `dateId`, `kind`, `lifeEventIds`, `note`, `createdAt` (owner only; no viewer access at all) | 5 |
-| Calendar doc, additive | `custodySchedule.since` (YYYY-MM-DD), `settings.livedWeekMode` | 2 |
+| Calendar doc, additive | `custodySchedule.since` (YYYY-MM-DD). The lived-week view is remembered per device in `localStorage` instead of a `settings.livedWeekMode` field: it's a viewing preference, and keeping it off the profile avoids a write on every switch | 2 |
 | `lifeEvents` (via callable only) | new `sourceApp: "manual"` documents with the existing field shape | 5 |
 
 Item 9 would add `weekSummaries/{weekStartId}` (function-written, owner read only), and item 8 `digestSettings` on the user doc. Both are proposed with those items, not now.
