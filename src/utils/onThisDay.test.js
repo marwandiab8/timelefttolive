@@ -25,14 +25,20 @@ describe('what was on a day', () => {
     expect(noteLines(null)).toEqual([]);
   });
 
-  it('names events on the day, but an ongoing one only on the day it started', () => {
+  it('names events on the day, a longer one as what was under way, and an ongoing one only on the day it started', () => {
     const events = [
       { title: 'Cottage', startDate: '2025-11-26', endDate: '2025-11-29' },
       { title: 'Living in Toronto', startDate: '2019-06-01', endDate: '2026-11-27', ongoing: true, everyDay: true },
       { title: 'Started at Matheson', startDate: '2025-11-27', endDate: '2026-11-27', ongoing: true, everyDay: true },
-      { title: 'Recital', startDate: '2025-11-27', endDate: '2025-11-27' }
+      { title: 'Recital', startDate: '2025-11-27', endDate: '2025-11-27' },
+      { title: 'With Allison', startDate: '2016-08-25', endDate: '2017-10-19' }
     ];
-    expect(eventsOnDay(events, '2025-11-27')).toEqual(['Cottage (Nov 26 to Nov 29)', 'Started at Matheson began', 'Recital']);
+    expect(eventsOnDay(events, '2025-11-27')).toEqual([
+      { kind: 'period', text: 'Cottage, Nov 26 to Nov 29' },
+      { kind: 'event', text: 'Started at Matheson began' },
+      { kind: 'event', text: 'Recital' }
+    ]);
+    expect(eventsOnDay(events, '2016-11-27')).toEqual([{ kind: 'period', text: 'With Allison, Aug 25 to Oct 19, 2017' }]);
   });
 
   it('describes the biggest few activities of the day', () => {
@@ -80,7 +86,10 @@ describe('on this day', () => {
     expect(groups[2].items).toEqual([{ kind: 'attachments', text: '1 photo saved' }]);
   });
 
-  it('sums it up in one line, preferring words over counts', () => {
+  it('sums it up in one line, preferring words over counts, and what happened over what was under way', () => {
+    const under = [{ yearsAgo: 10, items: [{ kind: 'period', text: 'With Allison, Aug 25 to Oct 19, 2017' }, { kind: 'attachments', text: '1 photo saved' }] }];
+    expect(onThisDayHeadline(under)).toBe('On this day 10 years ago: 1 photo saved');
+    expect(onThisDayHeadline([{ ...under[0], items: under[0].items.slice(0, 1) }])).toBe('On this day 10 years ago: With Allison, Aug 25 to Oct 19, 2017');
     expect(onThisDayHeadline(groups)).toBe('On this day 1 year ago: Playing darts with David · and 2 more years');
     expect(onThisDayHeadline([groups[2]])).toBe('On this day 10 years ago: 1 photo saved');
     expect(onThisDayHeadline([])).toBe('');
