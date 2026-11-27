@@ -3074,3 +3074,83 @@
 .cycle-recycle-bin li div { display: grid; gap: 2px; min-width: 0; }
 .cycle-recycle-bin li span { color: var(--cycle-muted); font-size: 0.85rem; }
 .cycle-recycle-bin button { flex: none; }
+
+/* Tracking health (2026-11-26): what needs attention in the period on screen, and the add-an-activity form. */
+.needs-attention {
+  margin-top: 22px;
+  padding: 18px 20px;
+  border: 1px solid var(--cycle-border);
+  border-radius: 18px;
+  background: var(--cycle-surface);
+}
+
+.needs-attention header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+}
+
+.needs-attention header .cycle-eyebrow {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.needs-attention h3 {
+  margin: 0;
+}
+
+.needs-attention header span,
+.needs-attention-more {
+  color: var(--cycle-muted);
+  font-size: 0.86rem;
+}
+
+.needs-attention ul {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.needs-attention li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--cycle-border);
+  border-left: 3px solid #e0a458;
+  border-radius: 10px;
+  background: var(--cycle-surface-soft);
+}
+
+.needs-attention li.repeated-sleep {
+  border-left-color: #8fb3ff;
+}
+
+.needs-attention li > span:first-child {
+  flex: 1 1 16rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.needs-attention-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.needs-attention-actions button {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--cycle-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--cycle-text);
+  font-size: 0.82rem;
+}
+
+.activity-form-grid select { box-sizing: border-box; width: 100%; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 9px; color: #edf5f9; background: #172431; font: inherit; }

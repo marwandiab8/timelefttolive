@@ -18,7 +18,7 @@ const {
   createActivityMediaHandler,
   createJournalDetailsHandler
 } = require("./src/activityJournal");
-const { editActivityEntry, deleteActivityEntry, restoreActivityEntry } = require("./src/activityEntries");
+const { editActivityEntry, deleteActivityEntry, restoreActivityEntry, createActivityEntry } = require("./src/activityEntries");
 const { syncCalendarEventLifeEvents, carryOngoingCalendarEvents } = require("./src/calendarLifeEvents");
 
 admin.initializeApp();
@@ -52,6 +52,15 @@ exports.revokeSourceIngestionToken = onCall({ region }, async (request) => {
     throw new HttpsError("unauthenticated", "Sign in to revoke ingestion tokens.");
   }
   return revokeSourceIngestionToken(admin.firestore(), request.auth.uid, request.data || {});
+});
+
+exports.createActivityEntry = onCall({ region }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in to add activities.");
+  try {
+    return await createActivityEntry(admin.firestore(), request.auth.uid, request.data || {});
+  } catch (error) {
+    throw new HttpsError(error.code || "internal", error.message || "Unable to add this activity.");
+  }
 });
 
 exports.editActivityEntry = onCall({ region }, async (request) => {

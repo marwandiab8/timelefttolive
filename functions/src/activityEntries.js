@@ -1,4 +1,7 @@
 const admin = require("firebase-admin");
+// Imported directly: the Functions emulator wraps the firebase-admin namespace, and admin.firestore.Timestamp can be
+// missing there, while the class itself is the same one.
+const { Timestamp } = require("firebase-admin/firestore");
 
 const RECYCLE_BIN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
@@ -10,7 +13,7 @@ function fail(code, message) {
 
 function asDate(value, field) {
   if (value === null || value === undefined || value === "") return null;
-  const date = value instanceof admin.firestore.Timestamp ? value.toDate() : new Date(value);
+  const date = value instanceof Timestamp ? value.toDate() : new Date(value);
   if (Number.isNaN(date.getTime())) fail("invalid-argument", `${field} must be a valid date.`);
   return date;
 }
@@ -71,9 +74,9 @@ async function editActivityEntry(db, uid, data = {}) {
       updatedBy: uid,
       updatedByUid: uid,
       manualOverride: true,
-      occurredAt: occurredAt ? admin.firestore.Timestamp.fromDate(occurredAt) : null,
-      startAt: startAt ? admin.firestore.Timestamp.fromDate(startAt) : null,
-      endAt: endAt ? admin.firestore.Timestamp.fromDate(endAt) : null,
+      occurredAt: occurredAt ? Timestamp.fromDate(occurredAt) : null,
+      startAt: startAt ? Timestamp.fromDate(startAt) : null,
+      endAt: endAt ? Timestamp.fromDate(endAt) : null,
       durationSeconds: durationSeconds === undefined ? null : durationSeconds
     };
     for (const [field, max] of [["title", 500], ["activityFamily", 120], ["categoryId", 120], ["eventType", 120], ["description", 4000], ["timezone", 100]]) {
@@ -93,7 +96,7 @@ async function editActivityEntry(db, uid, data = {}) {
       delete patch.endAt;
       delete patch.durationSeconds;
       tx.update(linkedEventRef, {
-        occurredAt: linkedEndAt ? admin.firestore.Timestamp.fromDate(linkedEndAt) : null,
+        occurredAt: linkedEndAt ? Timestamp.fromDate(linkedEndAt) : null,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedBy: uid,
         updatedByUid: uid,
@@ -133,7 +136,7 @@ async function deleteActivityEntry(db, uid, data = {}) {
         recycledAt: admin.firestore.FieldValue.serverTimestamp(),
         recycledBy: uid,
         recycledWith: eventIds,
-        expiresAt: admin.firestore.Timestamp.fromDate(new Date(Date.now() + RECYCLE_BIN_TTL_MS))
+        expiresAt: Timestamp.fromDate(new Date(Date.now() + RECYCLE_BIN_TTL_MS))
       });
       tx.set(calendarRef.collection("lifeEventTombstones").doc(id), {
         eventId: id,
@@ -192,4 +195,76 @@ async function restoreActivityEntry(db, uid, data = {}) {
   return { ids: restored };
 }
 
-module.exports = { editActivityEntry, deleteActivityEntry, restoreActivityEntry, RECYCLE_BIN_TTL_MS };
+// What a hand-added activity can be. Each maps to the activityFamily the dashboard already sorts into that slice
+// (src/utils/lifeEventUtils.js, getTallyActivityLabel); "Other" keeps the name you give it.
+const MANUAL_FAMILIES = {
+  Sleep: "sleep",
+  Work: "work",
+  Home: "home",
+  "Gym/Fitness": "gym",
+  Reading: "reading",
+  Meals: "meals",
+  Transportation: "driving",
+  Darts: "darts",
+  Music: "music"
+};
+const MAX_MANUAL_SECONDS = 36 * 3600;
+
+/**
+ * Adds an activity by hand: an owner-only life event from the "manual" source, with a start and an end. It has the
+ * shape the source apps' events have, so the wheel, the totals, edit, delete and restore treat it like any other.
+ */
+async function createActivityEntry(db, uid, data = {}, { now = new Date(), newId = () => require("node:crypto").randomUUID() } = {}) {
+  const calendarId = cleanString(data.calendarId, "calendarId", 200);
+  if (!calendarId) fail("invalid-argument", "calendarId is required.");
+  const category = cleanString(data.category, "category", 60) || "";
+  const customName = cleanString(data.name ?? "", "name", 60);
+  const family = MANUAL_FAMILIES[category] || (category === "Other" && customName ? customName.toLowerCase() : "");
+  if (!family) fail("invalid-argument", "Pick what the activity was.");
+  const startAt = asDate(data.startAt, "startAt");
+  const endAt = asDate(data.endAt, "endAt");
+  if (!startAt || !endAt) fail("invalid-argument", "An activity needs a start and an end.");
+  const seconds = Math.round((endAt - startAt) / 1000);
+  if (seconds <= 0) fail("invalid-argument", "The end has to be after the start.");
+  if (seconds > MAX_MANUAL_SECONDS) fail("invalid-argument", "One activity can be at most 36 hours long.");
+  if (startAt > now) fail("invalid-argument", "An activity can't start in the future.");
+  const title = cleanString(data.title ?? "", "title", 200) || (category === "Other" ? customName : category);
+  const note = cleanString(data.note ?? "", "note", 2000);
+  const calendarRef = db.collection("lifeCalendars").doc(calendarId);
+  const id = `manual_${newId()}`;
+  const eventRef = calendarRef.collection("lifeEvents").doc(id);
+  const timestamp = (date) => Timestamp.fromDate(date);
+  const record = {
+    id,
+    sourceApp: "manual",
+    sourceRecordId: id,
+    eventType: "manual_activity",
+    eventClass: "completed_activity",
+    activityFamily: family,
+    categoryId: family,
+    title,
+    occurredAt: timestamp(startAt),
+    startAt: timestamp(startAt),
+    endAt: timestamp(endAt),
+    durationSeconds: seconds,
+    timezone: "America/Toronto",
+    privacyLevel: "ownerOnly",
+    location: null,
+    metadata: { manual: true, ...(note ? { note } : {}) },
+    calendarId,
+    ownerUid: uid,
+    timeLeftUserId: uid,
+    ingestionStatus: "received",
+    receivedAt: timestamp(now),
+    createdAt: timestamp(now),
+    updatedAt: timestamp(now)
+  };
+  await db.runTransaction(async (tx) => {
+    const calendar = await tx.get(calendarRef);
+    assertOwner(calendar, uid);
+    tx.set(eventRef, record);
+  });
+  return { ok: true, eventId: id };
+}
+
+module.exports = { editActivityEntry, deleteActivityEntry, restoreActivityEntry, createActivityEntry, MANUAL_FAMILIES, RECYCLE_BIN_TTL_MS };

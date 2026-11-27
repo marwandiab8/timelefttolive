@@ -97,6 +97,15 @@ export function buildDemoLifeEvents(today) {
     const bedtime = torontoTime(dayId(today, offset - 1), 22 + (offset % 2), 40);
     const wake = torontoTime(date, 6, 15 + ((offset * 7) % 30));
     events.push(night(`night-${date}`, bedtime, wake));
+    // Two nights ago arrived three times, with later bedtimes and less sleep (the tracking-health list shows it).
+    if (offset === -2) {
+      events.push(night(`night-${date}-again-1`, new Date(bedtime.getTime() + 75 * 60000), wake));
+      events.push(night(`night-${date}-again-2`, new Date(bedtime.getTime() + 150 * 60000), wake));
+    }
+    // Five days ago a drive started and never finished.
+    if (offset === -5) {
+      events.push(lifeEvent(`drive-${date}`, { eventType: 'start_drive', eventClass: 'activity_boundary', title: 'Started driving', occurredAt: torontoTime(date, 18, 40) }));
+    }
     if (offset === 0) continue;
     if (weekday >= 1 && weekday <= 5) {
       events.push(...visit(`work-${date}`, 'Site office', 'work', torontoTime(date, 7, 30), torontoTime(date, 16, 10)));

@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "dev:emulators": "vite --mode emulators --port 5174 --strictPort",
-    "emulators": "firebase emulators:start --only auth,firestore,storage --project demo-timelefttolive",
+    "emulators": "firebase emulators:start --only auth,firestore,storage,functions --project demo-timelefttolive",
     "seed:emulators": "node scripts/seed-emulators.mjs",
     "build:staging": "vite build --mode staging && node scripts/verify-staging-build.js",
     "preview": "vite preview",
