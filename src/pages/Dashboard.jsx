@@ -15,6 +15,7 @@ import ProfileForm from '../components/ProfileForm.jsx';
 import ViewerManager from '../components/ViewerManager.jsx';
 import WeekDetailPanel from '../components/WeekDetailPanel.jsx';
 import WhatsLeft from '../components/WhatsLeft.jsx';
+import OnThisDay from '../components/OnThisDay.jsx';
 import { WeeklyReviewCard, WeeklyReviewDialog } from '../components/WeeklyReview.jsx';
 import WeeklyDigestPage from '../components/WeeklyDigest.jsx';
 import { MeasurementsDialog } from '../components/ChildMeasurements.jsx';
@@ -396,6 +397,17 @@ export default function Dashboard() {
 
       <LifeSummary stats={stats} />
       <WhatsLeft calendar={calendar} today={currentDay} />
+      <OnThisDay
+        calendar={calendar}
+        today={currentDay}
+        role={role}
+        events={events}
+        reviews={reviewState.reviews}
+        onOpenDay={(dateId) => {
+          const day = getTodayCalendarView(calendar.birthDate, calendar.targetAge, 'day', parseDateId(dateId));
+          if (day) navigateCalendar(day);
+        }}
+      />
       {role === 'owner' && !reviewState.loading && (
         <WeeklyReviewCard calendar={calendar} today={currentDay} reviews={reviewState.reviews} onOpen={setReviewWeek} />
       )}

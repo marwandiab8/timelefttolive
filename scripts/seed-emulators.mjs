@@ -183,7 +183,9 @@ export function buildDemoDailyEntries(today) {
     entry(dayId(today, -1), 'Long day on site. Gym after, but forgot to log leaving.'),
     entry(dayId(today, -3), 'Took the boys for wings after hockey. Charlie talked the whole way home.', 'viewers'),
     entry(dayId(today, -9), 'Quiet week. Read before bed most nights.'),
-    entry(dayId(new Date(today.getFullYear() - 1, today.getMonth(), today.getDate())), 'Montreal: Alex ate three bagels in a row.')
+    entry(dayId(new Date(today.getFullYear() - 1, today.getMonth(), today.getDate())), 'Montreal: Alex ate three bagels in a row.'),
+    // Shared, so "On this day" has something to show a viewer too.
+    entry(dayId(new Date(today.getFullYear() - 5, today.getMonth(), today.getDate())), 'Ben learned to ride without training wheels.', 'viewers')
   ];
 }
 

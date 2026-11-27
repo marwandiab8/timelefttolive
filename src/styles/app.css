@@ -476,6 +476,62 @@ legend {
   font-size: 0.82rem;
 }
 
+.on-this-day {
+  max-width: 44rem;
+  margin: -18px 0 36px;
+  padding: 2px 0 2px 18px;
+  border-left: 3px solid color-mix(in srgb, #e5b95f 70%, transparent);
+}
+
+.on-this-day summary {
+  cursor: pointer;
+  color: #d9dfdc;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.on-this-day-years {
+  display: grid;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.on-this-day h3 {
+  margin: 0 0 4px;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.on-this-day-open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #e5b95f;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.on-this-day ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
+
+.on-this-day li {
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.on-this-day .on-this-day-attachments,
+.on-this-day .on-this-day-activity {
+  color: #aeb8b8;
+}
+
 .family-time-panel {
   max-width: 76rem;
   margin: 0 0 36px;
@@ -1970,6 +2026,23 @@ legend {
 }
 
 .app-shell[data-calendar-theme="light"] .whats-left span {
+  color: #4f625b;
+}
+
+.app-shell[data-calendar-theme="light"] .on-this-day {
+  border-left-color: rgba(161, 111, 20, 0.6);
+}
+
+.app-shell[data-calendar-theme="light"] .on-this-day summary {
+  color: #1d2a36;
+}
+
+.app-shell[data-calendar-theme="light"] .on-this-day-open {
+  color: #8a5f0a;
+}
+
+.app-shell[data-calendar-theme="light"] .on-this-day .on-this-day-attachments,
+.app-shell[data-calendar-theme="light"] .on-this-day .on-this-day-activity {
   color: #4f625b;
 }
 
