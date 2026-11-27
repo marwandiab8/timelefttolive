@@ -626,6 +626,115 @@ legend {
   background: #141b20;
 }
 
+/* Things to do before it's too late. */
+.things-to-do {
+  max-width: 44rem;
+  margin: 0 0 36px;
+  padding: 2px 0 2px 18px;
+  border-left: 3px solid color-mix(in srgb, #c98bdb 70%, transparent);
+}
+
+.things-to-do-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px 24px;
+}
+
+.things-to-do-head h2 {
+  margin: 0 0 4px;
+  font-family: var(--display);
+  font-size: 1.45rem;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.things-to-do p {
+  margin: 0;
+}
+
+.things-to-do-label {
+  margin: 0 0 4px;
+  color: #e5b95f;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.plans-next-week {
+  margin-top: 12px !important;
+  font-weight: 700;
+}
+
+.plan-list {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 12px 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  color: var(--card-text);
+}
+
+.plan-list li > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 14rem;
+}
+
+.plan-list strong {
+  overflow-wrap: anywhere;
+}
+
+.plan-meta,
+.plan-notes {
+  color: var(--card-muted);
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+
+.plan-chances {
+  color: var(--card-accent);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.plan-chances.late {
+  color: var(--danger-text);
+}
+
+.plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.plans-done {
+  margin-top: 14px;
+}
+
+.plans-done summary {
+  cursor: pointer;
+  color: #aeb8b8;
+  font-size: 0.9rem;
+}
+
+.plan-dialog {
+  background: #141b20;
+}
+
 .height-notes-move {
   display: grid;
   gap: 10px;
@@ -1884,11 +1993,21 @@ legend {
   border-left-color: rgba(31, 120, 86, 0.6);
 }
 
-.app-shell[data-calendar-theme="light"] .weekly-review-label {
+.app-shell[data-calendar-theme="light"] .weekly-review-label,
+.app-shell[data-calendar-theme="light"] .things-to-do-label {
   color: #8a5f0a;
 }
 
+.app-shell[data-calendar-theme="light"] .things-to-do {
+  border-left-color: rgba(122, 63, 140, 0.55);
+}
+
+.app-shell[data-calendar-theme="light"] .plans-done summary {
+  color: #4f625b;
+}
+
 .app-shell[data-calendar-theme="light"] .measurements-dialog,
+.app-shell[data-calendar-theme="light"] .plan-dialog,
 .app-shell[data-calendar-theme="light"] .weekly-review-dialog {
   background: #ffffff;
 }

@@ -4,6 +4,7 @@ import { formatDateId, getAge, parseDateId } from '../utils/dateUtils.js';
 import { getChildAhead, getNextBirthday } from '../utils/whatsLeft.js';
 import { describeMilestone, getChildMilestones, getFamilyMilestones } from '../utils/childMilestones.js';
 import { heightRowsFromDetails, planHeightNoteMove } from '../utils/childMeasurements.js';
+import { sortPlans } from '../utils/thingsToDo.js';
 import { GrowthChart, describeHeights } from './ChildMeasurements.jsx';
 
 const number = (value) => Number(value).toLocaleString();
@@ -81,7 +82,7 @@ export function detailsWithoutMigratedHeights(child, measurements = []) {
   return (child.details || []).filter((detail) => !migrated.has(detail.id));
 }
 
-export default function FamilyTimePanel({ calendar, today, canEdit, onEdit, measurements = [], onOpenMeasurements = null }) {
+export default function FamilyTimePanel({ calendar, today, canEdit, onEdit, measurements = [], onOpenMeasurements = null, plans = [] }) {
   const now = parseDateId(today);
   const stats = getCustodyStats(calendar, now);
   const status = describeCustodyStatus(stats?.status);
@@ -112,6 +113,7 @@ export default function FamilyTimePanel({ calendar, today, canEdit, onEdit, meas
           const childMeasurements = measurements.filter((item) => item.childId === child.id);
           const heights = describeHeights(childMeasurements);
           const details = detailsWithoutMigratedHeights(source, childMeasurements).filter((detail) => detail.label || detail.value);
+          const together = sortPlans(plans, calendar).open.filter((plan) => (plan.who || []).includes(child.id));
           return (
           <li className="kid-card" key={child.id}>
             <h3>{child.name}</h3>
@@ -130,6 +132,9 @@ export default function FamilyTimePanel({ calendar, today, canEdit, onEdit, meas
               </p>
             )}
             {next && <p className="kid-next"><span>Next</span> {describeMilestone(next, { withName: false })}</p>}
+            {together.length > 0 && (
+              <p className="kid-next"><span>To do together</span> {together.slice(0, 3).map((plan) => plan.title).join(', ')}{together.length > 3 ? ` and ${together.length - 3} more` : ''}</p>
+            )}
             {heights && (
               <div className="kid-growth">
                 <p className="kid-growth-head"><span>Height</span>{heights.latest && <strong>{heights.latest}</strong>}</p>
