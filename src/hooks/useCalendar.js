@@ -592,3 +592,36 @@ export function removeChildDetails(calendarId, children, childId, detailIds) {
     updatedAt: serverTimestamp()
   });
 }
+
+/** Things to do before it's too late (see utils/thingsToDo.js). A viewer gets only the ones shared with viewers. */
+export function usePlans(calendarId, role) {
+  const [plans, setPlans] = useState([]);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!calendarId) {
+      setPlans([]);
+      return undefined;
+    }
+    const plansRef = collection(db, 'lifeCalendars', calendarId, 'plans');
+    const plansQuery = role === 'owner' ? plansRef : query(plansRef, where('visibility', '==', 'viewers'));
+    return onSnapshot(plansQuery, (snapshot) => {
+      setError('');
+      setPlans(snapshot.docs.map((planDoc) => ({ id: planDoc.id, ...planDoc.data() })));
+    }, (err) => setError(err.message));
+  }, [calendarId, role]);
+
+  return { plans, error };
+}
+
+/** Saves a plan from buildPlan: a new one when `planId` is empty. */
+export function savePlan(calendarId, planId, plan) {
+  if (planId) {
+    return setDoc(doc(db, 'lifeCalendars', calendarId, 'plans', planId), { ...plan, updatedAt: serverTimestamp() }, { merge: true });
+  }
+  return addDoc(collection(db, 'lifeCalendars', calendarId, 'plans'), { ...plan, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+}
+
+export function deletePlan(calendarId, planId) {
+  return deleteDoc(doc(db, 'lifeCalendars', calendarId, 'plans', planId));
+}

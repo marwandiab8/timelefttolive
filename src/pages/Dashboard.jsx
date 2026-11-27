@@ -16,8 +16,9 @@ import WeekDetailPanel from '../components/WeekDetailPanel.jsx';
 import WhatsLeft from '../components/WhatsLeft.jsx';
 import { WeeklyReviewCard, WeeklyReviewDialog } from '../components/WeeklyReview.jsx';
 import { MeasurementsDialog } from '../components/ChildMeasurements.jsx';
+import ThingsToDo, { PlanDialog } from '../components/ThingsToDo.jsx';
 import { useAuth } from '../hooks/useAuth.jsx';
-import { acceptViewerInvite, useEvents, useOwnedCalendar, useSharedCalendar, useViewerInvites, useViewers, useWeeklyReviews, useWrittenDates, useChildMeasurements } from '../hooks/useCalendar.js';
+import { acceptViewerInvite, useEvents, useOwnedCalendar, useSharedCalendar, useViewerInvites, useViewers, useWeeklyReviews, useWrittenDates, useChildMeasurements, usePlans } from '../hooks/useCalendar.js';
 import { logOut } from '../services/firebase.js';
 import { useCurrentDay } from '../hooks/useCurrentDay.js';
 import { formatDateId, getLifeStats, getTodayCalendarView, parseDateId, sameCalendarView, withOngoingEvents } from '../utils/dateUtils.js';
@@ -69,6 +70,9 @@ export default function Dashboard() {
   const [reviewWeek, setReviewWeek] = useState(null);
   const measurementState = useChildMeasurements(calendar?.id, role);
   const [measuringChildId, setMeasuringChildId] = useState(null);
+  const planState = usePlans(calendar?.id, role);
+  // The plan being edited: null when closed, {} for a new one.
+  const [editingPlan, setEditingPlan] = useState(null);
   const [storedLivedMode, setStoredLivedMode] = useState(readStoredLivedMode);
   const livedMode = normalizeLivedMode(storedLivedMode, { hasCustody: Boolean(calendar?.custodySchedule?.enabled && calendar?.custodySchedule?.nextStartDate) });
   const writtenState = useWrittenDates(calendar?.id, role, livedMode !== 'events');
@@ -96,7 +100,7 @@ export default function Dashboard() {
   const heatmapRef = useRef(null);
   const viewScrollPositions = useRef({ activity: { left: 0, top: 0 }, calendar: { left: 0, top: 0 } });
   const stats = useMemo(() => calendar ? getLifeStats(calendar.birthDate, calendar.targetAge, parseDateId(currentDay)) : null, [calendar, currentDay]);
-  const dataError = owned.error || inviteState.error || shared.error || eventState.error || viewerState.error || reviewState.error || writtenState.error || measurementState.error;
+  const dataError = owned.error || inviteState.error || shared.error || eventState.error || viewerState.error || reviewState.error || writtenState.error || measurementState.error || planState.error;
   const pendingInvite = invites.find((invite) => invite.status === 'pending');
   // Moving between the calendar's levels is a step in the browser's history, so Back (the browser's, or a phone's
   // swipe) goes up the way you came and Forward down again. Each step remembers where you were on it: the week you
@@ -358,8 +362,17 @@ export default function Dashboard() {
           onEdit={() => setEditingProfile(true)}
           measurements={measurementState.measurements}
           onOpenMeasurements={role === 'owner' ? setMeasuringChildId : null}
+          plans={planState.plans}
         />
       )}
+      <ThingsToDo
+        calendar={calendar}
+        plans={planState.plans}
+        today={currentDay}
+        canEdit={role === 'owner'}
+        onAdd={() => setEditingPlan({})}
+        onEdit={setEditingPlan}
+      />
       {dataError && <p className="error">{dataError}</p>}
       <CalendarBreadcrumbs items={breadcrumbs} />
 
@@ -425,6 +438,9 @@ export default function Dashboard() {
           measurements={measurementState.measurements}
           onClose={() => setMeasuringChildId(null)}
         />
+      )}
+      {editingPlan && (
+        <PlanDialog key={editingPlan.id || 'new'} calendar={calendar} plan={editingPlan.id ? editingPlan : null} today={currentDay} onClose={() => setEditingPlan(null)} />
       )}
       {reviewWeek && (
         <WeeklyReviewDialog key={reviewWeek.start} calendar={calendar} week={reviewWeek} reviews={reviewState.reviews} onClose={() => setReviewWeek(null)} />
