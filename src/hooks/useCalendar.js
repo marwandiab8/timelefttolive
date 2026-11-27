@@ -651,3 +651,41 @@ export function savePlan(calendarId, planId, plan) {
 export function deletePlan(calendarId, planId) {
   return deleteDoc(doc(db, 'lifeCalendars', calendarId, 'plans', planId));
 }
+
+/** The Sunday digest's switches and last send (owner only; see docs/weekly-digest.md). */
+export function useDigestSettings(calendarId) {
+  const [settings, setSettings] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!calendarId) {
+      setSettings(null);
+      return undefined;
+    }
+    return onSnapshot(doc(db, 'lifeCalendars', calendarId, 'digestSettings', 'owner'), (snapshot) => {
+      setError('');
+      setSettings(snapshot.exists() ? snapshot.data() : {});
+    }, (err) => setError(err.message));
+  }, [calendarId]);
+
+  return { settings, error };
+}
+
+/** Devices that get the digest notification (owner only). */
+export function usePushDevices(calendarId) {
+  const [devices, setDevices] = useState([]);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!calendarId) {
+      setDevices([]);
+      return undefined;
+    }
+    return onSnapshot(collection(db, 'lifeCalendars', calendarId, 'pushTokens'), (snapshot) => {
+      setError('');
+      setDevices(snapshot.docs.map((deviceDoc) => ({ id: deviceDoc.id, platform: deviceDoc.data().platform || 'Browser', createdAt: deviceDoc.data().createdAt || null })));
+    }, (err) => setError(err.message));
+  }, [calendarId]);
+
+  return { devices, error };
+}

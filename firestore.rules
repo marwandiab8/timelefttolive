@@ -169,6 +169,32 @@ service cloud.firestore {
           && request.resource.data.visibility in ["ownerOnly", "viewers"];
       }
 
+      // The Sunday digest's switches (docs/weekly-digest.md). Owner only; viewers never see it. The owner sets the
+      // switches; the send results (lastSentWeekEnd, lastResult, lastTestAt...) are written by the functions.
+      match /digestSettings/{settingsId} {
+        allow read: if isOwner(calendarId);
+        allow create, update: if isOwner(calendarId)
+          && settingsId == "owner"
+          && request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys().hasOnly(["enabled", "push", "email", "updatedAt"])
+          && request.resource.data.enabled is bool
+          && request.resource.data.push is bool
+          && request.resource.data.email is bool;
+        allow delete: if false;
+      }
+
+      // Devices that get the digest notification. Owner only; the token is the device's, the id a hash of it.
+      match /pushTokens/{tokenId} {
+        allow read, delete: if isOwner(calendarId);
+        allow create, update: if isOwner(calendarId)
+          && request.resource.data.keys().hasOnly(["token", "uid", "platform", "createdAt"])
+          && request.resource.data.token is string
+          && request.resource.data.token.size() > 0
+          && request.resource.data.token.size() <= 4096
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.platform is string
+          && request.resource.data.platform.size() <= 200;
+      }
+
       match /dailyEntries/{dateId} {
         allow read: if isOwner(calendarId) || (isAcceptedViewer(calendarId) && isViewerVisible());
         allow write: if isOwner(calendarId);

@@ -80,7 +80,7 @@ Each one has a one-tap fix that uses the existing edit, delete and restore calla
 - **Search (M):** across day notes, events, reviews, plans and measurements. All of it is small and owner-readable, so it runs in the browser with no new index. GridlineAI journal text lives in another project and is out of scope at first.
 - **Year in review (M):** a printable page per life year: ratings, best weeks, time with the boys, items done, totals.
 
-### 8. A weekly message (M), only after item 1 has run for a few weeks
+### 8. A weekly message (M), only after item 1 has run for a few weeks — done on `feat/weekly-digest`, both channels (chosen 2026-11-27), see `docs/weekly-digest.md`. It covers the Monday-to-Sunday week rather than the life-calendar square, because the square doesn't end on Sunday
 The review card already does most of what a digest would do, but only when you open the app. A digest needs a channel, which is your decision:
 - **Email**, with a new dependency and a secret, for example an SMTP app password in Secret Manager.
 - **Web push** to the installed app. It works on iOS 16.4+ home-screen apps and needs FCM plus a service worker.

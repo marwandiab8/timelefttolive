@@ -16,6 +16,7 @@ import ViewerManager from '../components/ViewerManager.jsx';
 import WeekDetailPanel from '../components/WeekDetailPanel.jsx';
 import WhatsLeft from '../components/WhatsLeft.jsx';
 import { WeeklyReviewCard, WeeklyReviewDialog } from '../components/WeeklyReview.jsx';
+import WeeklyDigestPage from '../components/WeeklyDigest.jsx';
 import { MeasurementsDialog } from '../components/ChildMeasurements.jsx';
 import ThingsToDo, { PlanDialog } from '../components/ThingsToDo.jsx';
 import { useAuth } from '../hooks/useAuth.jsx';
@@ -92,6 +93,8 @@ export default function Dashboard() {
   const [primaryView, setPrimaryView] = useState(viewFromLocation);
   // Quick capture (#capture), opened from the home-screen shortcut.
   const [capturing, setCapturing] = useState(() => window.location.hash === '#capture');
+  // The Sunday digest (#digest), opened from its notification, its email or the review card.
+  const [digestOpen, setDigestOpen] = useState(() => window.location.hash === '#digest');
   const [activityMounted, setActivityMounted] = useState(() => viewFromLocation() === 'activity');
   const [selectedWeek, setSelectedWeek] = useState(null);
   // The calendar's level (life, age, month, week, day) is kept in the browser's history entry, so a reload stays put.
@@ -290,7 +293,10 @@ export default function Dashboard() {
   }, [calendarView.view, primaryView]);
 
   useEffect(() => {
-    const onHash = () => setCapturing(window.location.hash === '#capture');
+    const onHash = () => {
+      setCapturing(window.location.hash === '#capture');
+      setDigestOpen(window.location.hash === '#digest');
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -303,9 +309,25 @@ export default function Dashboard() {
         calendar={calendar}
         today={currentDay}
         uid={user.uid}
+        theme={calendarTheme}
         onDone={() => {
           window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
           setCapturing(false);
+        }}
+      />
+    );
+  }
+
+  if (digestOpen && calendar && role === 'owner') {
+    return (
+      <WeeklyDigestPage
+        calendar={calendar}
+        uid={user.uid}
+        email={user.email || ''}
+        theme={calendarTheme}
+        onDone={() => {
+          window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
+          setDigestOpen(false);
         }}
       />
     );

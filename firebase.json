@@ -1,6 +1,7 @@
 {
   "functions": {
-    "source": "functions"
+    "source": "functions",
+    "predeploy": ["node scripts/copy-functions-shared.mjs"]
   },
   "firestore": {
     "rules": "firestore.rules",
