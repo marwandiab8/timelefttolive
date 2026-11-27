@@ -157,6 +157,18 @@ service cloud.firestore {
             || (request.resource.data.valueMm is int && request.resource.data.valueMm > 0 && request.resource.data.valueMm < 3000));
       }
 
+      // Things to do before it's too late, for you or with the kids. Owner-only unless the owner shares one.
+      match /plans/{planId} {
+        allow read: if isOwner(calendarId) || (isAcceptedViewer(calendarId) && isViewerVisible());
+        allow delete: if isOwner(calendarId);
+        allow create, update: if isOwner(calendarId)
+          && request.resource.data.title is string
+          && request.resource.data.title.size() > 0
+          && request.resource.data.title.size() <= 200
+          && request.resource.data.who is list
+          && request.resource.data.visibility in ["ownerOnly", "viewers"];
+      }
+
       match /dailyEntries/{dateId} {
         allow read: if isOwner(calendarId) || (isAcceptedViewer(calendarId) && isViewerVisible());
         allow write: if isOwner(calendarId);

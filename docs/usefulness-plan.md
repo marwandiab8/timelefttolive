@@ -51,7 +51,7 @@ The life calendar gets a "Colour lived weeks by" control: **Events** (today's vi
   Each milestone gets its date, whose week it falls in, and a countdown ("David can get his G1 in 31 weeks, in your week"). There's a "Coming up" line on each card and a combined timeline under the panel.
 - **Measurements (M).** A dated history per child (height first; weight, shoe size and marks later) with a hand-drawn SVG growth line and the change since last time, for example "+1 1/2" since Feb 2025". Imperial input with fractions is parsed and stored in millimetres, with the original text kept. A value that doesn't parse cleanly is stored as written and flagged, which is how `5' 10 9/8"` will show. A migration script copies the 14 "Height, <date>" rows across, dry run by default with `--apply` and `--confirm-project`. It only removes the old detail rows once you say so, and you see the dry-run output first.
 
-### 4. Things to do before it's too late: plans and bucket list as one list (M)
+### 4. Things to do before it's too late: plans and bucket list as one list (M) — done on `feat/things-to-do`
 The brief has these as two features (item 3's per-child list and item 5's bucket list). The code says they're one thing: an item with a title and an optional who (you, or any of the boys). Its deadline is one of:
 - before an age (yours, or a boy's 18th);
 - a season (this summer, this Christmas);
