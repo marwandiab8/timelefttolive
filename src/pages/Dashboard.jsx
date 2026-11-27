@@ -17,6 +17,7 @@ import WeekDetailPanel from '../components/WeekDetailPanel.jsx';
 import WhatsLeft from '../components/WhatsLeft.jsx';
 import OnThisDay from '../components/OnThisDay.jsx';
 import SearchDialog from '../components/Search.jsx';
+import YearInReview from '../components/YearInReview.jsx';
 import { WeeklyReviewCard, WeeklyReviewDialog } from '../components/WeeklyReview.jsx';
 import WeeklyDigestPage from '../components/WeeklyDigest.jsx';
 import { MeasurementsDialog } from '../components/ChildMeasurements.jsx';
@@ -161,7 +162,10 @@ export default function Dashboard() {
       heatmapRef.current?.scrollToCurrentWeek();
       return;
     }
-    const target = getTodayCalendarView(calendar.birthDate, calendar.targetAge, calendarView.view, parseDateId(currentDay));
+    // From a year in review, Today is this year's review.
+    const level = calendarView.view === 'yearReview' ? 'year' : calendarView.view;
+    const found = getTodayCalendarView(calendar.birthDate, calendar.targetAge, level, parseDateId(currentDay));
+    const target = found && calendarView.view === 'yearReview' ? { view: 'yearReview', age: found.age } : found;
     if (target && !sameCalendarView(target, calendarView)) {
       navigateCalendar(target);
       return;
@@ -411,7 +415,7 @@ export default function Dashboard() {
           onBack={showCalendar}
         />
       )}
-      <main className="app-shell" data-calendar-theme={calendarTheme} hidden={primaryView !== 'calendar'} style={calendarColorVariables(calendar.settings)}>
+      <main className="app-shell" data-calendar-theme={calendarTheme} data-calendar-view={calendarView.view} hidden={primaryView !== 'calendar'} style={calendarColorVariables(calendar.settings)}>
       <header className="topbar">
         <div className="calendar-heading">
           <p className="calendar-role brand-row"><BrandLogo size={28} />{role === 'owner' ? 'Owner dashboard' : 'Read-only viewer'}</p>
@@ -498,6 +502,23 @@ export default function Dashboard() {
         <YearDetailView calendar={calendar} age={calendarView.age} events={events} role={role} onNavigate={navigateCalendar} />
       )}
 
+      {calendarView.view === 'yearReview' && (
+        <YearInReview
+          calendar={calendar}
+          age={calendarView.age}
+          today={currentDay}
+          role={role}
+          events={eventState.events}
+          reviews={reviewState.reviews}
+          plans={planState.plans}
+          measurements={measurementState.measurements}
+          onOpenWeek={(weekStart) => {
+            const week = getTodayCalendarView(calendar.birthDate, calendar.targetAge, 'week', parseDateId(weekStart));
+            if (week) navigateCalendar(week);
+          }}
+        />
+      )}
+
       {calendarView.view === 'month' && (
         <MonthDetailView calendar={calendar} age={calendarView.age} monthId={calendarView.monthId} events={events} role={role} onNavigate={navigateCalendar} />
       )}
@@ -572,6 +593,7 @@ function getBreadcrumbs(view, navigate) {
   if (view.monthId) items.push({ label: view.monthId, onClick: () => navigate({ view: 'month', age: view.age, monthId: view.monthId }) });
   if (view.weekStart) items.push({ label: `Week of ${view.weekStart}`, onClick: () => navigate({ view: 'week', age: view.age, monthId: view.monthId, weekStart: view.weekStart, weekEnd: view.weekEnd }) });
   if (view.dateId) items.push({ label: view.dateId, onClick: null });
+  if (view.view === 'yearReview') items.push({ label: 'Year in review', onClick: null });
   return items;
 }
 
