@@ -14,6 +14,7 @@ const withoutTime = (line) => line.replace(/^\d{1,2}:\d{2}\s?[AP]M:\s*/i, '').tr
 const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`;
 const longDate = (dateId) => parseDateId(dateId).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 const shortDate = (dateId) => parseDateId(dateId).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+const longDateNoWeekday = (dateId) => parseDateId(dateId).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
 /**
  * The same day 1, 2, 5 and 10 years ago, as YYYY-MM-DD. A Feb 29 falls back to Feb 28 in a year without one (rather
@@ -37,16 +38,21 @@ export function noteLines(entry) {
   return text.split('\n').map(withoutTime).filter(Boolean);
 }
 
+// "Aug 25", or "Aug 25, 2016" when it isn't in the year of the day being looked back on.
+const dateInYear = (dateId, dayId) => (dateId.slice(0, 4) === dayId.slice(0, 4) ? shortDate(dateId) : longDateNoWeekday(dateId));
+
 /**
- * Calendar events on that day. An ongoing or every-day event (where you lived, a job) would be on every day, so it is
- * only named on the day it started.
+ * Calendar events on that day: { kind, text }. One that starts that day is an 'event'; one that was already under way
+ * is a 'period' ("With Allison, Aug 25, 2016 to Oct 19, 2017"), which says what life was like rather than what
+ * happened. An ongoing or every-day event (where you lived, a job) would be on every day, so it is only named on the
+ * day it started.
  */
 export function eventsOnDay(events, dateId) {
   return getEventsForDate(Array.isArray(events) ? events : [], dateId)
     .filter((event) => event.startDate === dateId || !(event.ongoing || event.everyDay))
     .map((event) => {
-      if (event.startDate === dateId) return event.endDate && event.endDate !== dateId ? `${event.title} began` : event.title;
-      return `${event.title} (${shortDate(event.startDate)} to ${shortDate(event.endDate)})`;
+      if (event.startDate === dateId) return { kind: 'event', text: event.endDate && event.endDate !== dateId ? `${event.title} began` : event.title };
+      return { kind: 'period', text: `${event.title}, ${dateInYear(event.startDate, dateId)} to ${dateInYear(event.endDate, dateId)}` };
     });
 }
 
@@ -76,7 +82,7 @@ export function describeActivity(categories = []) {
 
 /**
  * What happened on this day in earlier years. Each year with something in it gets a group, most recent first:
- * { yearsAgo, dateId, heading, items: [{ kind, text }] }. Kinds: note, event, attachments, review, activity.
+ * { yearsAgo, dateId, heading, items: [{ kind, text }] }. Kinds: note, event, period, attachments, review, activity.
  *
  * `entries` and `attachments` are keyed by date, `reviews` by life-week start, and `activity` by date, holding that
  * day's categories from buildPeriodAnalysis. Whatever the reader can't see simply isn't passed in.
@@ -87,7 +93,7 @@ export function buildOnThisDay({ todayId, birthDate = '', events = [], entries =
       const items = [];
       const notes = noteLines(entries[dateId]);
       notes.forEach((line) => items.push({ kind: 'note', text: clip(line) }));
-      eventsOnDay(events, dateId).forEach((text) => items.push({ kind: 'event', text }));
+      items.push(...eventsOnDay(events, dateId));
       const saved = describeAttachments(attachments[dateId] || []);
       if (saved) items.push({ kind: 'attachments', text: saved });
       const week = birthDate ? lifeWeekFor(birthDate, dateId) : null;
@@ -106,7 +112,8 @@ export function buildOnThisDay({ todayId, birthDate = '', events = [], entries =
 }
 
 // What reads best on its own in one line: something written or a named event before a count of photos or hours.
-const HEADLINE_ORDER = ['note', 'event', 'review', 'attachments', 'activity'];
+// A period that was simply under way comes last.
+const HEADLINE_ORDER = ['note', 'event', 'review', 'attachments', 'activity', 'period'];
 
 /** The one line on the calendar: "On this day 1 year ago: Playing darts with David", plus how many more years. */
 export function onThisDayHeadline(groups = []) {

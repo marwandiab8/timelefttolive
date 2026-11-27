@@ -528,7 +528,8 @@ legend {
 }
 
 .on-this-day .on-this-day-attachments,
-.on-this-day .on-this-day-activity {
+.on-this-day .on-this-day-activity,
+.on-this-day .on-this-day-period {
   color: #aeb8b8;
 }
 
@@ -2042,7 +2043,8 @@ legend {
 }
 
 .app-shell[data-calendar-theme="light"] .on-this-day .on-this-day-attachments,
-.app-shell[data-calendar-theme="light"] .on-this-day .on-this-day-activity {
+.app-shell[data-calendar-theme="light"] .on-this-day .on-this-day-activity,
+.app-shell[data-calendar-theme="light"] .on-this-day .on-this-day-period {
   color: #4f625b;
 }
 
