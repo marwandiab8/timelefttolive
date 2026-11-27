@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { AddActivityDialog, NeedsAttention } from './TrackingHealth.jsx';
 import BrandLogo from './BrandLogo.jsx';
 import { saveActivityTargets, useAllLifeEvents, useActivityJournalDetails, useConnectedSources, useLifeEvents } from '../hooks/useCalendar.js';
 import { loadAuthorizedActivityImage } from '../services/activityJournal.js';
@@ -117,6 +118,8 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
     readPreference('activityDashboardTheme') === 'light' ? 'light' : 'dark'
   ));
   const [managedEntry, setManagedEntry] = useState(null);
+  // Adding an activity by hand: null when closed, else { dateId } (empty for "the last hour").
+  const [addingActivity, setAddingActivity] = useState(null);
   const [managementMessage, setManagementMessage] = useState('');
   const [managementError, setManagementError] = useState('');
   const [layout, setLayout] = useState(() => (readPreference(LAYOUT_KEY) === 'clock' ? 'clock' : 'share'));
@@ -407,6 +410,7 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
           <button className={mode === 'totals' ? 'selected' : ''} type="button" onClick={() => chooseMode('totals')}>My totals</button>
         </nav>
         <div className="cycle-header-actions">
+          <button className="cycle-text-button" type="button" onClick={() => setAddingActivity({ dateId: '' })}>Add an activity</button>
           <button className="cycle-text-button" type="button" onClick={toggleTheme}>{theme === 'dark' ? 'Light' : 'Dark'}</button>
           <PrimaryViewSwitcher currentView="activity" onCalendar={onBack} />
         </div>
@@ -468,11 +472,33 @@ export default function ActivityDashboard({ active = true, calendar, onBack }) {
         />
       )}
 
+      {mode === 'wheel' && !currentState.loading && (
+        <NeedsAttention
+          analysis={analysis}
+          bounds={bounds}
+          now={now}
+          onOpenDay={(day) => { setPeriod('day'); setDateId(day); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+          onEditSession={setManagedEntry}
+          onAdd={(day) => setAddingActivity({ dateId: day })}
+        />
+      )}
       <details className="cycle-technical">
         <summary>Tracking status</summary>
         <p>{sourceState.connections.filter((connection) => connection.status === 'active').length} active connected sources. Technical delivery details are kept out of the reflection view.</p>
       </details>
       <RecentlyDeleted calendarId={calendar?.id} onRestored={() => setManagementMessage('Activity restored. It is back on the timeline and in the totals.')} />
+      {addingActivity && (
+        <AddActivityDialog
+          calendarId={calendar.id}
+          dateId={addingActivity.dateId}
+          onCancel={() => setAddingActivity(null)}
+          onAdded={() => {
+            setAddingActivity(null);
+            setManagementMessage('Activity added. It is on the timeline and in the totals.');
+            window.setTimeout(() => setManagementMessage(''), 3500);
+          }}
+        />
+      )}
       {managedEntry && <ActivityEntryDialog entry={managedEntry} onCancel={() => setManagedEntry(null)} onDelete={() => removeManagedEntry(managedEntry)} onSave={saveManagedEntry} />}
     </main>
   );

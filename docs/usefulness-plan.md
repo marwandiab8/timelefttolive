@@ -51,7 +51,7 @@ The life calendar gets a "Colour lived weeks by" control: **Events** (today's vi
   Each milestone gets its date, whose week it falls in, and a countdown ("David can get his G1 in 31 weeks, in your week"). There's a "Coming up" line on each card and a combined timeline under the panel.
 - **Measurements (M).** A dated history per child (height first; weight, shoe size and marks later) with a hand-drawn SVG growth line and the change since last time, for example "+1 1/2" since Feb 2025". Imperial input with fractions is parsed and stored in millimetres, with the original text kept. A value that doesn't parse cleanly is stored as written and flagged, which is how `5' 10 9/8"` will show. A migration script copies the 14 "Height, <date>" rows across, dry run by default with `--apply` and `--confirm-project`. It only removes the old detail rows once you say so, and you see the dry-run output first.
 
-### 4. Things to do before it's too late: plans and bucket list as one list (M)
+### 4. Things to do before it's too late: plans and bucket list as one list (M) — done on `feat/things-to-do`
 The brief has these as two features (item 3's per-child list and item 5's bucket list). The code says they're one thing: an item with a title and an optional who (you, or any of the boys). Its deadline is one of:
 - before an age (yours, or a boy's 18th);
 - a season (this summer, this Christmas);
@@ -60,7 +60,7 @@ The brief has these as two features (item 3's per-child list and item 5's bucket
 
 It can optionally be placed in one of your custody weeks. Each item shows its chances left, computed by functions that already exist: "3 summers left before Joseph turns 18", "9 of your weeks before then". It appears in three places: on each kid card (their items), in the Still ahead section (yours), and on the weekly review card ("next week is yours with the boys: 2 plans for it"). Done items stay as a record and can go in a week's review.
 
-### 5. Tracking health and manual entry (M)
+### 5. Tracking health and manual entry (M) — done on `feat/tracking-health`. The "four Sleep rows" were overlapping reports of the same night (up to eleven a night in Nov 2026), now counted and shown once. "This is fine" is remembered per device in `localStorage`, not in an `activityGapNotes` collection: it hides a reminder, nothing else depends on it
 First, a read-only look at the day with four Sleep rows, to tell nesting from duplicates and fix the pairing if it's wrong. Then a **Needs attention** list in the Activity view that collects:
 - missing finishes;
 - incomplete visits;

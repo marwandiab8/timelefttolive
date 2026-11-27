@@ -97,6 +97,15 @@ export function buildDemoLifeEvents(today) {
     const bedtime = torontoTime(dayId(today, offset - 1), 22 + (offset % 2), 40);
     const wake = torontoTime(date, 6, 15 + ((offset * 7) % 30));
     events.push(night(`night-${date}`, bedtime, wake));
+    // Two nights ago arrived three times, with later bedtimes and less sleep (the tracking-health list shows it).
+    if (offset === -2) {
+      events.push(night(`night-${date}-again-1`, new Date(bedtime.getTime() + 75 * 60000), wake));
+      events.push(night(`night-${date}-again-2`, new Date(bedtime.getTime() + 150 * 60000), wake));
+    }
+    // Five days ago a drive started and never finished.
+    if (offset === -5) {
+      events.push(lifeEvent(`drive-${date}`, { eventType: 'start_drive', eventClass: 'activity_boundary', title: 'Started driving', occurredAt: torontoTime(date, 18, 40) }));
+    }
     if (offset === 0) continue;
     if (weekday >= 1 && weekday <= 5) {
       events.push(...visit(`work-${date}`, 'Site office', 'work', torontoTime(date, 7, 30), torontoTime(date, 16, 10)));
@@ -199,6 +208,20 @@ export function buildDemoReviews(today) {
   return reviews;
 }
 
+// A few things to do before it's too late, one planned for the next week with the kids and one already done.
+export function buildDemoPlans(today) {
+  const year = today.getFullYear();
+  const plan = (id, fields) => ({ id, data: { notes: '', plannedWeekStart: '', doneOn: '', visibility: 'ownerOnly', createdAt: Timestamp.now(), updatedAt: Timestamp.now(), ...fields } });
+  const sunday = dayId(today, 14 - today.getDay()); // the start of the next week with the kids, two weeks after this one
+  return [
+    plan('plan-leafs', { title: 'Take the boys to a Leafs game', who: ['child-alex', 'child-ben', 'child-charlie', 'child-drew'], deadline: { kind: 'season', season: 'christmas', year }, plannedWeekStart: sunday }),
+    plan('plan-drive', { title: 'Teach Alex to drive stick', who: ['child-alex'], deadline: { kind: 'age', personId: 'child-alex', age: 18 } }),
+    plan('plan-cottage', { title: 'A week at a cottage, all five of us', who: ['me', 'child-alex', 'child-ben', 'child-charlie', 'child-drew'], deadline: { kind: 'season', season: 'summer', year: year + 1 }, visibility: 'viewers' }),
+    plan('plan-iceland', { title: 'See the northern lights in Iceland', who: ['me'], deadline: { kind: 'age', personId: 'me', age: 50 } }),
+    plan('plan-hike', { title: 'Hike a stretch of the Bruce Trail', who: ['me', 'child-charlie'], deadline: null, doneOn: dayId(today, -10) })
+  ];
+}
+
 async function upsertUser(auth, uid, email, password, displayName) {
   try {
     await auth.getUser(uid);
@@ -235,6 +258,7 @@ async function main() {
     ...buildDemoDailyEntries(today).map(({ id, data }) => calendarRef.collection('dailyEntries').doc(id).set(data)),
     ...buildDemoLifeEvents(today).map(({ id, data }) => calendarRef.collection('lifeEvents').doc(id).set(data)),
     ...buildDemoReviews(today).map(({ id, data }) => calendarRef.collection('weeklyReviews').doc(id).set(data)),
+    ...buildDemoPlans(today).map(({ id, data }) => calendarRef.collection('plans').doc(id).set(data)),
     calendarRef.collection('viewers').doc(DEMO_VIEWER_EMAIL).set({
       uid: 'demo-viewer', email: DEMO_VIEWER_EMAIL, role: 'viewer', status: 'accepted', invitedAt: Timestamp.now(), acceptedAt: Timestamp.now()
     })

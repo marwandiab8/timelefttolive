@@ -241,6 +241,73 @@ describe('activity analysis utilities', () => {
     expect(applyActivityEventPrecedence([night('early', '2026-10-11T07:59:57Z', 4.16), night('full', '2026-10-11T11:58:49Z', 8.03)]).events.map((event) => event.id)).toEqual(['full']);
   });
 
+  it('counts one night once when it arrived as many overlapping reports with different bedtimes', () => {
+    // Nov 24, 2026 as it arrived: eleven reports of the same night, nearly all ending at 2:56 AM.
+    const report = (id, startAt, endAt, hours) => ({
+      id, sourceRecordId: id, sourceApp: 'gridlineai', eventType: 'sleep_session', eventClass: 'activity_boundary', activityFamily: 'sleep', categoryId: 'sleep',
+      title: 'Slept', occurredAt: startAt, startAt, endAt, metrics: { totalSleepHours: hours }
+    });
+    const reports = [
+      report('a', '2026-11-24T04:53:00Z', '2026-11-24T07:56:00Z', 2.12),
+      report('b', '2026-11-24T04:02:00Z', '2026-11-24T07:56:00Z', 2.97),
+      report('c', '2026-11-24T04:21:00Z', '2026-11-24T07:56:00Z', 2.65),
+      report('d', '2026-11-24T02:24:00Z', '2026-11-24T07:56:00Z', 4.42),
+      report('e', '2026-11-24T02:04:00Z', '2026-11-24T07:45:00Z', 0),
+      report('f', '2026-11-24T03:40:00Z', '2026-11-24T07:56:00Z', 3.27),
+      report('g', '2026-11-24T02:10:00Z', '2026-11-24T07:25:00Z', 5.17),
+      report('h', '2026-11-24T05:29:00Z', '2026-11-24T07:56:00Z', 2.12),
+      report('i', '2026-11-24T05:53:00Z', '2026-11-24T07:56:00Z', 1.72),
+      report('j', '2026-11-24T06:10:00Z', '2026-11-24T07:56:00Z', 1.45),
+      report('k', '2026-11-24T06:34:00Z', '2026-11-24T07:56:00Z', 1.3)
+    ];
+    const precedence = applyActivityEventPrecedence(reports);
+    // The 9:04 PM report has 5h 41m in bed but no measured sleep, so the 9:10 PM report with 5.17 h counts.
+    expect(precedence.events.map((event) => event.id)).toEqual(['g']);
+    const analysis = buildPeriodAnalysis(reports, getPeriodBounds('day', '2026-11-24'), { now: new Date('2026-11-25T12:00:00Z') });
+    const sleep = analysis.categories.find((category) => category.label === 'Sleep');
+    expect(sleep.sessions).toHaveLength(1);
+    expect(Math.round(sleep.seconds / 60)).toBe(310);
+  });
+
+  it('keeps the measured report of a night with the same wake time and later bedtimes (Nov 26, 2026)', () => {
+    const report = (id, startAt, endAt, hours) => ({
+      id, sourceRecordId: id, sourceApp: 'gridlineai', eventType: 'sleep_session', eventClass: 'activity_boundary', activityFamily: 'sleep', categoryId: 'sleep',
+      title: 'Slept', occurredAt: startAt, startAt, endAt, metrics: { totalSleepHours: hours }
+    });
+    const precedence = applyActivityEventPrecedence([
+      report('early', '2026-11-26T03:32:00Z', '2026-11-26T09:00:00Z', 4.9),
+      report('full', '2026-11-26T03:36:00Z', '2026-11-26T10:51:00Z', 6.44),
+      report('late1', '2026-11-26T05:07:00Z', '2026-11-26T10:51:00Z', 4.1),
+      report('late2', '2026-11-26T05:58:00Z', '2026-11-26T10:51:00Z', 3.6),
+      report('late3', '2026-11-26T06:27:00Z', '2026-11-26T10:51:00Z', 3.2)
+    ]);
+    expect(precedence.events.map((event) => event.id)).toEqual(['full']);
+  });
+
+  it('only merges overlapping sleep reports from the same app', () => {
+    const report = (id, sourceApp, startAt, endAt) => ({
+      id, sourceRecordId: id, sourceApp, eventType: 'sleep_session', eventClass: 'activity_boundary', activityFamily: 'sleep', categoryId: 'sleep',
+      title: 'Slept', occurredAt: startAt, startAt, endAt, metrics: { totalSleepHours: 6 }
+    });
+    const precedence = applyActivityEventPrecedence([
+      report('health', 'gridlineai', '2026-11-24T03:00:00Z', '2026-11-24T10:00:00Z'),
+      report('other', 'otherapp', '2026-11-24T04:00:00Z', '2026-11-24T10:00:00Z')
+    ]);
+    expect(precedence.events.map((event) => event.id).sort()).toEqual(['health', 'other']);
+  });
+
+  it('keeps a nap and the night apart when they do not overlap', () => {
+    const report = (id, startAt, endAt) => ({
+      id, sourceRecordId: id, sourceApp: 'gridlineai', eventType: 'sleep_session', eventClass: 'activity_boundary', activityFamily: 'sleep', categoryId: 'sleep',
+      title: 'Slept', occurredAt: startAt, startAt, endAt
+    });
+    const precedence = applyActivityEventPrecedence([
+      report('night', '2026-11-24T03:00:00Z', '2026-11-24T11:00:00Z'),
+      report('nap', '2026-11-24T19:00:00Z', '2026-11-24T20:00:00Z')
+    ]);
+    expect(precedence.events.map((event) => event.id)).toEqual(['night', 'nap']);
+  });
+
   it('keeps an untimed darts practice off the wheel instead of treating it as still running', () => {
     const bounds = getPeriodBounds('day', '2026-09-27');
     const analysis = buildPeriodAnalysis([

@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const admin = require('firebase-admin');
-const { editActivityEntry, deleteActivityEntry, restoreActivityEntry } = require('./activityEntries');
+const { editActivityEntry, deleteActivityEntry, restoreActivityEntry, createActivityEntry } = require('./activityEntries');
 
 function fakeDb(seed) {
   const store = new Map(Object.entries(seed));
@@ -200,4 +200,43 @@ test('paired boundary edits update the linked departure timestamp', async () => 
     startAt: '2026-08-31T06:00:00Z', endAt: '2026-08-31T08:51:00Z', linkedEndAt: '2026-08-31T08:51:00Z'
   });
   assert.equal(db.store.get('lifeCalendars/cal-1/lifeEvents/event-2').occurredAt.toDate().toISOString(), '2026-08-31T08:51:00.000Z');
+});
+
+test('the owner can add an activity by hand, shaped like any other life event', async () => {
+  const db = fakeDb({ 'lifeCalendars/cal-1': { ownerUid: 'owner-1' } });
+  const result = await createActivityEntry(db, 'owner-1', {
+    calendarId: 'cal-1', category: 'Reading', startAt: '2026-11-25T02:00:00Z', endAt: '2026-11-25T02:45:00Z', note: ' Dune '
+  }, { now: new Date('2026-11-26T12:00:00Z'), newId: () => 'abc' });
+  assert.deepEqual(result, { ok: true, eventId: 'manual_abc' });
+  const event = db.store.get('lifeCalendars/cal-1/lifeEvents/manual_abc');
+  assert.equal(event.sourceApp, 'manual');
+  assert.equal(event.activityFamily, 'reading');
+  assert.equal(event.eventClass, 'completed_activity');
+  assert.equal(event.title, 'Reading');
+  assert.equal(event.durationSeconds, 2700);
+  assert.equal(event.privacyLevel, 'ownerOnly');
+  assert.equal(event.metadata.note, 'Dune');
+  assert.equal(event.startAt.toDate().toISOString(), '2026-11-25T02:00:00.000Z');
+});
+
+test('a hand-added "Other" activity keeps its own name', async () => {
+  const db = fakeDb({ 'lifeCalendars/cal-1': { ownerUid: 'owner-1' } });
+  await createActivityEntry(db, 'owner-1', { calendarId: 'cal-1', category: 'Other', name: 'Hockey', startAt: '2026-11-25T23:00:00Z', endAt: '2026-11-26T00:30:00Z' }, { now: new Date('2026-11-26T12:00:00Z'), newId: () => 'h' });
+  const event = db.store.get('lifeCalendars/cal-1/lifeEvents/manual_h');
+  assert.equal(event.activityFamily, 'hockey');
+  assert.equal(event.title, 'Hockey');
+});
+
+test('adding by hand checks the owner, the kind and the times', async () => {
+  const db = fakeDb({ 'lifeCalendars/cal-1': { ownerUid: 'owner-1' } });
+  const now = { now: new Date('2026-11-26T12:00:00Z') };
+  const good = { calendarId: 'cal-1', category: 'Work', startAt: '2026-11-25T13:00:00Z', endAt: '2026-11-25T21:00:00Z' };
+  await assert.rejects(() => createActivityEntry(db, 'someone-else', good, now), { code: 'permission-denied' });
+  await assert.rejects(() => createActivityEntry(db, 'owner-1', { ...good, category: 'Nonsense' }, now), { code: 'invalid-argument' });
+  await assert.rejects(() => createActivityEntry(db, 'owner-1', { ...good, category: 'Other' }, now), { code: 'invalid-argument' });
+  await assert.rejects(() => createActivityEntry(db, 'owner-1', { ...good, endAt: good.startAt }, now), { code: 'invalid-argument' });
+  await assert.rejects(() => createActivityEntry(db, 'owner-1', { ...good, endAt: '2026-11-27T13:00:00Z' }, now), { code: 'invalid-argument' });
+  await assert.rejects(() => createActivityEntry(db, 'owner-1', { ...good, startAt: '2026-11-27T13:00:00Z', endAt: '2026-11-27T14:00:00Z' }, now), { code: 'invalid-argument' });
+  await assert.rejects(() => createActivityEntry(db, 'owner-1', { ...good, endAt: null }, now), { code: 'invalid-argument' });
+  assert.equal([...db.store.keys()].some((key) => key.includes('lifeEvents')), false);
 });

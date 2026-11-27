@@ -108,6 +108,8 @@ The order matters. For example a title containing "gym" is Gym/Fitness even if t
 
 Generic CarPlay-style `arrive_location` / `leave_location` records are observations, not duration boundaries. `applyActivityEventPrecedence` hides a generic arrival when a specific arrival (Gym, Home, Work...) for an equivalent place occurs within 10 minutes, and attaches its location text to the specific event as display enrichment. Generic location events with no usable place name are hidden. Events with `excludeFromActivity: true` or a journal marked as a Shortcut "shadow" are excluded.
 
+Sleep: a night sent twice with the same bedtime counts once, as the latest-ending report. Since 2026-11-26, sleep reports that **overlap** from the same app count once too: a report with measured sleep (`totalSleepHours` > 0) beats one with only time in bed, then the most sleep wins, then the latest end; the others are suppressed with reason `overlapping_sleep_report`. The trigger was real data: in November 2026 nights arrived as strings of reports with different bedtimes (on Nov 24, eleven, from 9:04 PM to 1:34 AM, nearly all ending at 2:56 AM), and the day's timeline listed every one as its own "↳ Sleep" row. Reports that don't overlap (a nap and the night) stay apart. On Nov 24 that keeps 9:10 PM to 2:25 AM, 5.17 h: the 9:04 PM report had more time in bed but no measured sleep. GridlineAI keys a night as `sleep:<sleepStart>`, so every new bedtime arrives as a new record; the extra records stay in Firestore (deleting one would tombstone it).
+
 ### 3. Sessions
 
 `buildActivitySessions` produces four kinds of session:
@@ -149,7 +151,7 @@ The wheel, "tracked time" and totals use allocated seconds. The timeline and mom
 - **Boundaries before the range** still pair with departures inside it and are clipped to the range boundary.
 - **Gym/Fitness** counts gym visits, not the workouts nested within them, unless there are no visits.
 
-## Callable functions: edit and delete
+## Callable functions: add, edit and delete
 
 Both are Firebase callable functions (v2) in region `northamerica-northeast1`, exported from `functions/index.js`, implemented in `functions/src/activityEntries.js` and wrapped for the browser in `src/services/activityEntries.js`. They run in Firestore transactions using the Admin SDK, which is the only way `lifeEvents` can be changed, since the rules deny all client writes.
 
@@ -159,6 +161,10 @@ Common behaviour:
 - The caller must be the `ownerUid` of the calendar, otherwise `permission-denied`.
 - Errors thrown by the implementation carry a `code` (`invalid-argument`, `not-found`, `permission-denied`) which is passed through to the client as the `HttpsError` code.
 - Every field is validated server-side; the client dialog is not trusted.
+
+### `createActivityEntry`
+
+Adds an activity by hand: `{ calendarId, category, name?, title?, note?, startAt, endAt }`. `category` is one of Sleep, Work, Home, Gym/Fitness, Reading, Meals, Transportation, Darts, Music, or Other with a `name`; it becomes the `activityFamily` that `getTallyActivityLabel` already sorts into that slice (`MANUAL_FAMILIES`). The end must be after the start, the whole at most 36 hours, and the start not in the future. The event is written with id `manual_<uuid>`, `sourceApp: "manual"`, `eventType: "manual_activity"`, `eventClass: "completed_activity"`, `durationSeconds`, `privacyLevel: "ownerOnly"` and `metadata.manual: true`, so the wheel, the totals, edit, delete and restore treat it like any other. It is not part of the ingestion API and changes nothing there.
 
 ### `editActivityEntry`
 
@@ -198,6 +204,10 @@ In one transaction, for each event being deleted, it:
 2. deletes `lifeEvents/{id}`.
 
 The document id of a life event is its idempotency key, so the tombstone has the same id. When the source app re-sends a deleted event, `upsertLifeEventRecord` finds the tombstone and answers with status `deleted` and `duplicate: true` without recreating it. Deletion is therefore permanent and survives replays and backfills. There is no undo in the app; to bring an entry back, remove the tombstone document by hand and re-ingest it.
+
+### Needs attention and Add an activity
+
+Under the wheel, **Needs attention** (`src/components/TrackingHealth.jsx`, logic in `src/utils/trackingHealth.js`) lists the gaps in the period on screen, newest first: sessions missing an end (**Fix the times** opens the edit dialog on the event that has one), finished days with under half of their 24 hours tracked, measured the way the day view measures them, for periods of up to a month (**Add what's missing** opens Add an activity on that day), and nights that arrived more than once (information only). Each has **Open the day** and **This is fine**, which hides it on that device (`localStorage` key `activityIssuesDismissed`). **Add an activity** in the header calls `createActivityEntry`.
 
 ### The edit dialog
 
