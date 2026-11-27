@@ -533,6 +533,89 @@ legend {
   color: #aeb8b8;
 }
 
+/* Search: a dialog near the top of the screen, so the results have room under the box. */
+.search-backdrop {
+  place-items: start center;
+  padding-top: max(20px, 8vh);
+}
+
+.search-dialog {
+  width: min(680px, 100%);
+  background: #141b20;
+}
+
+/* Kept on one line on a phone too, so the results start higher. */
+.search-dialog .panel-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.search-dialog .panel-header h2 {
+  margin: 0;
+}
+
+.search-input {
+  width: 100%;
+  font-size: 1.05rem;
+}
+
+.search-hint,
+.search-count {
+  margin: 14px 0 0;
+  font-size: 0.9rem;
+}
+
+.search-results {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.search-result {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  font: inherit;
+  color: var(--card-text);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+button.search-result {
+  cursor: pointer;
+}
+
+button.search-result:hover,
+button.search-result:focus-visible {
+  border-color: var(--card-accent);
+}
+
+.search-kind {
+  color: var(--card-accent);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.search-snippet {
+  color: var(--card-muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.search-result mark {
+  padding: 0 1px;
+  color: inherit;
+  background: rgba(229, 185, 95, 0.3);
+  border-radius: 2px;
+}
+
 .family-time-panel {
   max-width: 76rem;
   margin: 0 0 36px;
@@ -2046,6 +2129,14 @@ legend {
 .app-shell[data-calendar-theme="light"] .on-this-day .on-this-day-activity,
 .app-shell[data-calendar-theme="light"] .on-this-day .on-this-day-period {
   color: #4f625b;
+}
+
+.app-shell[data-calendar-theme="light"] .search-dialog {
+  background: #ffffff;
+}
+
+.app-shell[data-calendar-theme="light"] .search-result mark {
+  background: rgba(244, 197, 66, 0.45);
 }
 
 .app-shell[data-calendar-theme="light"] .lived-mode,
