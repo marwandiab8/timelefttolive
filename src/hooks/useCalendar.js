@@ -585,6 +585,37 @@ export function useWrittenDates(calendarId, role, enabled = true) {
   return { dates, error };
 }
 
+/**
+ * Every day's entry (notes and journal text), for search. Only subscribed while search is open; a viewer gets only
+ * the days shared with viewers.
+ */
+export function useDailyEntries(calendarId, role, enabled = true) {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(Boolean(calendarId && enabled));
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!calendarId || !enabled) {
+      setEntries([]);
+      setLoading(false);
+      return undefined;
+    }
+    setLoading(true);
+    const entriesRef = collection(db, 'lifeCalendars', calendarId, 'dailyEntries');
+    const entriesQuery = role === 'owner' ? entriesRef : query(entriesRef, where('visibility', '==', 'viewers'));
+    return onSnapshot(entriesQuery, (snapshot) => {
+      setError('');
+      setEntries(snapshot.docs.map((entryDoc) => ({ id: entryDoc.id, ...entryDoc.data() })));
+      setLoading(false);
+    }, (err) => {
+      setError(err.message);
+      setLoading(false);
+    });
+  }, [calendarId, enabled, role]);
+
+  return { entries, loading, error };
+}
+
 /** The children's measurements (see utils/childMeasurements.js). A viewer gets only the ones shared with viewers. */
 export function useChildMeasurements(calendarId, role) {
   const [measurements, setMeasurements] = useState([]);

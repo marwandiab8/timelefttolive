@@ -16,6 +16,7 @@ import ViewerManager from '../components/ViewerManager.jsx';
 import WeekDetailPanel from '../components/WeekDetailPanel.jsx';
 import WhatsLeft from '../components/WhatsLeft.jsx';
 import OnThisDay from '../components/OnThisDay.jsx';
+import SearchDialog from '../components/Search.jsx';
 import { WeeklyReviewCard, WeeklyReviewDialog } from '../components/WeeklyReview.jsx';
 import WeeklyDigestPage from '../components/WeeklyDigest.jsx';
 import { MeasurementsDialog } from '../components/ChildMeasurements.jsx';
@@ -91,6 +92,7 @@ export default function Dashboard() {
   const [showEvents, setShowEvents] = useState(false);
   const [showSources, setShowSources] = useState(false);
   const [showViewers, setShowViewers] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [primaryView, setPrimaryView] = useState(viewFromLocation);
   // Quick capture (#capture), opened from the home-screen shortcut.
   const [capturing, setCapturing] = useState(() => window.location.hash === '#capture');
@@ -125,6 +127,32 @@ export default function Dashboard() {
     setCalendarView(next);
   }, [calendarView]);
   const breadcrumbs = getBreadcrumbs(calendarView, navigateCalendar);
+
+  // Where a search result leads: the day it's on, the week a review is of, or (for the owner) the plan or the child's
+  // heights. Null when there's nowhere to go, such as a day outside the calendar's years.
+  function searchTarget(result) {
+    if (!calendar) return null;
+    if (role === 'owner' && result.kind === 'plan') {
+      const plan = planState.plans.find((item) => item.id === result.ref.planId);
+      return plan ? { plan } : null;
+    }
+    if (role === 'owner' && result.kind === 'measurement' && calendar.children?.some((child) => child.id === result.ref.childId)) {
+      return { childId: result.ref.childId };
+    }
+    const dateId = result.ref.weekStart || result.ref.dateId || result.dateId;
+    if (!dateId) return null;
+    const view = getTodayCalendarView(calendar.birthDate, calendar.targetAge, result.ref.weekStart ? 'week' : 'day', parseDateId(dateId));
+    return view ? { view } : null;
+  }
+
+  function openSearchResult(result) {
+    const target = searchTarget(result);
+    if (!target) return;
+    setSearching(false);
+    if (target.plan) setEditingPlan(target.plan);
+    else if (target.childId) setMeasuringChildId(target.childId);
+    else navigateCalendar(target.view);
+  }
 
   // Today goes to today at the level you're on: this week in the life calendar, else this year, month, week or day.
   // When you're already there, it shows it.
@@ -293,6 +321,20 @@ export default function Dashboard() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [calendarView.view, primaryView]);
 
+  // "/" opens search, as on most sites, unless you're typing somewhere or a dialog is open.
+  useEffect(() => {
+    function handleSlash(event) {
+      if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey || primaryView !== 'calendar') return;
+      const target = event.target;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.isContentEditable) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      event.preventDefault();
+      setSearching(true);
+    }
+    window.addEventListener('keydown', handleSlash);
+    return () => window.removeEventListener('keydown', handleSlash);
+  }, [primaryView]);
+
   useEffect(() => {
     const onHash = () => {
       setCapturing(window.location.hash === '#capture');
@@ -384,6 +426,7 @@ export default function Dashboard() {
         <div className="actions calendar-actions">
           {pendingInvite && <button className="secondary" type="button" onClick={() => acceptViewerInvite(pendingInvite.calendarId, pendingInvite.id, user.uid)}>Accept invite</button>}
           <button className="secondary" type="button" onClick={goToToday}>Today</button>
+          <button className="secondary" type="button" onClick={() => setSearching(true)} aria-keyshortcuts="/">Search</button>
           {role === 'owner' && <button className="primary" type="button" onClick={() => setShowEvents(true)}>Add event</button>}
           <button className="quiet-button theme-toggle" type="button" aria-pressed={calendarTheme === 'light'} onClick={toggleCalendarBackground}>
             {calendarTheme === 'dark' ? 'Light background' : 'Dark background'}
@@ -501,6 +544,19 @@ export default function Dashboard() {
       )}
       {reviewWeek && (
         <WeeklyReviewDialog key={reviewWeek.start} calendar={calendar} week={reviewWeek} reviews={reviewState.reviews} onClose={() => setReviewWeek(null)} />
+      )}
+      {searching && (
+        <SearchDialog
+          calendar={calendar}
+          role={role}
+          events={eventState.events}
+          reviews={reviewState.reviews}
+          plans={planState.plans}
+          measurements={measurementState.measurements}
+          canOpen={(result) => Boolean(searchTarget(result))}
+          onOpen={openSearchResult}
+          onClose={() => setSearching(false)}
+        />
       )}
       {showEvents && <EventManager calendar={calendar} events={events} role={role} onClose={() => setShowEvents(false)} />}
       {showSources && <ExternalSourcesManager calendarId={calendar.id} onClose={() => setShowSources(false)} />}
