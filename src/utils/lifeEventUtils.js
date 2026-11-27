@@ -724,34 +724,52 @@ export function applyActivityEventPrecedence(events, options = {}) {
 
   // One night, reported many times: a night can also arrive as a string of reports with different bedtimes
   // that overlap (on Nov 24, 2026, eleven reports from 9:04 PM to 1:34 AM, nearly all ending at 2:56 AM).
-  // Sleep reports that overlap are the same sleep, so only the one with the most recorded sleep counts
-  // (the latest-ending one on a tie), and the rest are kept out of the totals and the timeline.
+  // Sleep reports from the same app that overlap are the same sleep, so only one counts and the rest are kept
+  // out of the totals and the timeline: a report with measured sleep beats one that only has time in bed (on
+  // Nov 24 the 9:04 PM report had no sleep hours), then the most sleep wins, then the latest end.
   const sleepReports = ordered
     .filter((event) => !suppressed.has(event) && cleanToken(event?.eventType) === 'sleep_session')
     .map((event) => ({ event, start: toJsDate(event?.startAt), end: toJsDate(event?.endAt) }))
     .filter((report) => report.start && report.end && report.end > report.start)
     .sort((left, right) => left.start - right.start);
+  const measured = (report) => {
+    const hours = Number(report.event?.metrics?.totalSleepHours);
+    return Number.isFinite(hours) && hours > 0 ? 1 : 0;
+  };
   const recordedSleep = (report) => getSleepTotalSeconds(report.event, report.start, report.end);
-  let cluster = [];
-  let clusterEnd = null;
-  const settleCluster = () => {
+  const better = (report, best) => (
+    measured(report) !== measured(best) ? measured(report) > measured(best)
+      : recordedSleep(report) !== recordedSleep(best) ? recordedSleep(report) > recordedSleep(best)
+        : report.end > best.end
+  );
+  const settle = (cluster) => {
     if (cluster.length > 1) {
-      const kept = cluster.reduce((best, report) => (
-        recordedSleep(report) > recordedSleep(best) || (recordedSleep(report) === recordedSleep(best) && report.end > best.end) ? report : best
-      ));
+      const kept = cluster.reduce((best, report) => (better(report, best) ? report : best));
       cluster.filter((report) => report !== kept).forEach((report) => {
         suppressed.set(report.event, { reason: 'overlapping_sleep_report', authoritativeEvent: kept.event });
       });
     }
-    cluster = [];
-    clusterEnd = null;
   };
+  const reportsByApp = new Map();
   sleepReports.forEach((report) => {
-    if (clusterEnd && report.start >= clusterEnd) settleCluster();
-    cluster.push(report);
-    clusterEnd = clusterEnd && clusterEnd > report.end ? clusterEnd : report.end;
+    const app = cleanToken(report.event?.sourceApp);
+    if (!reportsByApp.has(app)) reportsByApp.set(app, []);
+    reportsByApp.get(app).push(report);
   });
-  settleCluster();
+  reportsByApp.forEach((reports) => {
+    let cluster = [];
+    let clusterEnd = null;
+    reports.forEach((report) => {
+      if (clusterEnd && report.start >= clusterEnd) {
+        settle(cluster);
+        cluster = [];
+        clusterEnd = null;
+      }
+      cluster.push(report);
+      clusterEnd = clusterEnd && clusterEnd > report.end ? clusterEnd : report.end;
+    });
+    settle(cluster);
+  });
 
   const effectiveEvents = ordered
     .filter((event) => !suppressed.has(event))
