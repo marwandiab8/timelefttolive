@@ -20,6 +20,8 @@ const {
 } = require("./src/activityJournal");
 const { editActivityEntry, deleteActivityEntry, restoreActivityEntry, createActivityEntry } = require("./src/activityEntries");
 const { syncCalendarEventLifeEvents, carryOngoingCalendarEvents } = require("./src/calendarLifeEvents");
+const { defineSecret } = require("firebase-functions/params");
+const { runWeeklyDigests, handleDigestCall } = require("./src/weeklyDigest");
 
 admin.initializeApp();
 
@@ -163,4 +165,50 @@ exports.carryOngoingCalendarEvents = onSchedule({
 }, async () => {
   const totals = await carryOngoingCalendarEvents(admin.firestore());
   logger.info("Ongoing calendar events carried to today", totals);
+});
+
+// The Sunday digest (docs/weekly-digest.md): a notification to the home-screen app and an email, each only if the owner
+// turned it on in the app. The email goes through a Gmail account whose address and app password are Secret Manager
+// secrets (firebase functions:secrets:set DIGEST_SMTP_USER / DIGEST_SMTP_PASSWORD); they are never in the repo.
+const digestSmtpUser = defineSecret("DIGEST_SMTP_USER");
+const digestSmtpPassword = defineSecret("DIGEST_SMTP_PASSWORD");
+
+let digestTransport;
+function digestMailer() {
+  const user = digestSmtpUser.value();
+  const pass = digestSmtpPassword.value();
+  if (!user || !pass) return null;
+  if (!digestTransport) {
+    const nodemailer = require("nodemailer");
+    digestTransport = nodemailer.createTransport({ service: "gmail", auth: { user, pass } });
+  }
+  return (message) => digestTransport.sendMail({ from: `"Time Left To Live" <${user}>`, ...message });
+}
+
+const digestServices = () => ({
+  db: admin.firestore(),
+  auth: admin.auth(),
+  messaging: admin.messaging(),
+  sendMail: digestMailer()
+});
+
+exports.sendWeeklyDigests = onSchedule({
+  schedule: "0 19 * * 0",
+  timeZone: "America/Toronto",
+  region,
+  timeoutSeconds: 300,
+  memory: "512MiB",
+  secrets: [digestSmtpUser, digestSmtpPassword]
+}, async () => {
+  const totals = await runWeeklyDigests(digestServices());
+  logger.info("Weekly digests", totals);
+});
+
+exports.weeklyDigest = onCall({ region, secrets: [digestSmtpUser, digestSmtpPassword], memory: "512MiB" }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in to see the digest.");
+  try {
+    return await handleDigestCall({ ...digestServices(), uid: request.auth.uid, data: request.data || {} });
+  } catch (error) {
+    throw new HttpsError(error.code || "internal", error.message || "The digest is unavailable.");
+  }
 });

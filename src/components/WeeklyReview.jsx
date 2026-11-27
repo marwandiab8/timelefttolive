@@ -106,6 +106,7 @@ export function WeeklyReviewCard({ calendar, today, reviews, onOpen }) {
         ) : (
           card.week && <button className="quiet-button" type="button" onClick={() => onOpen(card.week)}>Edit the review</button>
         )}
+        <a className="quiet-button" href="#digest">Sunday digest</a>
       </div>
     </section>
   );

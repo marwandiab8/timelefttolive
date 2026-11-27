@@ -1,9 +1,5 @@
-import { connectFunctionsEmulator, getFunctions, httpsCallable } from 'firebase/functions';
-import { app } from './firebase.js';
-
-const functions = app ? getFunctions(app, 'northamerica-northeast1') : null;
-// Local checks only (npm run dev:emulators): the callables run in the Functions emulator.
-if (functions && import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true') connectFunctionsEmulator(functions, '127.0.0.1', 5001);
+import { httpsCallable } from 'firebase/functions';
+import { functions } from './functions.js';
 
 /** Adds an activity by hand (functions/src/activityEntries.js, createActivityEntry). */
 export function createActivityEntry(data) {

@@ -8,7 +8,7 @@ import { parseDateId } from '../utils/dateUtils.js';
  * Quick capture (#capture, and the home-screen shortcut): a line for today and a photo, in two taps. Both are private
  * unless shared. Owner only.
  */
-export default function QuickCapture({ calendar, today, uid, onDone }) {
+export default function QuickCapture({ calendar, today, uid, theme, onDone }) {
   const [text, setText] = useState('');
   const [share, setShare] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -48,7 +48,7 @@ export default function QuickCapture({ calendar, today, uid, onDone }) {
   };
 
   return (
-    <main className="app-shell quick-capture">
+    <main className="app-shell quick-capture" data-calendar-theme={theme}>
       <header className="topbar">
         <div>
           <p className="eyebrow brand-row"><BrandLogo size={28} />Time Left To Live</p>

@@ -3713,3 +3713,68 @@ legend {
   list-style: none;
   color: var(--card-muted, #aeb8b8);
 }
+
+/* Sunday digest (#digest): this week's digest as it goes out, and the switches for sending it. */
+.digest-page {
+  max-width: 40rem;
+}
+
+.digest-section {
+  margin: 0 0 32px;
+}
+
+.digest-section h2 {
+  margin: 0 0 10px;
+}
+
+.digest-preview ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.digest-preview li {
+  margin: 4px 0;
+}
+
+.digest-preview h3 {
+  margin: 20px 0 6px;
+  font-size: 1rem;
+}
+
+.digest-preview blockquote {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 6px 0 6px 14px;
+  border-left: 3px solid color-mix(in srgb, #d99a2b 70%, transparent);
+}
+
+.digest-push-line {
+  margin-top: 18px;
+  font-size: 0.9rem;
+}
+
+.digest-devices {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 4px 28px;
+  padding: 0;
+  list-style: none;
+}
+
+.digest-devices li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.digest-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.digest-actions > * {
+  min-height: 48px;
+}
