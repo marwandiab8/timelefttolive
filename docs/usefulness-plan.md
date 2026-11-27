@@ -76,7 +76,7 @@ Each one has a one-tap fix that uses the existing edit, delete and restore calla
 - **No service worker yet:** a stale cached bundle after a deploy is a real risk with Firebase Hosting, and install doesn't need one on iOS. It comes with item 8 if push is chosen.
 
 ### 7. On this day, search, year in review (S + M + M)
-- **On this day (S):** what happened 1, 2, 5 and 10 years ago today, from events, day notes, attachments and, where they exist, weekly reviews and activity sessions. It shows as one line on the calendar and expands.
+- **On this day (S):** what happened 1, 2, 5 and 10 years ago today, from events, day notes, attachments and, where they exist, weekly reviews and activity sessions. It shows as one line on the calendar and expands. Done on `feat/on-this-day`: the line sits under Still ahead, each year's date opens that day, and GridlineAI journal text is left out, as for search.
 - **Search (M):** across day notes, events, reviews, plans and measurements. All of it is small and owner-readable, so it runs in the browser with no new index. GridlineAI journal text lives in another project and is out of scope at first.
 - **Year in review (M):** a printable page per life year: ratings, best weeks, time with the boys, items done, totals.
 

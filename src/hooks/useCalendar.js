@@ -22,6 +22,7 @@ import { addYears, formatDateId } from '../utils/dateUtils.js';
 import { normalizeChild } from '../utils/childInfo.js';
 import { defaultCustodySchedule } from '../utils/custodyUtils.js';
 import { loadActivityJournalDetails } from '../services/activityJournal.js';
+import { getLocalDayBounds } from '../utils/lifeEventUtils.js';
 
 const defaultSettings = {
   pastColor: '#46505c',
@@ -192,6 +193,40 @@ export function useLifeEvents(calendarId, startDate, endDate, enabled = true) {
   }, [calendarId, enabled, startTime, endTime]);
 
   return { lifeEvents, loading, error };
+}
+
+/**
+ * The activity events around a few separate days (Toronto days), keyed by date: { '2025-11-27': [...] }; clip them to the
+ * day with buildPeriodAnalysis. Used by "On this
+ * day", which wants single days years apart, where one range query would load everything in between. Owner only.
+ */
+export function useLifeEventsOnDays(calendarId, dateIds, enabled = true) {
+  const [byDay, setByDay] = useState({});
+  const [error, setError] = useState('');
+  const key = useMemo(() => dateIds.join('|'), [dateIds]);
+
+  useEffect(() => {
+    setByDay({});
+    setError('');
+    if (!calendarId || !enabled || dateIds.length === 0) return undefined;
+    const unsubscribers = dateIds.map((dateId) => {
+      const bounds = getLocalDayBounds(dateId);
+      // From noon the day before, so a night's sleep that began the evening before is counted on the day it ran into.
+      const dayQuery = query(
+        collection(db, 'lifeCalendars', calendarId, 'lifeEvents'),
+        where('occurredAt', '>=', Timestamp.fromMillis(bounds.start.getTime() - 12 * 3600 * 1000)),
+        where('occurredAt', '<', Timestamp.fromDate(bounds.end)),
+        orderBy('occurredAt', 'asc')
+      );
+      return onSnapshot(dayQuery, (snapshot) => {
+        setError('');
+        setByDay((current) => ({ ...current, [dateId]: snapshot.docs.map((eventDoc) => ({ id: eventDoc.id, ...eventDoc.data() })) }));
+      }, (err) => setError(err.message));
+    });
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [calendarId, enabled, key]);
+
+  return { byDay, error };
 }
 
 export function useAllLifeEvents(calendarId, enabled = true) {
