@@ -69,7 +69,7 @@ First, a read-only look at the day with four Sleep rows, to tell nesting from du
 
 Each one has a one-tap fix that uses the existing edit, delete and restore callables, or "this is fine", which hides it. A new `createActivityEntry` callable (owner only) adds a session by hand with `sourceApp: "manual"`. That's additive: the ingestion API and the existing fields are untouched, and the tombstone and recycle-bin rules apply as they do now.
 
-### 6. Install on the phone and quick capture (S + S)
+### 6. Install on the phone and quick capture (S + S) — done on `feat/phone-capture`, plus `no-cache` on the page and `immutable` on the hashed bundles (the review found phones could run the previous build for up to an hour after a deploy)
 - **Install (S):** a web app manifest, the iOS standalone meta tags and a theme colour, using the brand icons already in `public/brand`.
 - **Quick capture (S):** a `#capture` view that opens straight to today with a text box and a photo button, plus a manifest shortcut to it.
 - **Defaults:** quick capture writes owner-only, and the day panel's default changes from `viewers` to `ownerOnly`, so sharing becomes a choice and not the default. Existing entries keep whatever they are now.

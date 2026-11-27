@@ -3669,3 +3669,47 @@ legend {
   margin: 0 auto 14px;
   padding: 3px;
 }
+
+/* Quick capture (#capture): a line or a photo for today, sized for a phone. */
+.quick-capture {
+  max-width: 40rem;
+}
+
+.quick-capture-form textarea {
+  min-height: 8rem;
+  font-size: 1.05rem;
+}
+
+.quick-capture-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.quick-capture-actions > * {
+  flex: 1 1 10rem;
+  min-height: 48px;
+}
+
+.quick-capture-photo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.quick-capture-photo input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.quick-capture-saved {
+  display: grid;
+  gap: 4px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--card-muted, #aeb8b8);
+}

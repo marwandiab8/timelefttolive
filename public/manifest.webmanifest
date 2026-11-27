@@ -1,0 +1,31 @@
+{
+  "name": "Time Left To Live",
+  "short_name": "Time Left",
+  "description": "A private life calendar: the weeks you have, and what you do with them.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0d1114",
+  "theme_color": "#0d1114",
+  "icons": [
+    {
+      "src": "/brand/apple-touch-icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/brand/k2-logo-256.png",
+      "sizes": "256x256",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Quick capture",
+      "short_name": "Capture",
+      "description": "Write a line or add a photo for today",
+      "url": "/#capture"
+    }
+  ]
+}

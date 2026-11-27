@@ -10,6 +10,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   Timestamp,
@@ -448,7 +449,7 @@ export function saveDailyEntry(calendarId, dateId, payload, uid = '') {
     journalText: payload.journalText || '',
     notes: payload.notes || '',
     tags: payload.tags || [],
-    visibility: payload.visibility || 'viewers',
+    visibility: payload.visibility || 'ownerOnly',
     updatedAt: serverTimestamp(),
     updatedByUid: uid,
     createdAt: serverTimestamp()
@@ -590,6 +591,31 @@ export function removeChildDetails(calendarId, children, childId, detailIds) {
       ? { ...child, details: (child.details || []).filter((detail) => !remove.has(detail.id)) }
       : child)),
     updatedAt: serverTimestamp()
+  });
+}
+
+/**
+ * Adds a line to a day's notes without touching what is already there (quick capture). A new day's entry is
+ * owner-only unless `shareWithViewers`; an existing entry keeps its visibility.
+ */
+export function appendDailyNote(calendarId, dateId, text, { uid = '', shareWithViewers = false, now = new Date() } = {}) {
+  const line = String(text || '').trim();
+  if (!line) return Promise.resolve(false);
+  const time = now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const entryRef = doc(db, 'lifeCalendars', calendarId, 'dailyEntries', dateId);
+  return runTransaction(db, async (transaction) => {
+    const current = await transaction.get(entryRef);
+    const existing = current.exists() ? current.data() : null;
+    const notes = [existing?.notes || '', `${time}: ${line}`].filter(Boolean).join('\n');
+    transaction.set(entryRef, {
+      dateId,
+      date: dateId,
+      notes,
+      ...(existing ? {} : { journalText: '', tags: [], visibility: shareWithViewers ? 'viewers' : 'ownerOnly', createdAt: serverTimestamp() }),
+      updatedAt: serverTimestamp(),
+      updatedByUid: uid
+    }, { merge: true });
+    return true;
   });
 }
 

@@ -10,6 +10,7 @@ import LifeSummary from '../components/LifeSummary.jsx';
 import ExternalSourcesManager from '../components/ExternalSourcesManager.jsx';
 import LifeHeatmap from '../components/LifeHeatmap.jsx';
 import PrimaryViewSwitcher from '../components/PrimaryViewSwitcher.jsx';
+import QuickCapture from '../components/QuickCapture.jsx';
 import ProfileForm from '../components/ProfileForm.jsx';
 import ViewerManager from '../components/ViewerManager.jsx';
 import WeekDetailPanel from '../components/WeekDetailPanel.jsx';
@@ -89,6 +90,8 @@ export default function Dashboard() {
   const [showSources, setShowSources] = useState(false);
   const [showViewers, setShowViewers] = useState(false);
   const [primaryView, setPrimaryView] = useState(viewFromLocation);
+  // Quick capture (#capture), opened from the home-screen shortcut.
+  const [capturing, setCapturing] = useState(() => window.location.hash === '#capture');
   const [activityMounted, setActivityMounted] = useState(() => viewFromLocation() === 'activity');
   const [selectedWeek, setSelectedWeek] = useState(null);
   // The calendar's level (life, age, month, week, day) is kept in the browser's history entry, so a reload stays put.
@@ -286,7 +289,27 @@ export default function Dashboard() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [calendarView.view, primaryView]);
 
+  useEffect(() => {
+    const onHash = () => setCapturing(window.location.hash === '#capture');
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
   if (loading) return <div className="app-shell centered">Loading calendar...</div>;
+
+  if (capturing && calendar && role === 'owner') {
+    return (
+      <QuickCapture
+        calendar={calendar}
+        today={currentDay}
+        uid={user.uid}
+        onDone={() => {
+          window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
+          setCapturing(false);
+        }}
+      />
+    );
+  }
 
   if (!calendar || editingProfile) {
     return (
