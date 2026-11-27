@@ -21,7 +21,7 @@ export async function uploadDailyAttachment(calendarId, dateId, file, metadata) 
   await uploadBytes(fileRef, file, {
     contentType: file.type,
     customMetadata: {
-      visibility: metadata.visibility || 'viewers',
+      visibility: metadata.visibility || 'ownerOnly',
       dateId,
       calendarId
     }
@@ -33,7 +33,7 @@ export async function uploadDailyAttachment(calendarId, dateId, file, metadata) 
     description: metadata.description || '',
     url: '',
     storagePath,
-    visibility: metadata.visibility || 'viewers',
+    visibility: metadata.visibility || 'ownerOnly',
     createdByUid: metadata.uid || '',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
@@ -51,7 +51,7 @@ export function addLinkAttachment(calendarId, dateId, payload) {
     description: payload.description || '',
     url: payload.url.trim(),
     storagePath: '',
-    visibility: payload.visibility || 'viewers',
+    visibility: payload.visibility || 'ownerOnly',
     createdByUid: payload.uid || '',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()

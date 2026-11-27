@@ -77,14 +77,14 @@ function DayEditor({ calendarId, dateId, entry, canEdit, uid }) {
   const [journalText, setJournalText] = useState(entry?.journalText || '');
   const [notes, setNotes] = useState(entry?.notes || '');
   const [tags, setTags] = useState(entry?.tags?.join(', ') || '');
-  const [visibility, setVisibility] = useState(entry?.visibility || 'viewers');
+  const [visibility, setVisibility] = useState(entry?.visibility || 'ownerOnly');
   const [status, setStatus] = useState('');
 
   useEffect(() => {
     setJournalText(entry?.journalText || '');
     setNotes(entry?.notes || '');
     setTags(entry?.tags?.join(', ') || '');
-    setVisibility(entry?.visibility || 'viewers');
+    setVisibility(entry?.visibility || 'ownerOnly');
   }, [entry]);
 
   async function handleSave() {
@@ -131,7 +131,7 @@ function DayEditor({ calendarId, dateId, entry, canEdit, uid }) {
 
 function AttachmentManager({ calendarId, dateId, attachments, canEdit, uid }) {
   const [file, setFile] = useState(null);
-  const [visibility, setVisibility] = useState('viewers');
+  const [visibility, setVisibility] = useState('ownerOnly');
   const [link, setLink] = useState({ title: '', url: '' });
   const [external, setExternal] = useState({ sourceProjectId: '', sourceCollection: '', sourceDocumentId: '', title: '' });
   const [error, setError] = useState('');
