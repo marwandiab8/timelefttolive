@@ -1536,6 +1536,208 @@ button.search-result:focus-visible {
   margin-top: 18px;
 }
 
+/* Year in review: one page per life year, readable on screen and on paper. */
+.year-review {
+  max-width: 52rem;
+}
+
+.year-review-headline {
+  margin: 4px 0 22px;
+  font-size: 1.05rem;
+}
+
+.year-review-section {
+  margin: 0 0 26px;
+}
+
+.year-review-section h3 {
+  margin: 0 0 10px;
+  color: var(--card-accent);
+  font-size: 0.95rem;
+}
+
+.year-review-section p {
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.year-review-strip {
+  display: block;
+  width: 100%;
+  max-width: 728px;
+  height: auto;
+}
+
+.year-review-strip .lived {
+  fill: var(--life-past, #46505c);
+}
+
+.year-review-strip .ahead {
+  fill: none;
+  stroke: var(--card-border);
+  stroke-width: 1;
+}
+
+.year-review-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 8px 0 14px;
+  padding: 0;
+  list-style: none;
+  color: var(--card-muted);
+  font-size: 0.8rem;
+}
+
+.year-review-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+.year-review-legend i.lived {
+  background: var(--life-past, #46505c);
+}
+
+.year-review-ratings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+}
+
+.year-review-ratings p {
+  flex: 1 1 16rem;
+}
+
+.year-review-bars {
+  width: 300px;
+  max-width: 100%;
+  height: auto;
+}
+
+.year-review-bar-label,
+.year-review-bar-count {
+  fill: var(--card-muted);
+  font-size: 11px;
+}
+
+.year-review-list,
+.year-review-activity {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.year-review-list li {
+  display: grid;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+
+.year-review-when,
+.year-review-link {
+  color: var(--card-muted);
+  font-size: 0.85rem;
+}
+
+.year-review-link {
+  justify-self: start;
+  padding: 0;
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  background: none;
+  border: 0;
+  color: var(--card-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.year-review-activity li {
+  display: grid;
+  grid-template-columns: 12px minmax(6rem, 10rem) 5.5rem 1fr;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.year-review-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.year-review-loading {
+  margin: 18px 0 0;
+}
+
+@media (max-width: 520px) {
+  .year-review-activity li {
+    grid-template-columns: 12px 1fr auto;
+  }
+
+  .year-review-activity li .muted {
+    grid-column: 2 / -1;
+  }
+}
+
+/* Printing a year in review prints only the review, dark text on white, colours kept. */
+@media print {
+  html,
+  body {
+    background: #ffffff !important;
+  }
+
+  .app-shell[data-calendar-view="yearReview"] {
+    padding: 0;
+    color: #111111;
+  }
+
+  .app-shell[data-calendar-view="yearReview"] > :not(.year-review),
+  .year-review-print,
+  .year-review-link::after {
+    display: none !important;
+  }
+
+  .app-shell[data-calendar-view="yearReview"] .year-review {
+    --card-text: #111111;
+    --card-muted: #444444;
+    --card-accent: #6b4a06;
+    --card-border: #bbbbbb;
+    max-width: none;
+    margin: 0;
+    color: #111111;
+  }
+
+  .year-review,
+  .year-review * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .year-review-section {
+    break-inside: avoid;
+  }
+
+  .year-review :is(h2, p, li, strong, span) {
+    color: #111111 !important;
+  }
+
+  .year-review :is(.muted, .year-review-when, .year-review-legend li) {
+    color: #444444 !important;
+  }
+
+  .year-review :is(.eyebrow, h3, .year-review-link) {
+    color: #6b4a06 !important;
+  }
+}
+
 .month-grid,
 .week-card-grid,
 .day-card-grid,

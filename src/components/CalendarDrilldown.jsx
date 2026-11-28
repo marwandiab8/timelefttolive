@@ -31,6 +31,7 @@ export function YearDetailView({ calendar, age, events, role, onNavigate }) {
           <h2>Age {age}</h2>
           <p className="muted">{formatDateId(lifeYear.start)} to {formatDateId(lifeYear.end)}</p>
         </div>
+        <button className="secondary" type="button" onClick={() => onNavigate({ view: 'yearReview', age })}>Year in review</button>
       </div>
       {(entryState.error || externalState.error) && <p className="error">{entryState.error || externalState.error}</p>}
       <div className="month-grid">
